@@ -1,5 +1,5 @@
 {
-  "name": "ling",
+  "name": "ling-agent",
   "displayName": "Ling",
   "description": "A focused coding agent for VS Code with skills, diff review, and inline diagrams.",
   "version": "0.10.0",
