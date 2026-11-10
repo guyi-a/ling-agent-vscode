@@ -20,9 +20,7 @@ venv/
 # Local-only material
 comment-copilot/
 .claude/
-2027届毕业论文工作布置会议.pptx
-知网毕设系统学生操作手册.pdf
-ling-vscode/a.md
+.agents/plans/
 
 # OS / editor
 .DS_Store
