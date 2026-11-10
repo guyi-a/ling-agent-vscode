@@ -1,0 +1,29 @@
+# Node
+**/node_modules/
+**/dist/
+ling-vscode/media/webview/
+ling-vscode/*.vsix
+ling-vscode/resources/skills/
+ling-vscode/resources/sidecar/
+ling-vscode/.ling/
+
+# Python
+**/__pycache__/
+*.py[cod]
+ling/build/
+.venv/
+venv/
+
+# Ling state
+.ling/
+
+# Local-only material
+comment-copilot/
+.claude/
+2027届毕业论文工作布置会议.pptx
+知网毕设系统学生操作手册.pdf
+ling-vscode/a.md
+
+# OS / editor
+.DS_Store
+Thumbs.db

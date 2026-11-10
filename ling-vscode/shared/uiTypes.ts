@@ -1,0 +1,176 @@
+export type ApprovalMode = "manual" | "accept-write" | "auto";
+
+export type ToolAction = "Read" | "Edit" | "Run" | "Skill";
+
+export type ToolStatus =
+  | "Running"
+  | "Waiting"
+  | "Completed"
+  | "Failed"
+  | "Cancelled";
+
+export interface ToolCall {
+  id: string;
+  action: ToolAction;
+  target: string;
+  status: ToolStatus;
+  details: string[];
+}
+
+export interface ApprovalRequest {
+  id: string;
+  tool: string;
+  action: ToolAction;
+  target: string;
+  reason: string;
+  arguments?: Record<string, unknown>;
+  effectDigest: string;
+  details: string[];
+}
+
+export interface ApprovalResult {
+  id: string;
+  approvalId: string;
+  approved: boolean;
+  target: string;
+  action: ToolAction;
+}
+
+export interface QuestionOption {
+  label: string;
+  description?: string;
+}
+
+export interface AskUserQuestion {
+  id: string;
+  question: string;
+  header?: string;
+  options: QuestionOption[];
+  multiSelect?: boolean;
+}
+
+export interface QuestionRequest {
+  callId: string;
+  questions: AskUserQuestion[];
+}
+
+export interface AskUserAnswer {
+  id: string;
+  selected?: string[];
+  custom?: string;
+}
+
+export interface QueuedMessage {
+  id: string;
+  text: string;
+  attachmentCount: number;
+}
+
+export type UserSelectionKind = "editor" | "terminal" | "chat";
+
+export interface UserSelectionRef {
+  kind: UserSelectionKind;
+  label: string;
+  text: string;
+  lineCount: number;
+  path?: string;
+  startLine?: number;
+  endLine?: number;
+}
+
+export interface UserSelectionView extends UserSelectionRef {
+  id: string;
+}
+
+export interface UserSelectionSummary {
+  kind: UserSelectionKind;
+  label: string;
+  lineCount: number;
+  path?: string;
+  startLine?: number;
+  endLine?: number;
+}
+
+export interface CompactionItem {
+  id: string;
+  compactionId: string;
+  replacedCount: number;
+}
+
+export type UserAttachmentKind = "image" | "file";
+
+export interface UserAttachmentRef {
+  relativePath: string;
+  name: string;
+  mediaType: string;
+  kind?: UserAttachmentKind;
+}
+
+export interface UserAttachmentView extends UserAttachmentRef {
+  uri?: string;
+}
+
+export interface TimelineMessage {
+  id: string;
+  role: "user" | "assistant";
+  content: string;
+  streaming: boolean;
+  attachments?: UserAttachmentView[];
+  selections?: UserSelectionSummary[];
+}
+
+export type TimelineEntry =
+  | {
+      kind: "message";
+      message: TimelineMessage;
+    }
+  | {
+      kind: "tool";
+      tool: ToolCall;
+    }
+  | {
+      kind: "approval";
+      approval: ApprovalResult;
+    }
+  | {
+      kind: "compaction";
+      compaction: CompactionItem;
+    };
+
+export type RunPhase =
+  | "idle"
+  | "running"
+  | "waiting_approval"
+  | "cancelled"
+  | "failed";
+
+export interface SessionSnapshot {
+  phase: RunPhase;
+  entries: TimelineEntry[];
+  pendingApprovals: ApprovalRequest[];
+  pendingQuestions?: QuestionRequest[];
+  queuedMessages?: QueuedMessage[];
+  error?: string | null;
+  sessionId?: string;
+  readOnly?: boolean;
+  approvalMode?: ApprovalMode;
+}
+
+export interface HistorySession {
+  id: string;
+  title: string;
+  workspaceRoot: string;
+  updatedAt: number;
+  status: string;
+  snippet?: string;
+}
+
+export interface SettingsView {
+  apiKey: string;
+  model: string;
+  baseUrl: string;
+}
+
+export interface TimelineState extends SessionSnapshot {
+  error: string | null;
+}

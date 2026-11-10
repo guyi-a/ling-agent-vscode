@@ -1,0 +1,699 @@
+import type { UiEvent } from "./uiProtocol";
+import type {
+  ApprovalMode,
+  ApprovalRequest,
+  AskUserAnswer,
+  AskUserQuestion,
+  HistorySession,
+  QueuedMessage,
+  QuestionRequest,
+  RunPhase,
+  SessionSnapshot,
+  SettingsView,
+  TimelineEntry,
+  ToolAction,
+  ToolCall,
+  ToolStatus,
+  UserAttachmentRef,
+  UserAttachmentView,
+  UserSelectionKind,
+  UserSelectionRef,
+  UserSelectionView,
+} from "./uiTypes";
+
+export const UI_PROTOCOL_VERSION = 1;
+export const MAX_ATTACHMENTS_PER_MESSAGE = 4;
+export const MAX_SELECTIONS_PER_MESSAGE = 4;
+
+export type WebviewToHostMessage =
+  | {
+      type: "ui.ready";
+      host: "browser" | "vscode";
+      protocol: number;
+    }
+  | {
+      type: "session.new";
+    }
+  | {
+      type: "chat.submit";
+      text: string;
+      approvalMode: ApprovalMode;
+      attachments?: UserAttachmentRef[];
+      selections?: UserSelectionRef[];
+    }
+  | {
+      type: "attachment.save";
+      requestId: string;
+      name: string;
+      mimeType: string;
+      dataBase64: string;
+    }
+  | {
+      type: "attachment.pick";
+    }
+  | {
+      type: "attachment.open";
+      relativePath: string;
+    }
+  | {
+      type: "selection.capture";
+      source: "any" | "editor" | "terminal";
+    }
+  | {
+      type: "selection.copy";
+      text: string;
+    }
+  | {
+      type: "selection.open";
+      path: string;
+      startLine?: number;
+      endLine?: number;
+    }
+  | {
+      type: "mode.change";
+      mode: ApprovalMode;
+    }
+  | {
+      type: "settings.get";
+    }
+  | {
+      type: "settings.save";
+      apiKey: string;
+      model: string;
+      baseUrl: string;
+    }
+  | {
+      type: "approval.resolve";
+      approvalId: string;
+      effectDigest: string;
+      approved: boolean;
+    }
+  | {
+      type: "question.answer";
+      callId: string;
+      answers?: AskUserAnswer[];
+      cancelled?: boolean;
+    }
+  | {
+      type: "session.queued.sendNow";
+      queuedId: string;
+    }
+  | {
+      type: "run.cancel";
+    }
+  | {
+      type: "history.list";
+    }
+  | {
+      type: "history.search";
+      query: string;
+    }
+  | {
+      type: "history.delete";
+      sessionId: string;
+    }
+  | {
+      type: "history.open";
+      sessionId: string;
+    };
+
+export type HostToWebviewMessage =
+  | {
+      type: "ling.ui-event";
+      sequence: number;
+      event: UiEvent;
+    }
+  | {
+      type: "ling.history-list";
+      sessions: HistorySession[];
+      error?: string;
+    }
+  | {
+      type: "ling.host-context";
+      workspaceName: string;
+    }
+  | {
+      type: "ling.settings";
+      settings: SettingsView;
+      error?: string;
+    }
+  | {
+      type: "ling.settings-saved";
+      settings?: SettingsView;
+      error?: string;
+      warning?: string;
+    }
+  | {
+      type: "ling.attachment-saved";
+      requestId: string;
+      attachment?: UserAttachmentView;
+      error?: string;
+    }
+  | {
+      type: "ling.selection-added";
+      selection?: UserSelectionView;
+      error?: string;
+    };
+
+export function isWebviewToHostMessage(
+  value: unknown,
+): value is WebviewToHostMessage {
+  if (!isRecord(value) || typeof value.type !== "string") {
+    return false;
+  }
+
+  switch (value.type) {
+    case "ui.ready":
+      return (
+        (value.host === "browser" || value.host === "vscode") &&
+        typeof value.protocol === "number"
+      );
+    case "session.new":
+    case "run.cancel":
+    case "history.list":
+      return true;
+    case "history.search":
+      return typeof value.query === "string";
+    case "history.delete":
+    case "history.open":
+      return (
+        typeof value.sessionId === "string" &&
+        value.sessionId.length > 0
+      );
+    case "chat.submit":
+      return (
+        typeof value.text === "string" &&
+        isApprovalMode(value.approvalMode) &&
+        (value.attachments === undefined ||
+          (Array.isArray(value.attachments) &&
+            value.attachments.length <= MAX_ATTACHMENTS_PER_MESSAGE &&
+            value.attachments.every(isUserAttachmentRef))) &&
+        (value.selections === undefined ||
+          (Array.isArray(value.selections) &&
+            value.selections.length <= MAX_SELECTIONS_PER_MESSAGE &&
+            value.selections.every(isUserSelectionRef)))
+      );
+    case "attachment.save":
+      return (
+        typeof value.requestId === "string" &&
+        value.requestId.length > 0 &&
+        typeof value.name === "string" &&
+        typeof value.mimeType === "string" &&
+        typeof value.dataBase64 === "string" &&
+        value.dataBase64.length > 0
+      );
+    case "attachment.pick":
+      return true;
+    case "attachment.open":
+      return (
+        typeof value.relativePath === "string" &&
+        value.relativePath.length > 0
+      );
+    case "selection.capture":
+      return (
+        value.source === "any" ||
+        value.source === "editor" ||
+        value.source === "terminal"
+      );
+    case "selection.copy":
+      return typeof value.text === "string" && value.text.length > 0;
+    case "selection.open":
+      return (
+        typeof value.path === "string" &&
+        value.path.length > 0 &&
+        (value.startLine === undefined ||
+          (typeof value.startLine === "number" &&
+            Number.isInteger(value.startLine) &&
+            value.startLine >= 1)) &&
+        (value.endLine === undefined ||
+          (typeof value.endLine === "number" &&
+            Number.isInteger(value.endLine) &&
+            value.endLine >= 1))
+      );
+    case "mode.change":
+      return isApprovalMode(value.mode);
+    case "settings.get":
+      return true;
+    case "settings.save":
+      return (
+        typeof value.apiKey === "string" &&
+        typeof value.model === "string" &&
+        typeof value.baseUrl === "string"
+      );
+    case "approval.resolve":
+      return (
+        typeof value.approvalId === "string" &&
+        typeof value.effectDigest === "string" &&
+        typeof value.approved === "boolean"
+      );
+    case "question.answer":
+      return (
+        typeof value.callId === "string" &&
+        value.callId.length > 0 &&
+        (value.cancelled === undefined ||
+          typeof value.cancelled === "boolean") &&
+        (value.cancelled === true ||
+          (Array.isArray(value.answers) &&
+            value.answers.every(isAskUserAnswer)))
+      );
+    case "session.queued.sendNow":
+      return (
+        typeof value.queuedId === "string" &&
+        value.queuedId.length > 0
+      );
+    default:
+      return false;
+  }
+}
+
+export function isHostToWebviewMessage(
+  value: unknown,
+): value is HostToWebviewMessage {
+  if (!isRecord(value)) {
+    return false;
+  }
+  if (value.type === "ling.history-list") {
+    return (
+      Array.isArray(value.sessions) &&
+      value.sessions.every(isHistorySession) &&
+      (value.error === undefined ||
+        typeof value.error === "string")
+    );
+  }
+  if (value.type === "ling.host-context") {
+    return typeof value.workspaceName === "string";
+  }
+  if (value.type === "ling.settings") {
+    return (
+      isSettingsView(value.settings) &&
+      (value.error === undefined ||
+        typeof value.error === "string")
+    );
+  }
+  if (value.type === "ling.settings-saved") {
+    return (
+      (value.settings === undefined ||
+        isSettingsView(value.settings)) &&
+      (value.error === undefined ||
+        typeof value.error === "string") &&
+      (value.warning === undefined ||
+        typeof value.warning === "string")
+    );
+  }
+  if (value.type === "ling.attachment-saved") {
+    return (
+      typeof value.requestId === "string" &&
+      value.requestId.length > 0 &&
+      (value.attachment === undefined ||
+        isUserAttachmentView(value.attachment)) &&
+      (value.error === undefined ||
+        typeof value.error === "string")
+    );
+  }
+  if (value.type === "ling.selection-added") {
+    return (
+      (value.selection === undefined ||
+        isUserSelectionView(value.selection)) &&
+      (value.error === undefined ||
+        typeof value.error === "string")
+    );
+  }
+  return (
+    value.type === "ling.ui-event" &&
+    typeof value.sequence === "number" &&
+    Number.isInteger(value.sequence) &&
+    value.sequence >= 0 &&
+    isUiEvent(value.event)
+  );
+}
+
+export function isUiEvent(value: unknown): value is UiEvent {
+  if (!isRecord(value) || typeof value.type !== "string") {
+    return false;
+  }
+
+  switch (value.type) {
+    case "session.snapshot":
+      return isSessionSnapshot(value.snapshot);
+    case "message.delta":
+      return (
+        typeof value.messageId === "string" &&
+        value.role === "assistant" &&
+        typeof value.delta === "string"
+      );
+    case "message.completed":
+      return typeof value.messageId === "string";
+    case "tool.updated":
+      return isToolCall(value.tool);
+    case "approval.requested":
+      return isApprovalRequest(value.request);
+    case "approval.resolved":
+      return (
+        typeof value.approvalId === "string" &&
+        typeof value.approved === "boolean"
+      );
+    case "question.requested":
+      return isQuestionRequest(value.question);
+    case "question.resolved":
+      return (
+        typeof value.callId === "string" &&
+        value.callId.length > 0 &&
+        (value.answers === undefined ||
+          (Array.isArray(value.answers) &&
+            value.answers.every(isAskUserAnswer))) &&
+        (value.cancelled === undefined ||
+          typeof value.cancelled === "boolean")
+      );
+    case "session.queue":
+      return (
+        Array.isArray(value.queuedMessages) &&
+        value.queuedMessages.every(isQueuedMessage)
+      );
+    case "run.cancelled":
+      return true;
+    case "run.failed":
+      return typeof value.message === "string";
+    default:
+      return false;
+  }
+}
+
+function isSettingsView(value: unknown): value is SettingsView {
+  return (
+    isRecord(value) &&
+    typeof value.apiKey === "string" &&
+    typeof value.model === "string" &&
+    typeof value.baseUrl === "string"
+  );
+}
+
+function isSessionSnapshot(value: unknown): value is SessionSnapshot {
+  return (
+    isRecord(value) &&
+    isRunPhase(value.phase) &&
+    Array.isArray(value.entries) &&
+    value.entries.every(isTimelineEntry) &&
+    Array.isArray(value.pendingApprovals) &&
+    value.pendingApprovals.every(isApprovalRequest) &&
+    (value.pendingQuestions === undefined ||
+      (Array.isArray(value.pendingQuestions) &&
+        value.pendingQuestions.every(isQuestionRequest))) &&
+    (value.queuedMessages === undefined ||
+      (Array.isArray(value.queuedMessages) &&
+        value.queuedMessages.every(isQueuedMessage))) &&
+    (value.approvalMode === undefined ||
+      isApprovalMode(value.approvalMode))
+  );
+}
+
+function isQuestionRequest(value: unknown): value is QuestionRequest {
+  return (
+    isRecord(value) &&
+    typeof value.callId === "string" &&
+    value.callId.length > 0 &&
+    Array.isArray(value.questions) &&
+    value.questions.length > 0 &&
+    value.questions.every(isAskUserQuestion)
+  );
+}
+
+function isAskUserQuestion(value: unknown): value is AskUserQuestion {
+  return (
+    isRecord(value) &&
+    typeof value.id === "string" &&
+    value.id.length > 0 &&
+    typeof value.question === "string" &&
+    value.question.length > 0 &&
+    (value.header === undefined || typeof value.header === "string") &&
+    (value.multiSelect === undefined ||
+      typeof value.multiSelect === "boolean") &&
+    Array.isArray(value.options) &&
+    value.options.every(
+      (option) =>
+        isRecord(option) &&
+        typeof option.label === "string" &&
+        option.label.length > 0 &&
+        (option.description === undefined ||
+          typeof option.description === "string"),
+    )
+  );
+}
+
+function isQueuedMessage(value: unknown): value is QueuedMessage {
+  return (
+    isRecord(value) &&
+    typeof value.id === "string" &&
+    value.id.length > 0 &&
+    typeof value.text === "string" &&
+    typeof value.attachmentCount === "number" &&
+    Number.isInteger(value.attachmentCount) &&
+    value.attachmentCount >= 0
+  );
+}
+
+function isAskUserAnswer(value: unknown): value is AskUserAnswer {
+  return (
+    isRecord(value) &&
+    typeof value.id === "string" &&
+    value.id.length > 0 &&
+    (value.selected === undefined ||
+      (Array.isArray(value.selected) &&
+        value.selected.every(
+          (selection) => typeof selection === "string",
+        ))) &&
+    (value.custom === undefined || typeof value.custom === "string")
+  );
+}
+
+function isTimelineEntry(value: unknown): value is TimelineEntry {
+  if (!isRecord(value)) {
+    return false;
+  }
+
+  if (value.kind === "message") {
+    return (
+      isRecord(value.message) &&
+      typeof value.message.id === "string" &&
+      (value.message.role === "user" ||
+        value.message.role === "assistant") &&
+      typeof value.message.content === "string" &&
+      typeof value.message.streaming === "boolean" &&
+      (value.message.attachments === undefined ||
+        (Array.isArray(value.message.attachments) &&
+          value.message.attachments.every(isUserAttachmentView))) &&
+      (value.message.selections === undefined ||
+        (Array.isArray(value.message.selections) &&
+          value.message.selections.every(isUserSelectionSummary)))
+    );
+  }
+
+  if (value.kind === "tool") {
+    return isToolCall(value.tool);
+  }
+
+  if (value.kind === "approval") {
+    return (
+      isRecord(value.approval) &&
+      typeof value.approval.id === "string" &&
+      typeof value.approval.approvalId === "string" &&
+      typeof value.approval.approved === "boolean" &&
+      typeof value.approval.target === "string" &&
+      isToolAction(value.approval.action)
+    );
+  }
+
+  if (value.kind === "compaction") {
+    return (
+      isRecord(value.compaction) &&
+      typeof value.compaction.id === "string" &&
+      typeof value.compaction.compactionId === "string" &&
+      typeof value.compaction.replacedCount === "number"
+    );
+  }
+
+  return false;
+}
+
+function isApprovalRequest(value: unknown): value is ApprovalRequest {
+  return (
+    isRecord(value) &&
+    typeof value.id === "string" &&
+    typeof value.tool === "string" &&
+    isToolAction(value.action) &&
+    typeof value.target === "string" &&
+    typeof value.reason === "string" &&
+    (value.arguments === undefined || isRecord(value.arguments)) &&
+    typeof value.effectDigest === "string" &&
+    isStringArray(value.details)
+  );
+}
+
+function isToolCall(value: unknown): value is ToolCall {
+  return (
+    isRecord(value) &&
+    typeof value.id === "string" &&
+    isToolAction(value.action) &&
+    typeof value.target === "string" &&
+    isToolStatus(value.status) &&
+    isStringArray(value.details)
+  );
+}
+
+function isApprovalMode(value: unknown): value is ApprovalMode {
+  return (
+    value === "manual" ||
+    value === "accept-write" ||
+    value === "auto"
+  );
+}
+
+function isRunPhase(value: unknown): value is RunPhase {
+  return (
+    value === "idle" ||
+    value === "running" ||
+    value === "waiting_approval" ||
+    value === "cancelled" ||
+    value === "failed"
+  );
+}
+
+function isToolAction(value: unknown): value is ToolAction {
+  return (
+    value === "Read" ||
+    value === "Edit" ||
+    value === "Run" ||
+    value === "Skill"
+  );
+}
+
+function isToolStatus(value: unknown): value is ToolStatus {
+  return (
+    value === "Running" ||
+    value === "Waiting" ||
+    value === "Completed" ||
+    value === "Failed" ||
+    value === "Cancelled"
+  );
+}
+
+function isStringArray(value: unknown): value is string[] {
+  return Array.isArray(value) && value.every((item) => typeof item === "string");
+}
+
+function isUserAttachmentRef(
+  value: unknown,
+): value is UserAttachmentRef {
+  if (!isRecord(value)) {
+    return false;
+  }
+  if (
+    typeof value.relativePath !== "string" ||
+    value.relativePath.length === 0 ||
+    typeof value.name !== "string" ||
+    value.name.length === 0 ||
+    typeof value.mediaType !== "string" ||
+    value.mediaType.length === 0
+  ) {
+    return false;
+  }
+  const kind = value.kind ?? "image";
+  if (kind !== "image" && kind !== "file") {
+    return false;
+  }
+  return kind !== "image" || value.mediaType.startsWith("image/");
+}
+
+function isUserAttachmentView(
+  value: unknown,
+): value is UserAttachmentView {
+  if (!isRecord(value) || !isUserAttachmentRef(value)) {
+    return false;
+  }
+  return value.uri === undefined || typeof value.uri === "string";
+}
+
+const SELECTION_KINDS: readonly UserSelectionKind[] = [
+  "editor",
+  "terminal",
+  "chat",
+];
+
+function isUserSelectionKind(value: unknown): value is UserSelectionKind {
+  return SELECTION_KINDS.includes(value as UserSelectionKind);
+}
+
+function isUserSelectionRef(
+  value: unknown,
+): value is UserSelectionRef {
+  if (!isRecord(value)) {
+    return false;
+  }
+  return (
+    isUserSelectionKind(value.kind) &&
+    typeof value.label === "string" &&
+    value.label.length > 0 &&
+    typeof value.text === "string" &&
+    value.text.length > 0 &&
+    typeof value.lineCount === "number" &&
+    Number.isInteger(value.lineCount) &&
+    value.lineCount >= 1 &&
+    (value.path === undefined || typeof value.path === "string") &&
+    (value.startLine === undefined ||
+      (typeof value.startLine === "number" &&
+        Number.isInteger(value.startLine) &&
+        value.startLine >= 1)) &&
+    (value.endLine === undefined ||
+      (typeof value.endLine === "number" &&
+        Number.isInteger(value.endLine) &&
+        value.endLine >= 1))
+  );
+}
+
+function isUserSelectionView(
+  value: unknown,
+): value is UserSelectionView {
+  if (!isRecord(value) || !isUserSelectionRef(value)) {
+    return false;
+  }
+  return typeof value.id === "string" && value.id.length > 0;
+}
+
+function isUserSelectionSummary(value: unknown): boolean {
+  if (!isRecord(value)) {
+    return false;
+  }
+  return (
+    isUserSelectionKind(value.kind) &&
+    typeof value.label === "string" &&
+    value.label.length > 0 &&
+    typeof value.lineCount === "number" &&
+    Number.isInteger(value.lineCount) &&
+    value.lineCount >= 1 &&
+    (value.path === undefined || typeof value.path === "string") &&
+    (value.startLine === undefined ||
+      (typeof value.startLine === "number" &&
+        Number.isInteger(value.startLine) &&
+        value.startLine >= 1)) &&
+    (value.endLine === undefined ||
+      (typeof value.endLine === "number" &&
+        Number.isInteger(value.endLine) &&
+        value.endLine >= 1))
+  );
+}
+
+function isHistorySession(value: unknown): value is HistorySession {
+  return (
+    isRecord(value) &&
+    typeof value.id === "string" &&
+    typeof value.title === "string" &&
+    typeof value.workspaceRoot === "string" &&
+    typeof value.updatedAt === "number" &&
+    typeof value.status === "string" &&
+    (value.snippet === undefined ||
+      typeof value.snippet === "string")
+  );
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
+}

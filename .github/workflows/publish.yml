@@ -1,0 +1,56 @@
+name: Publish VS Code Extension
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  publish:
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: ling-vscode
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: ling-vscode/package-lock.json
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install sidecar dependencies
+        run: python -m pip install --upgrade pip pyinstaller -r ../ling/requirements.txt
+
+      - name: Install extension dependencies
+        run: npm ci
+
+      - name: Build sidecar
+        run: npm run build:sidecar
+
+      - name: Test
+        run: npm test
+
+      - name: Package VSIX
+        run: npx @vscode/vsce package --no-dependencies --target win32-x64
+
+      - name: Publish
+        shell: pwsh
+        run: |
+          $vsix = Get-ChildItem -Filter *.vsix | Select-Object -First 1
+          if (-not $vsix) { throw "No VSIX found" }
+          npx @vscode/vsce publish --oidc --packagePath $vsix.FullName

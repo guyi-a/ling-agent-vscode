@@ -1,0 +1,179 @@
+{
+  "name": "ling",
+  "displayName": "Ling",
+  "description": "A focused coding agent for VS Code with skills, diff review, and inline diagrams.",
+  "version": "0.10.0",
+  "publisher": "ling-agent",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/guyi-a/ling-agent-vscode.git"
+  },
+  "license": "MIT",
+  "icon": "media/icon.png",
+  "keywords": [
+    "ai",
+    "coding agent",
+    "deepseek",
+    "ling",
+    "skills"
+  ],
+  "engines": {
+    "vscode": "^1.96.0"
+  },
+  "categories": [
+    "AI",
+    "Other"
+  ],
+  "galleryBanner": {
+    "color": "#24262a",
+    "theme": "dark"
+  },
+  "main": "./dist/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "ling.openChat",
+        "title": "Open Chat",
+        "category": "Ling"
+      },
+      {
+        "command": "ling.checkSidecar",
+        "title": "Check Sidecar",
+        "category": "Ling"
+      },
+      {
+        "command": "ling.addSelection",
+        "title": "Add Selection to Ling Chat",
+        "category": "Ling"
+      },
+      {
+        "command": "ling.addEditorSelection",
+        "title": "Add Editor Selection to Ling Chat",
+        "category": "Ling"
+      },
+      {
+        "command": "ling.addTerminalSelection",
+        "title": "Add Terminal Selection to Ling Chat",
+        "category": "Ling"
+      },
+      {
+        "command": "ling.approveDiff",
+        "title": "Allow Diff Change",
+        "category": "Ling",
+        "icon": "$(check)"
+      },
+      {
+        "command": "ling.denyDiff",
+        "title": "Deny Diff Change",
+        "category": "Ling",
+        "icon": "$(close)"
+      }
+    ],
+    "keybindings": [
+      {
+        "command": "ling.approveDiff",
+        "key": "ctrl+alt+enter",
+        "mac": "cmd+alt+enter",
+        "when": "ling.diffApproval"
+      },
+      {
+        "command": "ling.denyDiff",
+        "key": "ctrl+alt+backspace",
+        "mac": "cmd+alt+backspace",
+        "when": "ling.diffApproval"
+      }
+    ],
+    "configuration": {
+      "title": "Ling",
+      "properties": {
+        "ling.diff.inlineView": {
+          "type": "boolean",
+          "default": true,
+          "description": "Open Ling file-edit diffs in the inline (single-column) view by toggling diffEditor.renderSideBySide."
+        }
+      }
+    },
+    "menus": {
+      "editor/context": [
+        {
+          "command": "ling.addEditorSelection",
+          "when": "editorHasSelection",
+          "group": "navigation@9"
+        }
+      ],
+      "terminal/context": [
+        {
+          "command": "ling.addTerminalSelection",
+          "when": "terminalTextSelected",
+          "group": "navigation@9"
+        }
+      ],
+      "editor/title": [
+        {
+          "command": "ling.approveDiff",
+          "when": "ling.diffApproval && isInDiffEditor",
+          "group": "navigation@1"
+        },
+        {
+          "command": "ling.denyDiff",
+          "when": "ling.diffApproval && isInDiffEditor",
+          "group": "navigation@2"
+        }
+      ]
+    },
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "ling",
+          "title": "Ling",
+          "icon": "media/ling.svg"
+        }
+      ]
+    },
+    "views": {
+      "ling": [
+        {
+          "type": "webview",
+          "id": "ling.chat",
+          "name": "Chat"
+        }
+      ]
+    }
+  },
+  "scripts": {
+    "build:extension": "esbuild src/extension.ts --bundle --platform=node --format=cjs --external:vscode --outfile=dist/extension.js",
+    "build:webview": "vite build",
+    "build": "npm run typecheck && npm run build:extension && npm run build:webview",
+    "sync:skills": "node scripts/sync-skills.mjs",
+    "build:sidecar": "node scripts/build-sidecar.mjs",
+    "package:vsix": "npx @vscode/vsce package --no-dependencies --target win32-x64",
+    "test": "npm run typecheck && npm run test:reducer && npm run test:settings && npm run test:attachments && npm run test:diff && npm run test:renderer && npm run test:sidecar && npm run build",
+    "test:reducer": "esbuild scripts/test-timeline-reducer.ts --bundle --platform=node --format=cjs --outfile=dist/timeline-reducer.test.cjs && node dist/timeline-reducer.test.cjs",
+    "test:settings": "esbuild scripts/test-settings.ts --bundle --platform=node --format=cjs --outfile=dist/settings.test.cjs && node dist/settings.test.cjs",
+    "test:attachments": "esbuild scripts/test-attachments.ts --bundle --platform=node --format=cjs --outfile=dist/attachments.test.cjs && node dist/attachments.test.cjs",
+    "test:diff": "esbuild scripts/test-diff.ts --bundle --platform=node --format=cjs --outfile=dist/diff.test.cjs && node dist/diff.test.cjs",
+    "test:renderer": "esbuild scripts/test-renderer.ts --bundle --platform=node --format=cjs --outfile=dist/renderer.test.cjs && node dist/renderer.test.cjs",
+    "test:sidecar": "esbuild scripts/test-sidecar-client.ts --bundle --platform=node --format=cjs --outfile=dist/sidecar-client.test.cjs && node dist/sidecar-client.test.cjs && node scripts/run-python-rpc-test.mjs",
+    "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p webview/tsconfig.json",
+    "dev:webview": "vite",
+    "preview:webview": "vite preview",
+    "watch:extension": "esbuild src/extension.ts --bundle --platform=node --format=cjs --external:vscode --outfile=dist/extension.js --watch",
+    "vscode:prepublish": "npm run sync:skills && npm run build"
+  },
+  "devDependencies": {
+    "@types/node": "^24.5.2",
+    "@types/react": "^19.1.12",
+    "@types/react-dom": "^19.1.9",
+    "@types/vscode": "^1.96.0",
+    "@vitejs/plugin-react": "^5.0.2",
+    "esbuild": "^0.25.9",
+    "typescript": "^5.9.2",
+    "vite": "^7.1.5"
+  },
+  "dependencies": {
+    "react": "^19.1.1",
+    "react-dom": "^19.1.1",
+    "react-markdown": "^10.1.0",
+    "remark-gfm": "^4.0.1"
+  }
+}
