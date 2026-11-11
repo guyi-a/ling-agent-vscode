@@ -26,12 +26,10 @@ from ling_agent import (
     default_database_path,
 )
 from ling_agent.compaction import CompactionConfig, SummarizeFn
-from ling_ai.adapters.openai_completions import (
-    create_openai_completions_stream,
-)
 from ling_ai.stream import StreamFunction
 from ling_ai.types import Model, TextContent
 
+from .provider import resolve_model
 from .questions import RpcQuestionHandler
 from .ui_events import EmitUiEvent, RpcEventSink, UiEvent, snapshot_to_ui
 
@@ -738,36 +736,9 @@ class SessionService:
         return self._agent
 
     def _resolve_model(self) -> tuple[Model, StreamFunction]:
-        if self._configured_stream is not None:
-            model = self._configured_model or Model(
-                id="test-model",
-                provider="test",
-                api="openai-completions",
-            )
-            return model, self._configured_stream
-
-        api_key = (
-            os.environ.get("LING_API_KEY")
-            or os.environ.get("DEEPSEEK_API_KEY")
-            or os.environ.get("OPENAI_API_KEY")
-        )
-        if not api_key:
-            raise RuntimeError(
-                "Missing API key. Set LING_API_KEY or DEEPSEEK_API_KEY."
-            )
-
-        model = self._configured_model or Model(
-            id=os.environ.get("LING_MODEL", "deepseek-chat"),
-            provider=os.environ.get("LING_PROVIDER", "deepseek"),
-            api="openai-completions",
-            base_url=os.environ.get(
-                "LING_API_BASE_URL",
-                "https://api.deepseek.com/v1",
-            ),
-        )
-        return (
-            model,
-            create_openai_completions_stream(api_key=api_key),
+        return resolve_model(
+            self._configured_model,
+            self._configured_stream,
         )
 
     async def _run_queue(

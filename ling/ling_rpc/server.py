@@ -15,13 +15,16 @@ from ling_agent import (
     UserAttachment,
     UserSelection,
 )
+from ling_comment.targets import CommentError, CommentTarget
 
+from .comments import CommentService
 from .sessions import SessionService
 from .ui_events import UiEvent
 
 PROTOCOL_VERSION = 1
 SERVER_NAME = "ling-sidecar"
 SERVER_VERSION = "0.1.0"
+MAX_COMMENT_SOURCE_CHARS = 200_000
 
 
 class JsonRpcError(Exception):
@@ -46,11 +49,13 @@ class JsonRpcServer:
         stderr: TextIO,
         *,
         sessions: SessionService | None = None,
+        comments: CommentService | None = None,
     ) -> None:
         self._stdout = stdout
         self._stderr = stderr
         self._write_lock = asyncio.Lock()
         self._sessions = sessions or SessionService(self._emit_ui_event)
+        self._comments = comments or CommentService()
         self.running = True
 
     async def serve(self, stdin: TextIO) -> None:
@@ -177,6 +182,7 @@ class JsonRpcServer:
                 "capabilities": {
                     "ping": True,
                     "sessions": True,
+                    "comments": True,
                 },
             }
 
@@ -189,6 +195,19 @@ class JsonRpcServer:
         if method == "shutdown":
             self.running = False
             return None
+
+        if method == "comment.generate":
+            target = _parse_comment_target(params)
+            try:
+                return await self._comments.generate(target)
+            except CommentError as exc:
+                raise JsonRpcError(
+                    -32001,
+                    str(exc),
+                    {"reason": exc.reason},
+                ) from exc
+            except (RuntimeError, ValueError) as exc:
+                raise JsonRpcError(-32001, str(exc)) from exc
 
         if method == "session.start":
             prompt = params.get("prompt")
@@ -605,6 +624,97 @@ def _parse_user_attachments(value: object) -> tuple[UserAttachment, ...]:
                 f"Invalid attachments[{index}]: {exc}",
             ) from exc
     return tuple(attachments)
+
+
+def _parse_comment_target(params: dict[str, Any]) -> CommentTarget:
+    path = params.get("path")
+    if not isinstance(path, str) or not path.strip():
+        raise JsonRpcError(
+            -32602,
+            "path must be a non-empty string",
+        )
+
+    language_id = params.get("languageId")
+    if not isinstance(language_id, str) or not language_id.strip():
+        raise JsonRpcError(
+            -32602,
+            "languageId must be a non-empty string",
+        )
+
+    symbol_name = params.get("symbolName")
+    if not isinstance(symbol_name, str) or not symbol_name.strip():
+        raise JsonRpcError(
+            -32602,
+            "symbolName must be a non-empty string",
+        )
+
+    symbol_kind = params.get("symbolKind")
+    if symbol_kind not in ("function", "method", "class"):
+        raise JsonRpcError(
+            -32602,
+            "symbolKind must be one of: function, method, class",
+        )
+
+    start_line = params.get("startLine")
+    if (
+        not isinstance(start_line, int)
+        or isinstance(start_line, bool)
+        or start_line < 0
+    ):
+        raise JsonRpcError(
+            -32602,
+            "startLine must be a non-negative integer",
+        )
+
+    source_text = params.get("sourceText")
+    if not isinstance(source_text, str) or not source_text.strip():
+        raise JsonRpcError(
+            -32602,
+            "sourceText must be a non-empty string",
+        )
+    if len(source_text) > MAX_COMMENT_SOURCE_CHARS:
+        raise JsonRpcError(
+            -32602,
+            f"sourceText must be at most {MAX_COMMENT_SOURCE_CHARS} "
+            "characters",
+        )
+
+    document_version = params.get("documentVersion", 0)
+    if (
+        not isinstance(document_version, int)
+        or isinstance(document_version, bool)
+        or document_version < 0
+    ):
+        raise JsonRpcError(
+            -32602,
+            "documentVersion must be a non-negative integer",
+        )
+
+    content_hash = params.get("contentHash", "")
+    if not isinstance(content_hash, str):
+        raise JsonRpcError(
+            -32602,
+            "contentHash must be a string",
+        )
+
+    class_context = params.get("classContext")
+    if class_context is not None and not isinstance(class_context, str):
+        raise JsonRpcError(
+            -32602,
+            "classContext must be a string",
+        )
+
+    return CommentTarget(
+        path=path,
+        language_id=language_id,
+        symbol_name=symbol_name,
+        symbol_kind=symbol_kind,
+        start_line=start_line,
+        source_text=source_text,
+        document_version=document_version,
+        content_hash=content_hash,
+        class_context=class_context,
+    )
 
 
 def _parse_approval_mode(

@@ -735,7 +735,7 @@ button:disabled {
   display: flex;
   flex: 1 1 auto;
   flex-direction: column;
-  gap: 16px;
+  gap: 12px;
   min-height: 0;
   padding: 20px 14px 14px;
   overflow-x: hidden;
@@ -951,7 +951,7 @@ button:disabled {
 }
 
 .thinking {
-  margin: 0 0 9px;
+  margin: 0 0 6px;
   border: 1px solid var(--line);
   border-radius: 7px;
   background: color-mix(in srgb, var(--panel) 55%, transparent);
@@ -972,6 +972,10 @@ button:disabled {
 
 .thinking--streaming summary {
   color: var(--accent);
+}
+
+.thinking--only {
+  margin-bottom: 0;
 }
 
 .thinking[open] summary {
@@ -1290,37 +1294,6 @@ button:disabled {
   font-family: var(--mono);
   font-size: 11px;
   line-height: 1.65;
-}
-
-.approval-history {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  padding-top: 2px;
-}
-
-.approval-history-row {
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  color: var(--muted);
-  font-size: 11.5px;
-  line-height: 1.4;
-}
-
-.history-icon {
-  display: grid;
-  width: 17px;
-  height: 17px;
-  place-items: center;
-  border-radius: 50%;
-  color: var(--success);
-  background: rgba(143, 181, 154, 0.1);
-}
-
-.history-icon svg {
-  width: 11px;
-  height: 11px;
 }
 
 .compaction-marker {

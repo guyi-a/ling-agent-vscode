@@ -67,6 +67,23 @@
         "title": "Deny Diff Change",
         "category": "Ling",
         "icon": "$(close)"
+      },
+      {
+        "command": "ling.generateComment",
+        "title": "Generate Comment",
+        "category": "Ling"
+      },
+      {
+        "command": "ling.acceptComment",
+        "title": "Accept Comment",
+        "category": "Ling",
+        "icon": "$(check)"
+      },
+      {
+        "command": "ling.rejectComment",
+        "title": "Reject Comment",
+        "category": "Ling",
+        "icon": "$(close)"
       }
     ],
     "keybindings": [
@@ -81,6 +98,18 @@
         "key": "ctrl+alt+backspace",
         "mac": "cmd+alt+backspace",
         "when": "ling.diffApproval"
+      },
+      {
+        "command": "ling.acceptComment",
+        "key": "ctrl+alt+enter",
+        "mac": "cmd+alt+enter",
+        "when": "ling.commentPreview"
+      },
+      {
+        "command": "ling.rejectComment",
+        "key": "ctrl+alt+backspace",
+        "mac": "cmd+alt+backspace",
+        "when": "ling.commentPreview"
       }
     ],
     "configuration": {
@@ -95,6 +124,11 @@
     },
     "menus": {
       "editor/context": [
+        {
+          "command": "ling.generateComment",
+          "when": "editorLangId == python",
+          "group": "navigation@8"
+        },
         {
           "command": "ling.addEditorSelection",
           "when": "editorHasSelection",
@@ -117,6 +151,16 @@
         {
           "command": "ling.denyDiff",
           "when": "ling.diffApproval && isInDiffEditor",
+          "group": "navigation@2"
+        },
+        {
+          "command": "ling.acceptComment",
+          "when": "ling.commentPreview && isInDiffEditor",
+          "group": "navigation@1"
+        },
+        {
+          "command": "ling.rejectComment",
+          "when": "ling.commentPreview && isInDiffEditor",
           "group": "navigation@2"
         }
       ]
@@ -147,7 +191,7 @@
     "sync:skills": "node scripts/sync-skills.mjs",
     "build:sidecar": "node scripts/build-sidecar.mjs",
     "package:vsix": "npx @vscode/vsce package --no-dependencies --target win32-x64",
-    "test": "npm run typecheck && npm run test:reducer && npm run test:settings && npm run test:attachments && npm run test:diff && npm run test:renderer && npm run test:sidecar && npm run build",
+    "test": "npm run typecheck && npm run test:reducer && npm run test:settings && npm run test:attachments && npm run test:diff && npm run test:renderer && npm run test:comment && npm run test:sidecar && npm run build",
     "test:reducer": "esbuild scripts/test-timeline-reducer.ts --bundle --platform=node --format=cjs --outfile=dist/timeline-reducer.test.cjs && node dist/timeline-reducer.test.cjs",
     "test:settings": "esbuild scripts/test-settings.ts --bundle --platform=node --format=cjs --outfile=dist/settings.test.cjs && node dist/settings.test.cjs",
     "test:attachments": "esbuild scripts/test-attachments.ts --bundle --platform=node --format=cjs --outfile=dist/attachments.test.cjs && node dist/attachments.test.cjs",
@@ -158,7 +202,8 @@
     "dev:webview": "vite",
     "preview:webview": "vite preview",
     "watch:extension": "esbuild src/extension.ts --bundle --platform=node --format=cjs --external:vscode --outfile=dist/extension.js --watch",
-    "vscode:prepublish": "npm run sync:skills && npm run build"
+    "vscode:prepublish": "npm run sync:skills && npm run build",
+    "test:comment": "esbuild scripts/test-comment.ts --bundle --platform=node --format=cjs --outfile=dist/comment.test.cjs && node dist/comment.test.cjs"
   },
   "devDependencies": {
     "@types/node": "^24.5.2",

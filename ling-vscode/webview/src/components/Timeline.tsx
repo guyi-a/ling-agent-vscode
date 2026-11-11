@@ -7,7 +7,6 @@ import type {
   UserSelectionSummary,
 } from "../types";
 import { CompactionMarker } from "./CompactionMarker";
-import { CheckIcon } from "./icons";
 import { MarkdownMessage } from "./MarkdownMessage";
 import { MessageActions } from "./MessageActions";
 import { MessageAttachments } from "./MessageAttachments";
@@ -32,10 +31,6 @@ type TimelineBlock =
   | {
       kind: "tools";
       tools: ToolCall[];
-    }
-  | {
-      kind: "approvals";
-      approvals: Extract<TimelineEntry, { kind: "approval" }>["approval"][];
     }
   | {
       kind: "compaction";
@@ -122,28 +117,6 @@ export function Timeline({
           );
         }
 
-        if (block.kind === "approvals") {
-          return (
-            <div
-              className="approval-history"
-              aria-label="Approval history"
-              key={getBlockKey(block)}
-            >
-              {block.approvals.map((approval) => (
-                <div className="approval-history-row" key={approval.id}>
-                  <span className="history-icon">
-                    <CheckIcon />
-                  </span>
-                  <span>
-                    {approval.approved ? "Approved once" : "Denied"} ·{" "}
-                    {approval.target}
-                  </span>
-                </div>
-              ))}
-            </div>
-          );
-        }
-
         if (block.kind === "compaction") {
           return (
             <CompactionMarker
@@ -158,6 +131,13 @@ export function Timeline({
           entry.message.thinkingDone === undefined
             ? entry.message.streaming
             : !entry.message.thinkingDone;
+        const thinkingClass = [
+          "thinking",
+          thinkingActive ? "thinking--streaming" : "",
+          entry.message.content ? "" : "thinking--only",
+        ]
+          .filter(Boolean)
+          .join(" ");
         return (
           <section
             className={`message message--${entry.message.role}`}
@@ -170,11 +150,7 @@ export function Timeline({
               <>
                 {entry.message.thinking ? (
                   <details
-                    className={
-                      thinkingActive
-                        ? "thinking thinking--streaming"
-                        : "thinking"
-                    }
+                    className={thinkingClass}
                     aria-live="off"
                   >
                     <summary>
@@ -190,7 +166,7 @@ export function Timeline({
                   streaming={entry.message.streaming}
                 />
                 {!entry.message.streaming &&
-                (entry.message.content || entry.message.thinking) ? (
+                entry.message.content ? (
                   <MessageActions
                     text={entry.message.content}
                     disabled={actionsDisabled}
@@ -271,12 +247,6 @@ function groupTimelineEntries(entries: TimelineEntry[]): TimelineBlock[] {
     }
 
     if (entry.kind === "approval") {
-      const previous = blocks.at(-1);
-      if (previous?.kind === "approvals") {
-        previous.approvals.push(entry.approval);
-      } else {
-        blocks.push({ kind: "approvals", approvals: [entry.approval] });
-      }
       continue;
     }
 
@@ -302,10 +272,6 @@ function groupTimelineEntries(entries: TimelineEntry[]): TimelineBlock[] {
 function getBlockKey(block: TimelineBlock): string {
   if (block.kind === "tools") {
     return `tools-${block.tools[0]?.id ?? "empty"}`;
-  }
-
-  if (block.kind === "approvals") {
-    return `approvals-${block.approvals[0]?.id ?? "empty"}`;
   }
 
   if (block.kind === "compaction") {

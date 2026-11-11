@@ -9,6 +9,7 @@ import {
   computeProposedContent,
   resolveProposedPath,
 } from "./diff/proposed";
+import { ensureInlineDiffView } from "./diff/view";
 
 const DIFF_SCHEME = "ling-diff";
 const MAX_DIFF_BYTES = 1_000_000;
@@ -211,7 +212,7 @@ export class DiffController implements vscode.Disposable {
     };
     this.setContext(true);
     await new Promise((resolve) => setTimeout(resolve, 60));
-    await this.ensureInlineView();
+    await ensureInlineDiffView(this.output);
   }
 
   private async closeActive(): Promise<void> {
@@ -237,28 +238,6 @@ export class DiffController implements vscode.Disposable {
     this.provider.delete(active.modifiedUri);
     if (active.originalVirtual) {
       this.provider.delete(active.originalUri);
-    }
-  }
-
-  private async ensureInlineView(): Promise<void> {
-    const ling = vscode.workspace.getConfiguration("ling");
-    if (!ling.get<boolean>("diff.inlineView", true)) {
-      return;
-    }
-    const diff = vscode.workspace.getConfiguration("diffEditor");
-    if (diff.get<boolean>("renderSideBySide", true) === false) {
-      return;
-    }
-
-    try {
-      await vscode.commands.executeCommand(
-        "toggle.diff.renderSideBySide",
-      );
-      this.output?.("Switched diff editor to inline view");
-    } catch (error) {
-      this.output?.(
-        `Unable to switch diff view: ${formatError(error)}`,
-      );
     }
   }
 

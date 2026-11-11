@@ -33,6 +33,9 @@ import {
   resolveAttachmentFile,
   saveAttachmentImage,
 } from "./attachments/store";
+import { CommentCodeLensProvider } from "./comment/commentCodeLens";
+import { CommentController } from "./comment/commentController";
+import { CommentPreviewController } from "./comment/commentPreview";
 import { DiffController } from "./diffController";
 import {
   captureEditorSelection,
@@ -128,6 +131,15 @@ export async function activate(
     },
     (line) => output.appendLine(line),
   );
+  const commentPreview = new CommentPreviewController((line) =>
+    output.appendLine(line),
+  );
+  const commentController = new CommentController(
+    sidecar,
+    commentPreview,
+    output,
+  );
+  const commentCodeLens = new CommentCodeLensProvider();
   const provider = new ChatViewProvider(
     context.extensionUri,
     output,
@@ -182,7 +194,20 @@ export async function activate(
     vscode.commands.registerCommand("ling.denyDiff", async () =>
       diffController.resolveActive(false),
     ),
+    vscode.commands.registerCommand("ling.acceptComment", async () =>
+      commentPreview.accept(),
+    ),
+    vscode.commands.registerCommand("ling.rejectComment", async () =>
+      commentPreview.reject(),
+    ),
+    commentPreview,
+    commentController,
+    commentCodeLens,
     selectionCodeLens,
+    vscode.languages.registerCodeLensProvider(
+      [{ scheme: "file" }],
+      commentCodeLens,
+    ),
     vscode.languages.registerCodeLensProvider(
       [{ scheme: "file" }, { scheme: "untitled" }],
       selectionCodeLens,
