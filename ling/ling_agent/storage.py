@@ -592,6 +592,80 @@ class SQLiteSessionStore:
             self._connection.execute("ROLLBACK")
             raise
 
+    async def delete_events(
+        self,
+        session_id: str,
+        seqs: tuple[int, ...],
+    ) -> int:
+        return await self._run(
+            self._delete_events_sync,
+            session_id,
+            seqs,
+        )
+
+    def _delete_events_sync(
+        self,
+        session_id: str,
+        seqs: tuple[int, ...],
+    ) -> int:
+        if not seqs:
+            return 0
+        placeholders = ",".join("?" for _ in seqs)
+        self._connection.execute("BEGIN IMMEDIATE")
+        try:
+            cursor = self._connection.execute(
+                f"DELETE FROM events WHERE session_id = ? "
+                f"AND seq IN ({placeholders})",
+                (session_id, *seqs),
+            )
+            self._connection.execute(
+                "UPDATE sessions SET last_seq = ("
+                "SELECT COALESCE(MAX(seq), 0) FROM events "
+                "WHERE session_id = ?"
+                "), updated_at = ? WHERE session_id = ?",
+                (session_id, int(time.time() * 1000), session_id),
+            )
+            self._connection.execute("COMMIT")
+            return cursor.rowcount
+        except BaseException:
+            self._connection.execute("ROLLBACK")
+            raise
+
+    async def delete_events_after(
+        self,
+        session_id: str,
+        seq: int,
+    ) -> int:
+        return await self._run(
+            self._delete_events_after_sync,
+            session_id,
+            seq,
+        )
+
+    def _delete_events_after_sync(
+        self,
+        session_id: str,
+        seq: int,
+    ) -> int:
+        self._connection.execute("BEGIN IMMEDIATE")
+        try:
+            cursor = self._connection.execute(
+                "DELETE FROM events WHERE session_id = ? AND seq > ?",
+                (session_id, seq),
+            )
+            self._connection.execute(
+                "UPDATE sessions SET last_seq = ("
+                "SELECT COALESCE(MAX(seq), 0) FROM events "
+                "WHERE session_id = ?"
+                "), updated_at = ? WHERE session_id = ?",
+                (session_id, int(time.time() * 1000), session_id),
+            )
+            self._connection.execute("COMMIT")
+            return cursor.rowcount
+        except BaseException:
+            self._connection.execute("ROLLBACK")
+            raise
+
     async def recover_interrupted_approvals(self) -> int:
         recovered = 0
         for session in await self.list_sessions():

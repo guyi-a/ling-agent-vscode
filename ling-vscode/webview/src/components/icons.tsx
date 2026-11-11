@@ -108,6 +108,24 @@ export function CloseIcon(props: IconProps) {
   );
 }
 
+export function CopyIcon(props: IconProps) {
+  return (
+    <IconBase {...props}>
+      <rect x="9" y="9" width="10" height="10" rx="2" />
+      <path d="M15 9V6.5A2.5 2.5 0 0 0 12.5 4h-6A2.5 2.5 0 0 0 4 6.5v6A2.5 2.5 0 0 0 6.5 15H9" />
+    </IconBase>
+  );
+}
+
+export function RegenerateIcon(props: IconProps) {
+  return (
+    <IconBase {...props}>
+      <path d="M20 11a8 8 0 0 0-14.9-4M4 4.5V10h5.5" />
+      <path d="M4 13a8 8 0 0 0 14.9 4M20 19.5V14h-5.5" />
+    </IconBase>
+  );
+}
+
 export function SendIcon(props: IconProps) {
   return (
     <IconBase {...props}>

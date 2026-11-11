@@ -8,6 +8,8 @@ from typing import Any, Awaitable, Callable, Literal, Sequence
 from ling_agent import (
     ApprovalTimelineItem,
     AssistantTextDelta,
+    AssistantThinkingDelta,
+    AssistantThinkingDone,
     AssistantTimelineItem,
     CompactionTimelineItem,
     CommittedEventEnvelope,
@@ -93,6 +95,8 @@ def snapshot_to_ui(
                     role="assistant",
                     content=item.text,
                     streaming=item.status == "streaming",
+                    thinking=item.thinking,
+                    thinking_done=item.thinking_done,
                 )
             )
             continue
@@ -213,6 +217,21 @@ class RpcEventSink:
                     "delta": envelope.frame.delta,
                 }
             )
+        elif isinstance(envelope.frame, AssistantThinkingDelta):
+            await self._emit(
+                {
+                    "type": "thinking.delta",
+                    "messageId": envelope.message_id,
+                    "delta": envelope.frame.delta,
+                }
+            )
+        elif isinstance(envelope.frame, AssistantThinkingDone):
+            await self._emit(
+                {
+                    "type": "thinking.completed",
+                    "messageId": envelope.message_id,
+                }
+            )
 
     def _projector_for(self, session_id: str) -> TimelineProjector:
         if self._projector is None:
@@ -229,6 +248,8 @@ def _message_entry(
     role: Literal["user", "assistant"],
     content: str,
     streaming: bool,
+    thinking: str = "",
+    thinking_done: bool = False,
     attachments: list[dict[str, Any]] | None = None,
     selections: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
@@ -238,6 +259,9 @@ def _message_entry(
         "content": content,
         "streaming": streaming,
     }
+    if thinking:
+        message["thinking"] = thinking
+        message["thinkingDone"] = thinking_done
     if attachments:
         message["attachments"] = attachments
     if selections:

@@ -9,38 +9,47 @@ import {
 } from "react";
 import type {
   ApprovalMode,
+  EffortLevel,
   UserAttachmentView,
   UserSelectionView,
 } from "../types";
 import { AttachmentChips } from "./AttachmentChips";
-import { PlusIcon, SendIcon } from "./icons";
+import { PlusIcon, SendIcon, StopIcon } from "./icons";
 import { ModePicker } from "./ModePicker";
 import { SelectionChips } from "./SelectionChips";
 
 interface ComposerProps {
   mode: ApprovalMode;
+  effort: EffortLevel;
   attachments: UserAttachmentView[];
   selections: UserSelectionView[];
   attachEnabled: boolean;
+  busy: boolean;
   onModeChange(value: ApprovalMode): void;
+  onEffortChange(value: EffortLevel): void;
   onAttachFiles(files: File[]): void;
   onPickAttachments(): void;
   onRemoveAttachment(relativePath: string): void;
   onRemoveSelection(id: string): void;
   onSend(text: string, attachments: UserAttachmentView[]): void;
+  onStop(): void;
 }
 
 export function Composer({
   mode,
+  effort,
   attachments,
   selections,
   attachEnabled,
+  busy,
   onModeChange,
+  onEffortChange,
   onAttachFiles,
   onPickAttachments,
   onRemoveAttachment,
   onRemoveSelection,
   onSend,
+  onStop,
 }: ComposerProps) {
   const [value, setValue] = useState("");
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -157,20 +166,37 @@ export function Composer({
           <PlusIcon />
         </button>
         <div className="composer-actions">
-          <ModePicker value={mode} onChange={onModeChange} />
-          <button
-            className="send-button"
-            type="submit"
-            aria-label="Send message"
-            title="Send message"
-            disabled={
-              !value.trim() &&
-              attachments.length === 0 &&
-              selections.length === 0
-            }
-          >
-            <SendIcon />
-          </button>
+          <ModePicker
+            value={mode}
+            effort={effort}
+            onChange={onModeChange}
+            onEffortChange={onEffortChange}
+          />
+          {busy ? (
+            <button
+              className="send-button send-button--stop"
+              type="button"
+              aria-label="Stop run"
+              title="Stop run"
+              onClick={onStop}
+            >
+              <StopIcon />
+            </button>
+          ) : (
+            <button
+              className="send-button"
+              type="submit"
+              aria-label="Send message"
+              title="Send message"
+              disabled={
+                !value.trim() &&
+                attachments.length === 0 &&
+                selections.length === 0
+              }
+            >
+              <SendIcon />
+            </button>
+          )}
         </div>
       </div>
     </form>

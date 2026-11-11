@@ -3,6 +3,7 @@ import {
   mkdtemp,
   readFile,
   rm,
+  writeFile,
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -20,6 +21,35 @@ async function main(): Promise<void> {
   try {
     const missing = await readSettings(configPath);
     assert.deepEqual(missing, DEFAULT_SETTINGS);
+    assert.equal(missing.effort, "high");
+    assert.equal(missing.maxSteps, 10);
+
+    const rawPath = join(dir, "raw.json");
+    await writeFile(
+      rawPath,
+      JSON.stringify({
+        version: 1,
+        apiKey: "",
+        model: "deepseek-chat",
+        baseUrl: "https://api.deepseek.com/v1",
+        effort: "turbo",
+        maxSteps: 0,
+        maxParallelTools: 99,
+        commandTimeoutSeconds: -1,
+        approvalTimeoutSeconds: 45,
+        contextWindowTokens: 2048,
+        keepLastUserTurns: 51,
+      }),
+      "utf8",
+    );
+    const normalized = await readSettings(rawPath);
+    assert.equal(normalized.effort, "high");
+    assert.equal(normalized.maxSteps, 10);
+    assert.equal(normalized.maxParallelTools, 4);
+    assert.equal(normalized.commandTimeoutSeconds, 120);
+    assert.equal(normalized.approvalTimeoutSeconds, 45);
+    assert.equal(normalized.contextWindowTokens, 2048);
+    assert.equal(normalized.keepLastUserTurns, 5);
 
     const migrated = migrateApiKey(
       { ...DEFAULT_SETTINGS, apiKey: "" },
@@ -34,6 +64,7 @@ async function main(): Promise<void> {
         ...migrated.settings,
         model: " deepseek-reasoner ",
         baseUrl: "https://example.test/v1///",
+        effort: "xhigh",
       },
       configPath,
     );
@@ -42,6 +73,7 @@ async function main(): Promise<void> {
     assert.equal(loaded.model, "deepseek-reasoner");
     assert.equal(loaded.baseUrl, "https://example.test/v1");
     assert.equal(loaded.apiKey, "sk-deepseek");
+    assert.equal(loaded.effort, "xhigh");
 
     const raw = JSON.parse(await readFile(configPath, "utf8")) as {
       version: number;

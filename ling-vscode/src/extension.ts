@@ -1,6 +1,12 @@
-import { readFileSync } from "node:fs";
+import {
+  existsSync,
+  readFileSync,
+  readdirSync,
+  type Dirent,
+} from "node:fs";
 import path from "node:path";
 import * as vscode from "vscode";
+import { resolveScratchWorkspaceRoot } from "./scratchWorkspace";
 import {
   isUiEvent,
   isWebviewToHostMessage,
@@ -12,9 +18,11 @@ import {
 import type { UiEvent } from "../shared/uiProtocol";
 import type {
   ApprovalMode,
+  EffortLevel,
   HistorySession,
   SessionSnapshot,
   SettingsView,
+  SkillStatus,
   UserAttachmentRef,
   UserSelectionRef,
 } from "../shared/uiTypes";
@@ -42,12 +50,28 @@ import {
 } from "./settings/config";
 import {
   SidecarClient,
+  resolveSkillsRoot,
   type SidecarExitInfo,
+  type SidecarSettings,
 } from "./sidecar/SidecarClient";
 
 const CHAT_VIEW_ID = "ling.chat";
 const WEBVIEW_ROOT = ["media", "webview"] as const;
 let activeSidecar: SidecarClient | undefined;
+
+function sidecarSettings(settings: LingSettings): SidecarSettings {
+  return {
+    apiKey: settings.apiKey || undefined,
+    model: settings.model,
+    baseUrl: settings.baseUrl,
+    maxSteps: settings.maxSteps,
+    maxParallelTools: settings.maxParallelTools,
+    commandTimeoutSeconds: settings.commandTimeoutSeconds,
+    approvalTimeoutSeconds: settings.approvalTimeoutSeconds,
+    contextWindowTokens: settings.contextWindowTokens,
+    keepLastUserTurns: settings.keepLastUserTurns,
+  };
+}
 
 export async function activate(
   context: vscode.ExtensionContext,
@@ -90,9 +114,7 @@ export async function activate(
   const sidecar = new SidecarClient({
     extensionPath: context.extensionUri.fsPath,
     output: (line) => output.appendLine(line),
-    apiKey: settings.apiKey || undefined,
-    model: settings.model,
-    baseUrl: settings.baseUrl,
+    ...sidecarSettings(settings),
   });
   activeSidecar = sidecar;
   const diffController = new DiffController(
@@ -178,6 +200,7 @@ class ChatViewProvider implements vscode.WebviewViewProvider {
   private view: vscode.WebviewView | undefined;
   private eventSequence = 0;
   private historyQuery = "";
+  private scratchRoot: string | undefined;
 
   constructor(
     private readonly extensionUri: vscode.Uri,
@@ -198,10 +221,27 @@ class ChatViewProvider implements vscode.WebviewViewProvider {
     const workspaceRoots = (
       vscode.workspace.workspaceFolders ?? []
     ).map((folder) => folder.uri);
+    const localResourceRoots = [webviewRoot, ...workspaceRoots];
+    try {
+      const scratchRoot = vscode.Uri.file(
+        this.sessionWorkspaceRoot(),
+      );
+      if (
+        !localResourceRoots.some(
+          (root) => root.fsPath === scratchRoot.fsPath,
+        )
+      ) {
+        localResourceRoots.push(scratchRoot);
+      }
+    } catch (error) {
+      this.output.appendLine(
+        `Unable to prepare scratch workspace: ${formatError(error)}`,
+      );
+    }
 
     webviewView.webview.options = {
       enableScripts: true,
-      localResourceRoots: [webviewRoot, ...workspaceRoots],
+      localResourceRoots,
     };
 
     webviewView.webview.html = this.getHtml(webviewView.webview, webviewRoot);
@@ -291,6 +331,7 @@ class ChatViewProvider implements vscode.WebviewViewProvider {
         void this.handleChatSubmit(
           value.text,
           value.approvalMode,
+          value.effort,
           value.attachments,
           value.selections,
         );
@@ -336,6 +377,10 @@ class ChatViewProvider implements vscode.WebviewViewProvider {
         void this.handleSettingsSave(value);
         break;
 
+      case "effort.change":
+        void this.handleEffortChange(value.effort);
+        break;
+
       case "approval.resolve":
         void this.handleApprovalResolve(value);
         break;
@@ -351,6 +396,17 @@ class ChatViewProvider implements vscode.WebviewViewProvider {
       case "run.cancel":
         this.output.appendLine("Run cancellation requested");
         void this.handleCancelRun();
+        break;
+
+      case "message.delete":
+        void this.handleDeleteMessage(value.messageId);
+        break;
+
+      case "message.regenerate":
+        void this.handleRegenerateMessage(
+          value.messageId,
+          value.effort,
+        );
         break;
 
       case "history.list":
@@ -398,7 +454,7 @@ class ChatViewProvider implements vscode.WebviewViewProvider {
 
   private async postHostContext(): Promise<void> {
     const workspaceName =
-      vscode.workspace.workspaceFolders?.[0]?.name ?? "No workspace";
+      vscode.workspace.workspaceFolders?.[0]?.name ?? "No folder";
     await this.view?.webview.postMessage({
       type: "ling.host-context",
       workspaceName,
@@ -431,9 +487,24 @@ class ChatViewProvider implements vscode.WebviewViewProvider {
     }
   }
 
+  private sessionWorkspaceRoot(): string {
+    const folder = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    if (folder) {
+      return folder;
+    }
+    if (!this.scratchRoot) {
+      this.scratchRoot = resolveScratchWorkspaceRoot();
+      this.output.appendLine(
+        `Using scratch workspace: ${this.scratchRoot}`,
+      );
+    }
+    return this.scratchRoot;
+  }
+
   private async handleChatSubmit(
     text: string,
     approvalMode: ApprovalMode,
+    effort: EffortLevel = "high",
     attachments: UserAttachmentRef[] = [],
     selections: UserSelectionRef[] = [],
   ): Promise<void> {
@@ -448,22 +519,14 @@ class ChatViewProvider implements vscode.WebviewViewProvider {
       return;
     }
 
-    const workspaceRoot =
-      vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
-    if (!workspaceRoot) {
-      this.postEvent({
-        type: "run.failed",
-        message: "Open a folder before starting a Ling session.",
-      });
-      return;
-    }
-
     try {
+      const workspaceRoot = this.sessionWorkspaceRoot();
       await this.sidecar.start();
       await this.sidecar.call("session.start", {
         prompt: text,
         workspaceRoot,
         approvalMode,
+        reasoning: effort,
         ...(attachments.length > 0 ? { attachments } : {}),
         ...(selections.length > 0 ? { selections } : {}),
       });
@@ -482,18 +545,8 @@ class ChatViewProvider implements vscode.WebviewViewProvider {
   private async handleAttachmentSave(
     value: Extract<WebviewToHostMessage, { type: "attachment.save" }>,
   ): Promise<void> {
-    const workspaceRoot =
-      vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
-    if (!workspaceRoot) {
-      this.postToWebview({
-        type: "ling.attachment-saved",
-        requestId: value.requestId,
-        error: "Open a folder before attaching images.",
-      });
-      return;
-    }
-
     try {
+      const workspaceRoot = this.sessionWorkspaceRoot();
       const bytes = Buffer.from(value.dataBase64, "base64");
       const saved = await saveAttachmentImage({
         workspaceRoot,
@@ -527,17 +580,6 @@ class ChatViewProvider implements vscode.WebviewViewProvider {
   }
 
   private async handleAttachmentPick(): Promise<void> {
-    const workspaceRoot =
-      vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
-    if (!workspaceRoot) {
-      this.postToWebview({
-        type: "ling.attachment-saved",
-        requestId: `pick-${Date.now().toString(36)}`,
-        error: "Open a folder before attaching files.",
-      });
-      return;
-    }
-
     const selection = await vscode.window.showOpenDialog({
       canSelectMany: true,
       openLabel: "Attach",
@@ -567,7 +609,7 @@ class ChatViewProvider implements vscode.WebviewViewProvider {
         if (isImage) {
           const bytes = await vscode.workspace.fs.readFile(uri);
           const saved = await saveAttachmentImage({
-            workspaceRoot,
+            workspaceRoot: this.sessionWorkspaceRoot(),
             bytes,
             mimeType,
             suggestedName: name,
@@ -623,20 +665,13 @@ class ChatViewProvider implements vscode.WebviewViewProvider {
   private async handleAttachmentOpen(
     relativePath: string,
   ): Promise<void> {
-    const workspaceRoot =
-      vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
-
     try {
       const file = path.isAbsolute(relativePath)
         ? relativePath
-        : workspaceRoot
-          ? resolveAttachmentFile(workspaceRoot, relativePath)
-          : undefined;
-      if (!file) {
-        throw new Error(
-          "Open a folder before opening workspace attachments",
-        );
-      }
+        : resolveAttachmentFile(
+            this.sessionWorkspaceRoot(),
+            relativePath,
+          );
       await vscode.commands.executeCommand(
         "vscode.open",
         vscode.Uri.file(file),
@@ -693,14 +728,13 @@ class ChatViewProvider implements vscode.WebviewViewProvider {
   }
 
   private attachmentUri(relativePath: string): string | undefined {
-    const folder = vscode.workspace.workspaceFolders?.[0];
     const view = this.view;
-    if (!folder || !view) {
+    if (!view) {
       return undefined;
     }
     try {
       const file = resolveAttachmentFile(
-        folder.uri.fsPath,
+        this.sessionWorkspaceRoot(),
         relativePath,
       );
       return view.webview
@@ -730,11 +764,84 @@ class ChatViewProvider implements vscode.WebviewViewProvider {
   }
 
   private settingsView(): SettingsView {
+    const diffInline = vscode.workspace
+      .getConfiguration("ling")
+      .get<boolean>("diff.inlineView", true);
     return {
       apiKey: this.settings.apiKey,
       model: this.settings.model,
       baseUrl: this.settings.baseUrl,
+      effort: this.settings.effort,
+      diffView: diffInline ? "inline" : "sideBySide",
+      maxSteps: this.settings.maxSteps,
+      maxParallelTools: this.settings.maxParallelTools,
+      commandTimeoutSeconds: this.settings.commandTimeoutSeconds,
+      approvalTimeoutSeconds: this.settings.approvalTimeoutSeconds,
+      contextWindowTokens: this.settings.contextWindowTokens,
+      keepLastUserTurns: this.settings.keepLastUserTurns,
+      skills: this.skillStatuses(),
     };
+  }
+
+  private skillStatuses(): SkillStatus[] {
+    const roots: Array<{
+      source: "builtin" | "workspace";
+      root: string;
+    }> = [];
+    const builtin = resolveSkillsRoot(this.extensionUri.fsPath);
+    if (builtin) {
+      roots.push({ source: "builtin", root: builtin });
+    }
+    const workspaceRoot =
+      vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ??
+      this.scratchRoot;
+    if (workspaceRoot) {
+      const skillsRoot = path.join(
+        workspaceRoot,
+        ".agents",
+        "skills",
+      );
+      if (existsSync(skillsRoot)) {
+        roots.push({ source: "workspace", root: skillsRoot });
+      }
+    }
+
+    const found = new Map<string, SkillStatus>();
+    for (const { source, root } of roots) {
+      let entries: Dirent[];
+      try {
+        entries = readdirSync(root, { withFileTypes: true });
+      } catch {
+        continue;
+      }
+      for (const entry of entries) {
+        if (!entry.isDirectory() || entry.name.startsWith(".")) {
+          continue;
+        }
+        const skillDir = path.join(root, entry.name);
+        if (!existsSync(path.join(skillDir, "SKILL.md"))) {
+          continue;
+        }
+        const existing = found.get(entry.name);
+        if (existing && source === "workspace") {
+          found.set(entry.name, {
+            name: entry.name,
+            source,
+            path: skillDir,
+            overridesBuiltin: true,
+          });
+        } else if (!existing) {
+          found.set(entry.name, {
+            name: entry.name,
+            source,
+            path: skillDir,
+          });
+        }
+      }
+    }
+    return [...found.values()].sort((left, right) =>
+      left.name.localeCompare(right.name),
+    );
   }
 
   private postSettings(error?: string): void {
@@ -764,10 +871,18 @@ class ChatViewProvider implements vscode.WebviewViewProvider {
       apiKey: value.apiKey.trim(),
       model,
       baseUrl,
+      effort: value.effort,
+      maxSteps: value.maxSteps,
+      maxParallelTools: value.maxParallelTools,
+      commandTimeoutSeconds: value.commandTimeoutSeconds,
+      approvalTimeoutSeconds: value.approvalTimeoutSeconds,
+      contextWindowTokens: value.contextWindowTokens,
+      keepLastUserTurns: value.keepLastUserTurns,
     };
 
     try {
       await writeSettings(next, this.configPath);
+      this.settings = await readSettings(this.configPath);
     } catch (error) {
       this.output.appendLine(
         `Unable to save Ling settings: ${formatError(error)}`,
@@ -780,12 +895,21 @@ class ChatViewProvider implements vscode.WebviewViewProvider {
       return;
     }
 
-    this.settings = next;
-    this.sidecar.setSettings({
-      apiKey: next.apiKey || undefined,
-      model: next.model,
-      baseUrl: next.baseUrl,
-    });
+    try {
+      await vscode.workspace
+        .getConfiguration("ling")
+        .update(
+          "diff.inlineView",
+          value.diffView === "inline",
+          vscode.ConfigurationTarget.Global,
+        );
+    } catch (error) {
+      this.output.appendLine(
+        `Unable to update diff view setting: ${formatError(error)}`,
+      );
+    }
+
+    this.sidecar.setSettings(sidecarSettings(this.settings));
     this.output.appendLine(`Ling settings saved to ${this.configPath}`);
 
     try {
@@ -803,6 +927,65 @@ class ChatViewProvider implements vscode.WebviewViewProvider {
         type: "ling.settings-saved",
         settings: this.settingsView(),
         warning: `Settings saved, but the sidecar could not restart: ${formatError(error)}`,
+      });
+    }
+  }
+
+  private async handleEffortChange(
+    effort: EffortLevel,
+  ): Promise<void> {
+    if (this.settings.effort === effort) {
+      return;
+    }
+    try {
+      await writeSettings(
+        { ...this.settings, effort },
+        this.configPath,
+      );
+      this.settings = { ...this.settings, effort };
+      this.sidecar.setSettings(sidecarSettings(this.settings));
+      this.output.appendLine(`Reasoning effort set to ${effort}`);
+    } catch (error) {
+      this.output.appendLine(
+        `Unable to save reasoning effort: ${formatError(error)}`,
+      );
+    }
+  }
+
+  private async handleDeleteMessage(
+    messageId: string,
+  ): Promise<void> {
+    try {
+      await this.sidecar.start();
+      await this.sidecar.call("session.deleteMessage", { messageId });
+    } catch (error) {
+      this.output.appendLine(
+        `Unable to delete message: ${formatError(error)}`,
+      );
+      this.postEvent({
+        type: "run.failed",
+        message: `Unable to delete the message: ${formatError(error)}`,
+      });
+    }
+  }
+
+  private async handleRegenerateMessage(
+    messageId: string,
+    effort?: EffortLevel,
+  ): Promise<void> {
+    try {
+      await this.sidecar.start();
+      await this.sidecar.call("session.regenerate", {
+        messageId,
+        ...(effort ? { reasoning: effort } : {}),
+      });
+    } catch (error) {
+      this.output.appendLine(
+        `Unable to regenerate message: ${formatError(error)}`,
+      );
+      this.postEvent({
+        type: "run.failed",
+        message: `Unable to regenerate the message: ${formatError(error)}`,
       });
     }
   }
@@ -922,15 +1105,17 @@ class ChatViewProvider implements vscode.WebviewViewProvider {
 
     try {
       await this.sidecar.start();
+      const workspaceRoot = this.sessionWorkspaceRoot();
       const result = this.historyQuery
         ? await this.sidecar.call<{
             sessions: HistorySession[];
           }>("session.search", {
             query: this.historyQuery,
+            workspaceRoot,
           })
         : await this.sidecar.call<{
             sessions: HistorySession[];
-          }>("session.list");
+          }>("session.list", { workspaceRoot });
       await this.view?.webview.postMessage({
         type: "ling.history-list",
         sessions: result.sessions,
@@ -972,9 +1157,10 @@ class ChatViewProvider implements vscode.WebviewViewProvider {
   private async handleOpenHistory(sessionId: string): Promise<void> {
     try {
       await this.sidecar.start();
+      const workspaceRoot = this.sessionWorkspaceRoot();
       const snapshot = await this.sidecar.call<SessionSnapshot>(
         "session.open",
-        { sessionId },
+        { sessionId, workspaceRoot },
       );
       this.postEvent({
         type: "session.snapshot",
@@ -1024,7 +1210,7 @@ class ChatViewProvider implements vscode.WebviewViewProvider {
     if (event.type !== "session.snapshot") {
       return event;
     }
-    if (!this.view || !vscode.workspace.workspaceFolders?.length) {
+    if (!this.view) {
       return event;
     }
 

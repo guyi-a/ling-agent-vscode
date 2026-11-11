@@ -133,6 +133,11 @@ class AssistantThinkingDelta:
 
 
 @dataclass(slots=True, frozen=True)
+class AssistantThinkingDone:
+    """Marks the end of one assistant thinking block."""
+
+
+@dataclass(slots=True, frozen=True)
 class ToolArgumentsDelta:
     delta: str
 
@@ -145,6 +150,7 @@ class ToolStatusChanged:
 StreamFrame: TypeAlias = (
     AssistantTextDelta
     | AssistantThinkingDelta
+    | AssistantThinkingDone
     | ToolArgumentsDelta
     | ToolStatusChanged
 )
@@ -189,6 +195,7 @@ __all__ = [
     "AssistantMessageCommitted",
     "AssistantTextDelta",
     "AssistantThinkingDelta",
+    "AssistantThinkingDone",
     "CompactionApplied",
     "CommittedEvent",
     "CommittedEventEnvelope",

@@ -114,6 +114,8 @@ export interface TimelineMessage {
   id: string;
   role: "user" | "assistant";
   content: string;
+  thinking?: string;
+  thinkingDone?: boolean;
   streaming: boolean;
   attachments?: UserAttachmentView[];
   selections?: UserSelectionSummary[];
@@ -165,10 +167,35 @@ export interface HistorySession {
   snippet?: string;
 }
 
+export type EffortLevel =
+  | "low"
+  | "medium"
+  | "high"
+  | "xhigh"
+  | "max";
+
+export type DiffView = "inline" | "sideBySide";
+
+export interface SkillStatus {
+  name: string;
+  source: "builtin" | "workspace";
+  path: string;
+  overridesBuiltin?: boolean;
+}
+
 export interface SettingsView {
   apiKey: string;
   model: string;
   baseUrl: string;
+  effort: EffortLevel;
+  diffView: DiffView;
+  maxSteps: number;
+  maxParallelTools: number;
+  commandTimeoutSeconds: number;
+  approvalTimeoutSeconds: number;
+  contextWindowTokens: number;
+  keepLastUserTurns: number;
+  skills: SkillStatus[];
 }
 
 export interface TimelineState extends SessionSnapshot {

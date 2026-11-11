@@ -469,6 +469,21 @@ async def _consume_sse(
     tool_calls_by_id: dict[str, _StreamingToolCall] = {}
     tool_call_states: list[_StreamingToolCall] = []
 
+    def close_thinking() -> None:
+        nonlocal thinking_index
+        if thinking_index is None:
+            return
+        block = partial.content[thinking_index]
+        if isinstance(block, ThinkingContent):
+            stream.push(
+                ThinkingEndEvent(
+                    content_index=thinking_index,
+                    content=block.thinking,
+                    partial=partial,
+                )
+            )
+        thinking_index = None
+
     iterator = lines.__aiter__()
     while True:
         try:
@@ -516,6 +531,7 @@ async def _consume_sse(
 
         content = delta.get("content")
         if content:
+            close_thinking()
             if text_index is None:
                 partial.content.append(TextContent(""))
                 text_index = len(partial.content) - 1
@@ -568,6 +584,7 @@ async def _consume_sse(
             )
 
         for tool_call_delta in delta.get("tool_calls") or []:
+            close_thinking()
             stream_index = tool_call_delta.get("index")
             if not isinstance(stream_index, int):
                 stream_index = None

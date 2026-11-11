@@ -199,6 +199,21 @@ class JsonRpcServer:
             )
             attachments = _parse_user_attachments(params.get("attachments"))
             selections = _parse_user_selections(params.get("selections"))
+            reasoning = params.get("reasoning")
+            if reasoning in (None, "", "auto"):
+                reasoning = None
+            elif reasoning not in (
+                "low",
+                "medium",
+                "high",
+                "xhigh",
+                "max",
+            ):
+                raise JsonRpcError(
+                    -32602,
+                    "reasoning must be one of: auto, low, medium, high, "
+                    "xhigh, max",
+                )
             if not isinstance(prompt, str):
                 raise JsonRpcError(-32602, "prompt must be a string")
             if not prompt.strip() and not attachments and not selections:
@@ -218,6 +233,49 @@ class JsonRpcServer:
                     approval_mode=approval_mode,
                     attachments=attachments,
                     selections=selections,
+                    reasoning=reasoning,
+                )
+            except (RuntimeError, ValueError) as exc:
+                raise JsonRpcError(-32001, str(exc)) from exc
+
+        if method == "session.deleteMessage":
+            message_id = params.get("messageId")
+            if not isinstance(message_id, str) or not message_id:
+                raise JsonRpcError(
+                    -32602,
+                    "messageId must be a non-empty string",
+                )
+            try:
+                return await self._sessions.delete_message(message_id)
+            except (RuntimeError, ValueError) as exc:
+                raise JsonRpcError(-32001, str(exc)) from exc
+
+        if method == "session.regenerate":
+            message_id = params.get("messageId")
+            if not isinstance(message_id, str) or not message_id:
+                raise JsonRpcError(
+                    -32602,
+                    "messageId must be a non-empty string",
+                )
+            reasoning = params.get("reasoning")
+            if reasoning in (None, "", "auto"):
+                reasoning = None
+            elif reasoning not in (
+                "low",
+                "medium",
+                "high",
+                "xhigh",
+                "max",
+            ):
+                raise JsonRpcError(
+                    -32602,
+                    "reasoning must be one of: auto, low, medium, high, "
+                    "xhigh, max",
+                )
+            try:
+                return await self._sessions.regenerate_message(
+                    message_id,
+                    reasoning=reasoning,
                 )
             except (RuntimeError, ValueError) as exc:
                 raise JsonRpcError(-32001, str(exc)) from exc
@@ -254,12 +312,34 @@ class JsonRpcServer:
             return {"mode": applied.value}
 
         if method == "session.list":
-            return {"sessions": await self._sessions.list_sessions()}
+            workspace_root = params.get("workspaceRoot")
+            if workspace_root is not None and (
+                not isinstance(workspace_root, str)
+                or not workspace_root.strip()
+            ):
+                raise JsonRpcError(
+                    -32602,
+                    "workspaceRoot must be a non-empty string",
+                )
+            return {
+                "sessions": await self._sessions.list_sessions(
+                    workspace_root
+                )
+            }
 
         if method == "session.search":
             query = params.get("query")
             if not isinstance(query, str):
                 raise JsonRpcError(-32602, "query must be a string")
+            workspace_root = params.get("workspaceRoot")
+            if workspace_root is not None and (
+                not isinstance(workspace_root, str)
+                or not workspace_root.strip()
+            ):
+                raise JsonRpcError(
+                    -32602,
+                    "workspaceRoot must be a non-empty string",
+                )
             limit = params.get("limit", 50)
             if (
                 not isinstance(limit, int)
@@ -274,6 +354,7 @@ class JsonRpcServer:
             return {
                 "sessions": await self._sessions.search_sessions(
                     query,
+                    workspace_root=workspace_root,
                     limit=limit,
                 )
             }
@@ -306,8 +387,20 @@ class JsonRpcServer:
             session_id = params.get("sessionId")
             if not isinstance(session_id, str) or not session_id:
                 raise JsonRpcError(-32602, "sessionId must be a string")
+            workspace_root = params.get("workspaceRoot")
+            if workspace_root is not None and (
+                not isinstance(workspace_root, str)
+                or not workspace_root.strip()
+            ):
+                raise JsonRpcError(
+                    -32602,
+                    "workspaceRoot must be a non-empty string",
+                )
             try:
-                return await self._sessions.open_session(session_id)
+                return await self._sessions.open_session(
+                    session_id,
+                    workspace_root=workspace_root,
+                )
             except (RuntimeError, ValueError) as exc:
                 raise JsonRpcError(-32004, str(exc)) from exc
 

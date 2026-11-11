@@ -19,6 +19,15 @@ export type UiEvent =
       delta: string;
     }
   | {
+      type: "thinking.delta";
+      messageId: string;
+      delta: string;
+    }
+  | {
+      type: "thinking.completed";
+      messageId: string;
+    }
+  | {
       type: "message.completed";
       messageId: string;
     }

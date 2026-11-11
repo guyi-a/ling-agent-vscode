@@ -5,9 +5,15 @@ import {
   useState,
   type KeyboardEvent,
 } from "react";
-import type { ApprovalMode } from "../types";
+import type { ApprovalMode, EffortLevel } from "../types";
+import { EffortSlider } from "./EffortSlider";
+import { CheckIcon } from "./icons";
 
-const MODES: Array<{ value: ApprovalMode; label: string; title: string }> = [
+const MODES: Array<{
+  value: ApprovalMode;
+  label: string;
+  title: string;
+}> = [
   {
     value: "manual",
     label: "Manual",
@@ -27,15 +33,22 @@ const MODES: Array<{ value: ApprovalMode; label: string; title: string }> = [
 
 interface ModePickerProps {
   value: ApprovalMode;
+  effort: EffortLevel;
   onChange(value: ApprovalMode): void;
+  onEffortChange(value: EffortLevel): void;
 }
 
-export function ModePicker({ value, onChange }: ModePickerProps) {
+export function ModePicker({
+  value,
+  effort,
+  onChange,
+  onEffortChange,
+}: ModePickerProps) {
   const [open, setOpen] = useState(false);
   const [activeIndex, setActiveIndex] = useState(0);
   const rootRef = useRef<HTMLDivElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
-  const menuRef = useRef<HTMLUListElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
   const baseId = useId();
   const current = MODES.find((mode) => mode.value === value) ?? MODES[0];
 
@@ -70,7 +83,7 @@ export function ModePicker({ value, onChange }: ModePickerProps) {
     triggerRef.current?.focus();
   }
 
-  function handleMenuKeyDown(event: KeyboardEvent<HTMLUListElement>) {
+  function handleMenuKeyDown(event: KeyboardEvent<HTMLDivElement>) {
     switch (event.key) {
       case "ArrowDown":
         event.preventDefault();
@@ -114,11 +127,11 @@ export function ModePicker({ value, onChange }: ModePickerProps) {
         ref={triggerRef}
         type="button"
         className="mode-picker__trigger"
-        aria-haspopup="listbox"
+        aria-haspopup="dialog"
         aria-expanded={open}
         aria-controls={open ? `${baseId}-menu` : undefined}
-        aria-label={`Approval mode: ${current.label}`}
-        title={current.title}
+        aria-label={`Chat options: ${current.label}`}
+        title="Approval mode and reasoning effort"
         onClick={() => (open ? setOpen(false) : openMenu())}
         onKeyDown={(event) => {
           if (event.key === "ArrowDown" || event.key === "ArrowUp") {
@@ -141,36 +154,66 @@ export function ModePicker({ value, onChange }: ModePickerProps) {
       </button>
 
       {open ? (
-        <ul
-          ref={menuRef}
-          id={`${baseId}-menu`}
+        <div
           className="mode-picker__menu"
-          role="listbox"
-          aria-label="Approval mode"
-          aria-activedescendant={`${baseId}-option-${activeIndex}`}
-          tabIndex={-1}
-          onKeyDown={handleMenuKeyDown}
+          id={`${baseId}-menu`}
+          role="dialog"
+          aria-label="Chat options"
+          onKeyDown={(event) => {
+            if (event.key === "Escape") {
+              event.preventDefault();
+              setOpen(false);
+              triggerRef.current?.focus();
+            }
+          }}
         >
-          {MODES.map((mode, index) => (
-            <li
-              key={mode.value}
-              id={`${baseId}-option-${index}`}
-              className={
-                index === activeIndex
-                  ? "mode-picker__option is-active"
-                  : "mode-picker__option"
-              }
-              role="option"
-              aria-selected={mode.value === value}
-              onMouseEnter={() => setActiveIndex(index)}
-              onMouseDown={(event) => event.preventDefault()}
-              onClick={() => select(mode.value)}
-            >
-              <span className="mode-picker__label">{mode.label}</span>
-              <span className="mode-picker__hint">{mode.title}</span>
-            </li>
-          ))}
-        </ul>
+          <p className="mode-picker__title">Modes</p>
+          <div
+            ref={menuRef}
+            className="mode-picker__options"
+            role="listbox"
+            aria-label="Approval mode"
+            aria-activedescendant={`${baseId}-option-${activeIndex}`}
+            tabIndex={-1}
+            onKeyDown={handleMenuKeyDown}
+          >
+            {MODES.map((mode, index) => (
+              <div
+                key={mode.value}
+                id={`${baseId}-option-${index}`}
+                className={
+                  index === activeIndex
+                    ? "mode-picker__option is-active"
+                    : "mode-picker__option"
+                }
+                role="option"
+                aria-selected={mode.value === value}
+                onMouseEnter={() => setActiveIndex(index)}
+                onMouseDown={(event) => event.preventDefault()}
+                onClick={() => select(mode.value)}
+              >
+                <div className="mode-picker__option-text">
+                  <span className="mode-picker__label">
+                    {mode.label}
+                  </span>
+                  <span className="mode-picker__hint">
+                    {mode.title}
+                  </span>
+                </div>
+                {mode.value === value ? (
+                  <CheckIcon className="mode-picker__check" />
+                ) : null}
+              </div>
+            ))}
+          </div>
+
+          <div className="mode-picker__divider" />
+
+          <EffortSlider value={effort} onChange={onEffortChange} />
+          <p className="mode-picker__effort-hint">
+            Higher effort spends more reasoning tokens.
+          </p>
+        </div>
       ) : null}
     </div>
   );

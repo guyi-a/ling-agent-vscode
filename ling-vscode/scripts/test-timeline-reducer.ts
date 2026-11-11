@@ -33,6 +33,81 @@ assert.equal(state.phase, "running");
 assert.equal(state.entries.length, 5);
 assert.equal(state.pendingApprovals.length, 0);
 
+let thinkingState = apply(createEmptyTimelineState(), {
+  type: "thinking.delta",
+  messageId: "message-thinking-1",
+  delta: "Consider ",
+});
+thinkingState = apply(thinkingState, {
+  type: "thinking.delta",
+  messageId: "message-thinking-1",
+  delta: "the options.",
+});
+const thinkingEntry = thinkingState.entries.find(
+  (entry) =>
+    entry.kind === "message" &&
+    entry.message.id === "message-thinking-1",
+);
+assert.equal(thinkingEntry?.kind, "message");
+assert.equal(
+  thinkingEntry?.kind === "message"
+    ? thinkingEntry.message.thinking
+    : undefined,
+  "Consider the options.",
+);
+assert.equal(
+  thinkingEntry?.kind === "message"
+    ? thinkingEntry.message.content
+    : undefined,
+  "",
+);
+assert.equal(thinkingState.phase, "running");
+assert.equal(
+  thinkingEntry?.kind === "message"
+    ? thinkingEntry.message.thinkingDone
+    : undefined,
+  false,
+);
+
+thinkingState = apply(thinkingState, {
+  type: "thinking.completed",
+  messageId: "message-thinking-1",
+});
+const doneEntry = thinkingState.entries.find(
+  (entry) =>
+    entry.kind === "message" &&
+    entry.message.id === "message-thinking-1",
+);
+assert.equal(
+  doneEntry?.kind === "message"
+    ? doneEntry.message.thinkingDone
+    : undefined,
+  true,
+);
+
+thinkingState = apply(thinkingState, {
+  type: "thinking.delta",
+  messageId: "message-thinking-1",
+  delta: " More.",
+});
+const resumedEntry = thinkingState.entries.find(
+  (entry) =>
+    entry.kind === "message" &&
+    entry.message.id === "message-thinking-1",
+);
+assert.equal(
+  resumedEntry?.kind === "message"
+    ? resumedEntry.message.thinkingDone
+    : undefined,
+  false,
+);
+assert.equal(
+  resumedEntry?.kind === "message"
+    ? resumedEntry.message.thinking
+    : undefined,
+  "Consider the options. More.",
+);
+
 state = apply(state, {
   type: "message.delta",
   messageId: "message-assistant-1",
@@ -303,6 +378,34 @@ assert.notEqual(
 );
 assert.equal(
   isUiEvent({
+    type: "thinking.delta",
+    messageId: "message-thinking-1",
+    delta: "thinking",
+  }),
+  true,
+);
+assert.equal(
+  isUiEvent({
+    type: "thinking.delta",
+    messageId: "message-thinking-1",
+  }),
+  false,
+);
+assert.equal(
+  isUiEvent({
+    type: "thinking.completed",
+    messageId: "message-thinking-1",
+  }),
+  true,
+);
+assert.equal(
+  isUiEvent({
+    type: "thinking.completed",
+  }),
+  false,
+);
+assert.equal(
+  isUiEvent({
     type: "session.snapshot",
     snapshot: {
       phase: "idle",
@@ -337,6 +440,120 @@ assert.equal(
     text: "hello",
     approvalMode: "manual",
     attachments: [{ ...imageAttachment, mediaType: "text/plain" }],
+  }),
+  false,
+);
+assert.equal(
+  isWebviewToHostMessage({
+    type: "chat.submit",
+    text: "think hard",
+    approvalMode: "manual",
+    effort: "high",
+  }),
+  true,
+);
+assert.equal(
+  isWebviewToHostMessage({
+    type: "chat.submit",
+    text: "think harder",
+    approvalMode: "manual",
+    effort: "xhigh",
+  }),
+  true,
+);
+assert.equal(
+  isWebviewToHostMessage({
+    type: "chat.submit",
+    text: "think harder",
+    approvalMode: "manual",
+    effort: "max",
+  }),
+  true,
+);
+assert.equal(
+  isWebviewToHostMessage({
+    type: "chat.submit",
+    text: "think harder",
+    approvalMode: "manual",
+    effort: "turbo",
+  }),
+  false,
+);
+assert.equal(
+  isWebviewToHostMessage({
+    type: "message.delete",
+    messageId: "message-assistant-1",
+  }),
+  true,
+);
+assert.equal(
+  isWebviewToHostMessage({
+    type: "message.delete",
+    messageId: "",
+  }),
+  false,
+);
+assert.equal(
+  isWebviewToHostMessage({
+    type: "message.regenerate",
+    messageId: "message-assistant-1",
+    effort: "high",
+  }),
+  true,
+);
+assert.equal(
+  isWebviewToHostMessage({
+    type: "message.regenerate",
+    messageId: "message-assistant-1",
+    effort: "turbo",
+  }),
+  false,
+);
+assert.equal(
+  isWebviewToHostMessage({
+    type: "effort.change",
+    effort: "medium",
+  }),
+  true,
+);
+assert.equal(
+  isWebviewToHostMessage({
+    type: "effort.change",
+    effort: "maximum",
+  }),
+  false,
+);
+assert.equal(
+  isWebviewToHostMessage({
+    type: "settings.save",
+    apiKey: "sk-test",
+    model: "deepseek-chat",
+    baseUrl: "https://api.deepseek.com/v1",
+    effort: "high",
+    diffView: "inline",
+    maxSteps: 10,
+    maxParallelTools: 4,
+    commandTimeoutSeconds: 120,
+    approvalTimeoutSeconds: 120,
+    contextWindowTokens: 1_000_000,
+    keepLastUserTurns: 5,
+  }),
+  true,
+);
+assert.equal(
+  isWebviewToHostMessage({
+    type: "settings.save",
+    apiKey: "sk-test",
+    model: "deepseek-chat",
+    baseUrl: "https://api.deepseek.com/v1",
+    effort: "high",
+    diffView: "inline",
+    maxSteps: 0,
+    maxParallelTools: 4,
+    commandTimeoutSeconds: 120,
+    approvalTimeoutSeconds: 120,
+    contextWindowTokens: 1_000_000,
+    keepLastUserTurns: 5,
   }),
   false,
 );

@@ -4,6 +4,8 @@ import type {
   ApprovalRequest,
   AskUserAnswer,
   AskUserQuestion,
+  DiffView,
+  EffortLevel,
   HistorySession,
   QueuedMessage,
   QuestionRequest,
@@ -38,6 +40,7 @@ export type WebviewToHostMessage =
       type: "chat.submit";
       text: string;
       approvalMode: ApprovalMode;
+      effort?: EffortLevel;
       attachments?: UserAttachmentRef[];
       selections?: UserSelectionRef[];
     }
@@ -81,6 +84,18 @@ export type WebviewToHostMessage =
       apiKey: string;
       model: string;
       baseUrl: string;
+      effort: EffortLevel;
+      diffView: DiffView;
+      maxSteps: number;
+      maxParallelTools: number;
+      commandTimeoutSeconds: number;
+      approvalTimeoutSeconds: number;
+      contextWindowTokens: number;
+      keepLastUserTurns: number;
+    }
+  | {
+      type: "effort.change";
+      effort: EffortLevel;
     }
   | {
       type: "approval.resolve";
@@ -100,6 +115,15 @@ export type WebviewToHostMessage =
     }
   | {
       type: "run.cancel";
+    }
+  | {
+      type: "message.delete";
+      messageId: string;
+    }
+  | {
+      type: "message.regenerate";
+      messageId: string;
+      effort?: EffortLevel;
     }
   | {
       type: "history.list";
@@ -169,9 +193,21 @@ export function isWebviewToHostMessage(
         typeof value.protocol === "number"
       );
     case "session.new":
-    case "run.cancel":
     case "history.list":
       return true;
+    case "run.cancel":
+      return true;
+    case "message.delete":
+      return (
+        typeof value.messageId === "string" &&
+        value.messageId.length > 0
+      );
+    case "message.regenerate":
+      return (
+        typeof value.messageId === "string" &&
+        value.messageId.length > 0 &&
+        (value.effort === undefined || isEffortLevel(value.effort))
+      );
     case "history.search":
       return typeof value.query === "string";
     case "history.delete":
@@ -184,6 +220,7 @@ export function isWebviewToHostMessage(
       return (
         typeof value.text === "string" &&
         isApprovalMode(value.approvalMode) &&
+        (value.effort === undefined || isEffortLevel(value.effort)) &&
         (value.attachments === undefined ||
           (Array.isArray(value.attachments) &&
             value.attachments.length <= MAX_ATTACHMENTS_PER_MESSAGE &&
@@ -238,8 +275,18 @@ export function isWebviewToHostMessage(
       return (
         typeof value.apiKey === "string" &&
         typeof value.model === "string" &&
-        typeof value.baseUrl === "string"
+        typeof value.baseUrl === "string" &&
+        isEffortLevel(value.effort) &&
+        isDiffView(value.diffView) &&
+        isPositiveInteger(value.maxSteps) &&
+        isPositiveInteger(value.maxParallelTools) &&
+        isPositiveNumber(value.commandTimeoutSeconds) &&
+        isPositiveNumber(value.approvalTimeoutSeconds) &&
+        isPositiveInteger(value.contextWindowTokens) &&
+        isNonNegativeInteger(value.keepLastUserTurns)
       );
+    case "effort.change":
+      return isEffortLevel(value.effort);
     case "approval.resolve":
       return (
         typeof value.approvalId === "string" &&
@@ -341,6 +388,13 @@ export function isUiEvent(value: unknown): value is UiEvent {
         value.role === "assistant" &&
         typeof value.delta === "string"
       );
+    case "thinking.delta":
+      return (
+        typeof value.messageId === "string" &&
+        typeof value.delta === "string"
+      );
+    case "thinking.completed":
+      return typeof value.messageId === "string";
     case "message.completed":
       return typeof value.messageId === "string";
     case "tool.updated":
@@ -383,7 +437,28 @@ function isSettingsView(value: unknown): value is SettingsView {
     isRecord(value) &&
     typeof value.apiKey === "string" &&
     typeof value.model === "string" &&
-    typeof value.baseUrl === "string"
+    typeof value.baseUrl === "string" &&
+    isEffortLevel(value.effort) &&
+    isDiffView(value.diffView) &&
+    isPositiveInteger(value.maxSteps) &&
+    isPositiveInteger(value.maxParallelTools) &&
+    isPositiveNumber(value.commandTimeoutSeconds) &&
+    isPositiveNumber(value.approvalTimeoutSeconds) &&
+    isPositiveInteger(value.contextWindowTokens) &&
+    isNonNegativeInteger(value.keepLastUserTurns) &&
+    Array.isArray(value.skills) &&
+    value.skills.every(isSkillStatus)
+  );
+}
+
+function isSkillStatus(value: unknown): boolean {
+  return (
+    isRecord(value) &&
+    typeof value.name === "string" &&
+    (value.source === "builtin" || value.source === "workspace") &&
+    typeof value.path === "string" &&
+    (value.overridesBuiltin === undefined ||
+      typeof value.overridesBuiltin === "boolean")
   );
 }
 
@@ -477,6 +552,10 @@ function isTimelineEntry(value: unknown): value is TimelineEntry {
       (value.message.role === "user" ||
         value.message.role === "assistant") &&
       typeof value.message.content === "string" &&
+      (value.message.thinking === undefined ||
+        typeof value.message.thinking === "string") &&
+      (value.message.thinkingDone === undefined ||
+        typeof value.message.thinkingDone === "boolean") &&
       typeof value.message.streaming === "boolean" &&
       (value.message.attachments === undefined ||
         (Array.isArray(value.message.attachments) &&
@@ -544,6 +623,44 @@ function isApprovalMode(value: unknown): value is ApprovalMode {
     value === "manual" ||
     value === "accept-write" ||
     value === "auto"
+  );
+}
+
+function isEffortLevel(value: unknown): value is EffortLevel {
+  return (
+    value === "low" ||
+    value === "medium" ||
+    value === "high" ||
+    value === "xhigh" ||
+    value === "max"
+  );
+}
+
+function isDiffView(value: unknown): value is DiffView {
+  return value === "inline" || value === "sideBySide";
+}
+
+function isPositiveInteger(value: unknown): value is number {
+  return (
+    typeof value === "number" &&
+    Number.isInteger(value) &&
+    value >= 1
+  );
+}
+
+function isNonNegativeInteger(value: unknown): value is number {
+  return (
+    typeof value === "number" &&
+    Number.isInteger(value) &&
+    value >= 0
+  );
+}
+
+function isPositiveNumber(value: unknown): value is number {
+  return (
+    typeof value === "number" &&
+    Number.isFinite(value) &&
+    value > 0
   );
 }
 

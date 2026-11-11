@@ -36,6 +36,12 @@ export function timelineReducer(
     case "message.delta":
       return appendMessageDelta(state, action.messageId, action.delta);
 
+    case "thinking.delta":
+      return appendThinkingDelta(state, action.messageId, action.delta);
+
+    case "thinking.completed":
+      return completeThinking(state, action.messageId);
+
     case "message.completed":
       return completeMessage(state, action.messageId);
 
@@ -165,6 +171,9 @@ function appendMessageDelta(
       message: {
         ...entry.message,
         content: entry.message.content + delta,
+        ...(entry.message.thinking
+          ? { thinkingDone: true }
+          : {}),
         streaming: true,
       },
     };
@@ -190,6 +199,76 @@ function appendMessageDelta(
   };
 }
 
+function appendThinkingDelta(
+  state: TimelineState,
+  messageId: string,
+  delta: string,
+): TimelineState {
+  let found = false;
+  const entries = state.entries.map((entry) => {
+    if (
+      entry.kind !== "message" ||
+      entry.message.id !== messageId ||
+      entry.message.role !== "assistant"
+    ) {
+      return entry;
+    }
+
+    found = true;
+    return {
+      kind: "message" as const,
+      message: {
+        ...entry.message,
+        thinking: (entry.message.thinking ?? "") + delta,
+        thinkingDone: false,
+        streaming: true,
+      },
+    };
+  });
+
+  if (!found) {
+    entries.push({
+      kind: "message",
+      message: {
+        id: messageId,
+        role: "assistant",
+        content: "",
+        thinking: delta,
+        streaming: true,
+      },
+    });
+  }
+
+  return {
+    ...state,
+    phase: state.phase === "idle" ? "running" : state.phase,
+    entries,
+    error: null,
+  };
+}
+
+function completeThinking(
+  state: TimelineState,
+  messageId: string,
+): TimelineState {
+  return {
+    ...state,
+    entries: state.entries.map((entry) =>
+      entry.kind === "message" &&
+      entry.message.id === messageId &&
+      entry.message.role === "assistant"
+        ? {
+            kind: "message",
+            message: {
+              ...entry.message,
+              thinkingDone: true,
+            },
+          }
+        : entry,
+    ),
+  };
+}
+
 function completeMessage(
   state: TimelineState,
   messageId: string,
@@ -206,6 +285,9 @@ function completeMessage(
             kind: "message",
             message: {
               ...entry.message,
+              ...(entry.message.thinking
+                ? { thinkingDone: true }
+                : {}),
               streaming: false,
             },
           }

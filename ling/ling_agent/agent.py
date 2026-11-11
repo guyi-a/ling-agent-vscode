@@ -423,6 +423,7 @@ class CodingAgent:
         *,
         attachments: Sequence[UserAttachment] = (),
         selections: Sequence[UserSelection] = (),
+        reasoning: str | None = None,
     ) -> AssistantMessage:
         attachment_refs = tuple(attachments)
         selection_refs = tuple(selections)
@@ -435,6 +436,17 @@ class CodingAgent:
         if len(selection_refs) > MAX_USER_SELECTIONS:
             raise ValueError(
                 f"At most {MAX_USER_SELECTIONS} selections are allowed"
+            )
+        if reasoning not in (
+            None,
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+            "max",
+        ):
+            raise ValueError(
+                "reasoning must be one of: low, medium, high, xhigh, max"
             )
 
         async with self._prompt_lock:
@@ -505,49 +517,87 @@ class CodingAgent:
                 selections=selection_refs,
                 display_text=text,
             )
-            hooks = self._create_hooks(session)
-            agent = Agent(
-                model=self.model,
-                stream_fn=self.stream_fn,
-                context=session.context,
-                tools=self._create_tools(),
-                hooks=hooks,
-                options=StreamOptions(
-                    cancel_event=self._cancel_event,
-                ),
-                max_steps=self.config.agent_max_steps,
-                max_parallel_tools=self.config.agent_max_parallel_tools,
-                prepare_context=self._prepare_context(session),
+            return await self._run_agent(
+                session,
+                reasoning,
+                has_attachments=bool(attachment_refs),
             )
-            try:
-                result = await agent.run(
-                    None,
-                    on_event=session.handle_model_event,
-                )
-            except AgentLoopLimitError as exc:
-                await session.stop_run("max_steps", exc.last_message)
-                raise
-            except AgentInputBlocked:
-                await session.stop_run("input_blocked")
-                raise
-            finally:
-                if self.questions is not None:
-                    await self.questions.cancel_all("Run finished")
 
-            if result.stop_reason == "error" and attachment_refs:
-                result.error_message = friendly_provider_error(
-                    result.error_message
-                )
-
-            status = (
-                "aborted"
-                if result.stop_reason == "aborted"
-                else "error"
-                if result.stop_reason == "error"
-                else "completed"
+    async def regenerate(
+        self,
+        *,
+        reasoning: str | None = None,
+    ) -> AssistantMessage:
+        if reasoning not in (
+            None,
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+            "max",
+        ):
+            raise ValueError(
+                "reasoning must be one of: low, medium, high, xhigh, max"
             )
-            await session.stop_run(status, result)
-            return result
+        async with self._prompt_lock:
+            session = await self._ensure_session()
+            if not session.context.messages:
+                raise ValueError("Nothing to regenerate")
+            self._cancel_event = asyncio.Event()
+            await session.start_continuation_run()
+            return await self._run_agent(session, reasoning)
+
+    async def _run_agent(
+        self,
+        session: Session,
+        reasoning: str | None,
+        *,
+        has_attachments: bool = False,
+    ) -> AssistantMessage:
+        hooks = self._create_hooks(session)
+        agent = Agent(
+            model=self.model,
+            stream_fn=self.stream_fn,
+            context=session.context,
+            tools=self._create_tools(),
+            hooks=hooks,
+            options=StreamOptions(
+                cancel_event=self._cancel_event,
+                reasoning=reasoning,
+            ),
+            max_steps=self.config.agent_max_steps,
+            max_parallel_tools=self.config.agent_max_parallel_tools,
+            prepare_context=self._prepare_context(session),
+        )
+        try:
+            result = await agent.run(
+                None,
+                on_event=session.handle_model_event,
+            )
+        except AgentLoopLimitError as exc:
+            await session.stop_run("max_steps", exc.last_message)
+            raise
+        except AgentInputBlocked:
+            await session.stop_run("input_blocked")
+            raise
+        finally:
+            if self.questions is not None:
+                await self.questions.cancel_all("Run finished")
+
+        if result.stop_reason == "error" and has_attachments:
+            result.error_message = friendly_provider_error(
+                result.error_message
+            )
+
+        status = (
+            "aborted"
+            if result.stop_reason == "aborted"
+            else "error"
+            if result.stop_reason == "error"
+            else "completed"
+        )
+        await session.stop_run(status, result)
+        return result
 
     async def cancel(self) -> None:
         if self._cancel_event is not None:

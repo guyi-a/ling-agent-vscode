@@ -335,9 +335,9 @@ def test_reasoning_stream() -> None:
         "thinking_start",
         "thinking_delta",
         "thinking_delta",
+        "thinking_end",
         "text_start",
         "text_delta",
-        "thinking_end",
         "text_end",
         "done",
     ]

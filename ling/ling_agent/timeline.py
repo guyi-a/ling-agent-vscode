@@ -17,6 +17,7 @@ from .events import (
     AssistantMessageCommitted,
     AssistantTextDelta,
     AssistantThinkingDelta,
+    AssistantThinkingDone,
     CompactionApplied,
     CommittedEventEnvelope,
     RunStarted,
@@ -50,6 +51,7 @@ class AssistantTimelineItem:
     created_seq: int
     text: str = ""
     thinking: str = ""
+    thinking_done: bool = False
     status: Literal["streaming", "completed", "error", "aborted"] = "streaming"
     stop_reason: str | None = None
     usage: Usage | None = None
@@ -195,6 +197,7 @@ class TimelineProjector:
             if isinstance(existing, AssistantTimelineItem):
                 existing.text = text
                 existing.thinking = thinking
+                existing.thinking_done = True
                 existing.status = _assistant_status(event.message)
                 existing.stop_reason = event.message.stop_reason
                 existing.usage = event.message.usage
@@ -208,6 +211,7 @@ class TimelineProjector:
                         created_seq=envelope.seq,
                         text=text,
                         thinking=thinking,
+                        thinking_done=True,
                         status=_assistant_status(event.message),
                         stop_reason=event.message.stop_reason,
                         usage=event.message.usage,
@@ -333,6 +337,15 @@ class TimelineProjector:
                 item.text += frame.delta
             else:
                 item.thinking += frame.delta
+                item.thinking_done = False
+            return
+
+        if isinstance(frame, AssistantThinkingDone):
+            if envelope.message_id in self._committed_assistant_ids:
+                return
+            item = self._find(envelope.message_id or "")
+            if isinstance(item, AssistantTimelineItem):
+                item.thinking_done = True
             return
 
         if isinstance(frame, ToolArgumentsDelta):

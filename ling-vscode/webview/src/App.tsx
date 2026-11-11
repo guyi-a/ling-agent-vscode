@@ -25,6 +25,7 @@ import {
 import type {
   ApprovalMode,
   AskUserAnswer,
+  EffortLevel,
   UserAttachmentView,
   UserSelectionRef,
   UserSelectionSummary,
@@ -35,6 +36,7 @@ import { toSelectionRefs } from "../../shared/selections";
 import {
   MAX_ATTACHMENTS_PER_MESSAGE,
   UI_PROTOCOL_VERSION,
+  type WebviewToHostMessage,
 } from "../../shared/transport";
 import type {
   HistorySession,
@@ -51,6 +53,7 @@ export function App() {
   );
   const [streamKey, setStreamKey] = useState(0);
   const [mode, setMode] = useState<ApprovalMode>("manual");
+  const [effort, setEffort] = useState<EffortLevel>("high");
   const [notice, setNotice] = useState("");
   const [historyOpen, setHistoryOpen] = useState(false);
   const [historyLoading, setHistoryLoading] = useState(false);
@@ -92,6 +95,7 @@ export function App() {
   const handleSettings = useCallback(
     (next: SettingsView, error?: string) => {
       setSettingsView(next);
+      setEffort(next.effort);
       setSettingsLoading(false);
       setSettingsError(error ?? "");
     },
@@ -106,6 +110,7 @@ export function App() {
       setSettingsSaving(false);
       if (next) {
         setSettingsView(next);
+        setEffort(next.effort);
       }
       if (error) {
         setSettingsError(error);
@@ -303,6 +308,9 @@ export function App() {
       host: host.kind,
       protocol: UI_PROTOCOL_VERSION,
     });
+    if (host.kind === "vscode") {
+      host.postMessage({ type: "settings.get" });
+    }
   }, [host]);
 
   const request = state.pendingApprovals[0];
@@ -481,15 +489,30 @@ export function App() {
     setSettingsNotice("");
   }
 
-  function saveSettings(input: {
-    apiKey: string;
-    model: string;
-    baseUrl: string;
-  }) {
+  function saveSettings(
+    input: Omit<
+      Extract<WebviewToHostMessage, { type: "settings.save" }>,
+      "type"
+    >,
+  ) {
     setSettingsSaving(true);
     setSettingsError("");
     setSettingsNotice("");
     host.postMessage({ type: "settings.save", ...input });
+  }
+
+  function deleteMessage(messageId: string) {
+    host.postMessage({ type: "message.delete", messageId });
+    setNotice("");
+  }
+
+  function regenerateMessage(messageId: string) {
+    host.postMessage({
+      type: "message.regenerate",
+      messageId,
+      effort,
+    });
+    setNotice("");
   }
 
   function send(
@@ -500,6 +523,7 @@ export function App() {
       type: "chat.submit",
       text,
       approvalMode: mode,
+      effort,
       ...(attachmentsToSend.length > 0
         ? { attachments: toAttachmentRefs(attachmentsToSend) }
         : {}),
@@ -521,23 +545,38 @@ export function App() {
     host.postMessage({ type: "mode.change", mode: next });
   }
 
+  function changeEffort(next: EffortLevel) {
+    setEffort(next);
+    if (host.kind === "vscode") {
+      host.postMessage({ type: "effort.change", effort: next });
+    }
+  }
+
   function openAttachment(relativePath: string) {
     host.postMessage({ type: "attachment.open", relativePath });
   }
 
-  function copySelection(text: string) {
+  function copyToClipboard(text: string, noticeText: string) {
     if (host.kind === "vscode") {
       host.postMessage({ type: "selection.copy", text });
     } else {
       void navigator.clipboard.writeText(text);
     }
-    setNotice("Selection copied.");
+    setNotice(noticeText);
     window.clearTimeout(copyNoticeTimer.current);
     copyNoticeTimer.current = window.setTimeout(() => {
       setNotice((current) =>
-        current === "Selection copied." ? "" : current,
+        current === noticeText ? "" : current,
       );
     }, 1600);
+  }
+
+  function copySelection(text: string) {
+    copyToClipboard(text, "Selection copied.");
+  }
+
+  function copyMessage(text: string) {
+    copyToClipboard(text, "Copied.");
   }
 
   function openSelection(selection: UserSelectionSummary) {
@@ -604,6 +643,10 @@ export function App() {
           state={state}
           onOpenAttachment={openAttachment}
           onOpenSelection={openSelection}
+          onCopyMessage={copyMessage}
+          onDeleteMessage={deleteMessage}
+          onRegenerateMessage={regenerateMessage}
+          actionsDisabled={busy || readOnly}
         />
       )}
 
@@ -679,10 +722,13 @@ export function App() {
         ) : (
           <Composer
             mode={mode}
+            effort={effort}
             attachments={attachments}
             selections={selections}
             attachEnabled={host.kind === "vscode"}
+            busy={busy}
             onModeChange={changeMode}
+            onEffortChange={changeEffort}
             onAttachFiles={(files) => {
               void attachFiles(files);
             }}
@@ -692,6 +738,7 @@ export function App() {
             onRemoveAttachment={removeAttachment}
             onRemoveSelection={removeSelection}
             onSend={send}
+            onStop={cancelRun}
           />
         )}
       </footer>

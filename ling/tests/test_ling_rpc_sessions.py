@@ -5,10 +5,12 @@ from __future__ import annotations
 import asyncio
 import io
 import json
+import os
 import tempfile
 import unittest
 from pathlib import Path
 from typing import Any, Callable
+from unittest.mock import patch
 
 from ling_ai.events import (
     DoneEvent,
@@ -16,6 +18,9 @@ from ling_ai.events import (
     TextDeltaEvent,
     TextEndEvent,
     TextStartEvent,
+    ThinkingDeltaEvent,
+    ThinkingEndEvent,
+    ThinkingStartEvent,
     ToolCallDeltaEvent,
     ToolCallEndEvent,
     ToolCallStartEvent,
@@ -28,6 +33,7 @@ from ling_ai.types import (
     ImageContent,
     Model,
     TextContent,
+    ThinkingContent,
     ToolCall,
     Usage,
 )
@@ -80,6 +86,7 @@ class ScriptedStreams:
     def __init__(self, messages: list[AssistantMessage]) -> None:
         self.messages = list(messages)
         self.contexts: list[list[object]] = []
+        self.options: list[object] = []
 
     def __call__(
         self,
@@ -88,6 +95,7 @@ class ScriptedStreams:
         options: object,
     ) -> AssistantMessageEventStream:
         self.contexts.append(list(context.messages))
+        self.options.append(options)
         message = self.messages.pop(0)
         stream = AssistantMessageEventStream()
         stream.push(StartEvent(partial=message))
@@ -107,6 +115,27 @@ class ScriptedStreams:
                     TextEndEvent(
                         content_index=content_index,
                         content=block.text,
+                        partial=message,
+                    )
+                )
+            elif isinstance(block, ThinkingContent) and block.thinking:
+                stream.push(
+                    ThinkingStartEvent(
+                        content_index=content_index,
+                        partial=message,
+                    )
+                )
+                stream.push(
+                    ThinkingDeltaEvent(
+                        content_index=content_index,
+                        delta=block.thinking,
+                        partial=message,
+                    )
+                )
+                stream.push(
+                    ThinkingEndEvent(
+                        content_index=content_index,
+                        content=block.thinking,
                         partial=message,
                     )
                 )
@@ -1691,6 +1720,370 @@ class LingRpcSessionTests(unittest.IsolatedAsyncioTestCase):
 
                 with self.assertRaises(ValueError):
                     await service.delete_session(second_id)
+            finally:
+                await service.close()
+
+    async def test_history_is_scoped_to_workspace(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            workspace_alpha = root / "alpha"
+            workspace_beta = root / "beta"
+            workspace_alpha.mkdir()
+            workspace_beta.mkdir()
+            events: list[dict[str, Any]] = []
+
+            async def emit(event: dict[str, Any]) -> None:
+                events.append(event)
+
+            streams = ScriptedStreams(
+                [
+                    _assistant([TextContent("Alpha done.")]),
+                    _assistant([TextContent("Beta done.")]),
+                ]
+            )
+            service = SessionService(
+                emit,
+                model=MODEL,
+                stream_fn=streams,
+                storage_root=root / "state",
+            )
+
+            try:
+                await service.start("Alpha task", str(workspace_alpha))
+                await asyncio.wait_for(
+                    service.wait_for_idle(),
+                    timeout=3,
+                )
+                await service.new_session()
+                await service.start("Beta task", str(workspace_beta))
+                await asyncio.wait_for(
+                    service.wait_for_idle(),
+                    timeout=3,
+                )
+
+                alpha = await service.list_sessions(
+                    str(workspace_alpha)
+                )
+                self.assertEqual(
+                    [session["title"] for session in alpha],
+                    ["Alpha task"],
+                )
+                beta = await service.list_sessions(str(workspace_beta))
+                self.assertEqual(
+                    [session["title"] for session in beta],
+                    ["Beta task"],
+                )
+                self.assertEqual(len(await service.list_sessions()), 2)
+
+                searched = await service.search_sessions(
+                    "task",
+                    workspace_root=str(workspace_alpha),
+                )
+                self.assertEqual(
+                    [session["title"] for session in searched],
+                    ["Alpha task"],
+                )
+
+                with self.assertRaises(RuntimeError):
+                    await service.open_session(
+                        alpha[0]["id"],
+                        workspace_root=str(workspace_beta),
+                    )
+
+                snapshot = await service.open_session(
+                    alpha[0]["id"],
+                    workspace_root=str(workspace_alpha),
+                )
+                self.assertEqual(snapshot["phase"], "idle")
+            finally:
+                await service.close()
+
+    async def test_reasoning_effort_reaches_stream(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            workspace = root / "workspace"
+            workspace.mkdir()
+            events: list[dict[str, Any]] = []
+
+            async def emit(event: dict[str, Any]) -> None:
+                events.append(event)
+
+            streams = ScriptedStreams(
+                [_assistant([TextContent("Done.")])]
+            )
+            service = SessionService(
+                emit,
+                model=MODEL,
+                stream_fn=streams,
+                storage_root=root / "state",
+            )
+
+            try:
+                await service.start(
+                    "Use max effort",
+                    str(workspace),
+                    reasoning="max",
+                )
+                await asyncio.wait_for(
+                    service.wait_for_idle(),
+                    timeout=3,
+                )
+                self.assertTrue(streams.options)
+                self.assertEqual(
+                    getattr(streams.options[-1], "reasoning", None),
+                    "max",
+                )
+
+                with self.assertRaises(ValueError):
+                    await service.start(
+                        "Use invalid effort",
+                        str(workspace),
+                        reasoning="turbo",
+                    )
+            finally:
+                await service.close()
+
+    async def test_thinking_is_streamed_and_in_snapshot(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            workspace = root / "workspace"
+            workspace.mkdir()
+            events: list[dict[str, Any]] = []
+
+            async def emit(event: dict[str, Any]) -> None:
+                events.append(event)
+
+            streams = ScriptedStreams(
+                [
+                    _assistant(
+                        [
+                            ThinkingContent(thinking="Weigh options."),
+                            TextContent("Done."),
+                        ]
+                    )
+                ]
+            )
+            service = SessionService(
+                emit,
+                model=MODEL,
+                stream_fn=streams,
+                storage_root=root / "state",
+            )
+
+            try:
+                await service.start("Think first", str(workspace))
+                await asyncio.wait_for(
+                    service.wait_for_idle(),
+                    timeout=3,
+                )
+
+                thinking_events = [
+                    event
+                    for event in events
+                    if event.get("type") == "thinking.delta"
+                ]
+                self.assertTrue(thinking_events)
+                self.assertEqual(
+                    "".join(
+                        event["delta"] for event in thinking_events
+                    ),
+                    "Weigh options.",
+                )
+                self.assertTrue(
+                    any(
+                        event.get("type") == "thinking.completed"
+                        for event in events
+                    )
+                )
+
+                snapshot = await service.snapshot()
+                assistant = next(
+                    entry
+                    for entry in snapshot["entries"]
+                    if entry["kind"] == "message"
+                    and entry["message"]["role"] == "assistant"
+                )
+                self.assertEqual(
+                    assistant["message"]["thinking"],
+                    "Weigh options.",
+                )
+                self.assertTrue(
+                    assistant["message"]["thinkingDone"]
+                )
+                self.assertEqual(
+                    assistant["message"]["content"],
+                    "Done.",
+                )
+            finally:
+                await service.close()
+
+    async def test_delete_message_removes_assistant_reply(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            workspace = root / "workspace"
+            workspace.mkdir()
+            events: list[dict[str, Any]] = []
+
+            async def emit(event: dict[str, Any]) -> None:
+                events.append(event)
+
+            streams = ScriptedStreams(
+                [_assistant([TextContent("Remove me.")])]
+            )
+            service = SessionService(
+                emit,
+                model=MODEL,
+                stream_fn=streams,
+                storage_root=root / "state",
+            )
+
+            try:
+                await service.start("Keep this prompt", str(workspace))
+                await asyncio.wait_for(
+                    service.wait_for_idle(),
+                    timeout=3,
+                )
+                snapshot = await service.snapshot()
+                assistant = next(
+                    entry
+                    for entry in snapshot["entries"]
+                    if entry["kind"] == "message"
+                    and entry["message"]["role"] == "assistant"
+                )
+                self.assertTrue(
+                    (
+                        await service.delete_message(
+                            assistant["message"]["id"]
+                        )
+                    )["deleted"]
+                )
+
+                after = await service.snapshot()
+                roles = [
+                    entry["message"]["role"]
+                    for entry in after["entries"]
+                    if entry["kind"] == "message"
+                ]
+                self.assertEqual(roles, ["user"])
+            finally:
+                await service.close()
+
+    async def test_regenerate_latest_assistant_message(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            workspace = root / "workspace"
+            workspace.mkdir()
+            events: list[dict[str, Any]] = []
+
+            async def emit(event: dict[str, Any]) -> None:
+                events.append(event)
+
+            streams = ScriptedStreams(
+                [
+                    _assistant([TextContent("First answer.")]),
+                    _assistant([TextContent("Second answer.")]),
+                ]
+            )
+            service = SessionService(
+                emit,
+                model=MODEL,
+                stream_fn=streams,
+                storage_root=root / "state",
+            )
+
+            try:
+                await service.start("Regenerate test", str(workspace))
+                await asyncio.wait_for(
+                    service.wait_for_idle(),
+                    timeout=3,
+                )
+                snapshot = await service.snapshot()
+                assistant = next(
+                    entry
+                    for entry in snapshot["entries"]
+                    if entry["kind"] == "message"
+                    and entry["message"]["role"] == "assistant"
+                )
+                self.assertTrue(
+                    (
+                        await service.regenerate_message(
+                            assistant["message"]["id"],
+                            reasoning="low",
+                        )
+                    )["accepted"]
+                )
+                await asyncio.wait_for(
+                    service.wait_for_idle(),
+                    timeout=3,
+                )
+
+                after = await service.snapshot()
+                assistant_replies = [
+                    entry["message"]["content"]
+                    for entry in after["entries"]
+                    if entry["kind"] == "message"
+                    and entry["message"]["role"] == "assistant"
+                ]
+                self.assertEqual(
+                    assistant_replies, ["Second answer."]
+                )
+                self.assertEqual(
+                    getattr(streams.options[-1], "reasoning", None),
+                    "low",
+                )
+            finally:
+                await service.close()
+
+    async def test_harness_config_from_env(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            workspace = root / "workspace"
+            workspace.mkdir()
+            events: list[dict[str, Any]] = []
+
+            async def emit(event: dict[str, Any]) -> None:
+                events.append(event)
+
+            with patch.dict(
+                os.environ,
+                {
+                    "LING_MAX_STEPS": "7",
+                    "LING_MAX_PARALLEL_TOOLS": "2",
+                    "LING_COMMAND_TIMEOUT_SECONDS": "30",
+                    "LING_APPROVAL_TIMEOUT_SECONDS": "45",
+                    "LING_CONTEXT_WINDOW_TOKENS": "200000",
+                    "LING_KEEP_LAST_USER_TURNS": "3",
+                },
+            ):
+                service = SessionService(
+                    emit,
+                    model=MODEL,
+                    stream_fn=ScriptedStreams([]),
+                    storage_root=root / "state",
+                )
+
+            try:
+                self.assertEqual(service._config.agent_max_steps, 7)
+                self.assertEqual(
+                    service._config.agent_max_parallel_tools,
+                    2,
+                )
+                self.assertEqual(
+                    service._config.command_timeout_seconds,
+                    30.0,
+                )
+                self.assertEqual(
+                    service._config.approval_timeout_seconds,
+                    45.0,
+                )
+                self.assertEqual(
+                    service._config.compaction.window_nominal_tokens,
+                    200_000,
+                )
+                self.assertEqual(
+                    service._config.compaction.keep_last_user_turns,
+                    3,
+                )
             finally:
                 await service.close()
 

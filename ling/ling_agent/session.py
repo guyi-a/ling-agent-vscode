@@ -16,6 +16,7 @@ from ling_ai.events import (
     StartEvent,
     TextDeltaEvent,
     ThinkingDeltaEvent,
+    ThinkingEndEvent,
     ToolCallDeltaEvent,
     ToolCallStartEvent,
 )
@@ -52,6 +53,7 @@ from .events import (
     AssistantMessageCommitted,
     AssistantTextDelta,
     AssistantThinkingDelta,
+    AssistantThinkingDone,
     CompactionApplied,
     CommittedEvent,
     CommittedEventEnvelope,
@@ -285,6 +287,22 @@ class Session:
         self.context.messages.append(user_message)
         return run_id
 
+    async def start_continuation_run(self) -> str:
+        if self._run_id is not None:
+            raise SessionStateError("A run is already active")
+        run_id = _new_id("run")
+        self._run_id = run_id
+        self._turn_counter = 0
+        self._current_turn = None
+        self._last_completed_turn = None
+        self._run_has_images = False
+        await self._commit(
+            RunStarted(continuation=True),
+            step=0,
+            turn_id=run_id,
+        )
+        return run_id
+
     def begin_turn(self) -> SessionTurn:
         if self._run_id is None:
             raise SessionStateError("No active run")
@@ -307,8 +325,9 @@ class Session:
 
         turn = self._current_turn
         if turn is None:
-            if isinstance(event, (DoneEvent, ErrorEvent)):
-                return
+            # A provider can fail before emitting StartEvent (for example a
+            # connection error). The terminal event still needs a turn so the
+            # assistant message and its error are committed.
             turn = self.begin_turn()
 
         if isinstance(event, TextDeltaEvent):
@@ -321,6 +340,13 @@ class Session:
         if isinstance(event, ThinkingDeltaEvent):
             await self.publish_frame(
                 AssistantThinkingDelta(delta=event.delta),
+                message_id=turn.message_id,
+            )
+            return
+
+        if isinstance(event, ThinkingEndEvent):
+            await self.publish_frame(
+                AssistantThinkingDone(),
                 message_id=turn.message_id,
             )
             return

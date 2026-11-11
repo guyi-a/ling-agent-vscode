@@ -101,7 +101,7 @@ export function HistoryPanel({
             <p>
               {query.trim()
                 ? "No matching conversations."
-                : "No conversations yet."}
+                : "No conversations in this workspace yet."}
             </p>
           </div>
         ) : (

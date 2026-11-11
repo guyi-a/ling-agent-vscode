@@ -16,6 +16,8 @@ from ling_agent import (
     AssistantMessageCommitted,
     CodingAgent,
     HarnessConfig,
+    RunStarted,
+    RunStopped,
     SQLiteSessionStore,
     TimelineProjector,
     UserAttachment,
@@ -23,7 +25,7 @@ from ling_agent import (
     UserSelection,
     default_database_path,
 )
-from ling_agent.compaction import SummarizeFn
+from ling_agent.compaction import CompactionConfig, SummarizeFn
 from ling_ai.adapters.openai_completions import (
     create_openai_completions_stream,
 )
@@ -85,6 +87,7 @@ class _QueuedPrompt:
     attachments: tuple[UserAttachment, ...]
     selections: tuple[UserSelection, ...]
     approval_mode: ApprovalMode
+    reasoning: str | None = None
 
 
 MAX_QUEUED_PROMPTS = 20
@@ -106,7 +109,7 @@ class SessionService:
         self._emit_event = emit_event
         self._configured_model = model
         self._configured_stream = stream_fn
-        self._config = config
+        self._config = config or _config_from_env()
         self._summarize_fn = summarize_fn
         resolved_storage_root = (
             storage_root
@@ -151,11 +154,26 @@ class SessionService:
         approval_mode: ApprovalMode | None = None,
         attachments: Sequence[UserAttachment] = (),
         selections: Sequence[UserSelection] = (),
+        reasoning: str | None = None,
     ) -> dict[str, Any]:
         if self._closed:
             raise RuntimeError("Session service is closed")
         if not prompt.strip() and not attachments and not selections:
             raise ValueError("prompt must not be empty")
+        if reasoning == "auto":
+            reasoning = None
+        if reasoning not in (
+            None,
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+            "max",
+        ):
+            raise ValueError(
+                "reasoning must be one of: auto, low, medium, high, "
+                "xhigh, max"
+            )
         if self._task is not None and not self._task.done():
             root = Path(workspace_root).expanduser().resolve()
             if self._workspace_root is not None and root != self._workspace_root:
@@ -170,6 +188,7 @@ class SessionService:
                 attachments=tuple(attachments),
                 selections=tuple(selections),
                 approval_mode=approval_mode or self._approval_mode,
+                reasoning=reasoning,
             )
             self._queue.append(item)
             await self._emit_queue()
@@ -197,6 +216,7 @@ class SessionService:
             attachments=tuple(attachments),
             selections=tuple(selections),
             approval_mode=self._approval_mode,
+            reasoning=reasoning,
         )
         self._task = asyncio.create_task(
             self._run_queue(agent, item),
@@ -276,11 +296,19 @@ class SessionService:
             }
         )
 
-    async def list_sessions(self) -> list[dict[str, Any]]:
+    async def list_sessions(
+        self,
+        workspace_root: str | Path | None = None,
+    ) -> list[dict[str, Any]]:
         await self._ensure_recovered()
+        root = _resolved_workspace_root(workspace_root)
         records = await self._history_store.list_sessions()
         sessions: list[dict[str, Any]] = []
-        for record in records[:50]:
+        for record in records:
+            if root is not None and record.workspace_root != root:
+                continue
+            if len(sessions) >= 50:
+                break
             title = record.title
             if not title:
                 events = await self._history_store.load_committed(
@@ -316,15 +344,19 @@ class SessionService:
         self,
         query: str,
         *,
+        workspace_root: str | Path | None = None,
         limit: int = 50,
     ) -> list[dict[str, Any]]:
         await self._ensure_recovered()
         needle = query.strip().lower()
         if not needle:
-            return await self.list_sessions()
+            return await self.list_sessions(workspace_root)
 
+        root = _resolved_workspace_root(workspace_root)
         results: list[dict[str, Any]] = []
         for record in await self._history_store.list_sessions():
+            if root is not None and record.workspace_root != root:
+                continue
             events = await self._history_store.load_committed(
                 record.session_id
             )
@@ -426,18 +458,179 @@ class SessionService:
         await self._ensure_recovered()
         return await self._project_history(session_id, read_only=True)
 
-    async def open_session(self, session_id: str) -> dict[str, Any]:
+    async def open_session(
+        self,
+        session_id: str,
+        *,
+        workspace_root: str | Path | None = None,
+    ) -> dict[str, Any]:
         if self._task is not None and not self._task.done():
             raise RuntimeError("Cancel the active run before opening history")
         await self._ensure_recovered()
         record = await self._history_store.get_session(session_id)
         if record is None:
             raise ValueError(f"Unknown session: {session_id}")
+        root = _resolved_workspace_root(workspace_root)
+        if root is not None and record.workspace_root != root:
+            raise RuntimeError(
+                "This conversation belongs to another workspace: "
+                f"{record.workspace_root}. Open that folder to continue it."
+            )
         await self._dispose_agent()
         self._workspace_root = record.workspace_root
         self._session_id = session_id
         self._approval_mode = record.approval_mode
         return await self._project_history(session_id, read_only=False)
+
+    async def delete_message(self, message_id: str) -> dict[str, Any]:
+        if self._task is not None and not self._task.done():
+            raise RuntimeError(
+                "Cancel the active run before deleting a message"
+            )
+        session_id = self._session_id
+        if session_id is None:
+            raise ValueError("No active session")
+        events = await self._history_store.load_committed(session_id)
+        target = next(
+            (
+                envelope
+                for envelope in events
+                if envelope.message_id == message_id
+            ),
+            None,
+        )
+        if target is None:
+            raise ValueError(f"Unknown message: {message_id}")
+
+        seqs = {target.seq}
+        if isinstance(target.event, AssistantMessageCommitted):
+            for envelope in events:
+                if envelope.turn_id != target.turn_id:
+                    continue
+                if isinstance(envelope.event, (RunStarted, RunStopped)):
+                    continue
+                seqs.add(envelope.seq)
+
+        await self._history_store.delete_events(
+            session_id, tuple(sorted(seqs))
+        )
+        await self._reload_active_session(session_id)
+        return {"deleted": True}
+
+    async def regenerate_message(
+        self,
+        message_id: str,
+        *,
+        reasoning: str | None = None,
+    ) -> dict[str, Any]:
+        if self._task is not None and not self._task.done():
+            raise RuntimeError(
+                "Cancel the active run before regenerating a message"
+            )
+        if reasoning == "auto":
+            reasoning = None
+        if reasoning not in (
+            None,
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+            "max",
+        ):
+            raise ValueError(
+                "reasoning must be one of: auto, low, medium, high, "
+                "xhigh, max"
+            )
+
+        session_id = self._session_id
+        if session_id is None:
+            raise ValueError("No active session")
+        events = await self._history_store.load_committed(session_id)
+        target = next(
+            (
+                envelope
+                for envelope in events
+                if envelope.message_id == message_id
+            ),
+            None,
+        )
+        if target is None:
+            raise ValueError(f"Unknown message: {message_id}")
+        if not isinstance(target.event, AssistantMessageCommitted):
+            raise ValueError("Only assistant messages can be regenerated")
+        if any(
+            envelope.seq > target.seq
+            and isinstance(
+                envelope.event,
+                (UserMessageCommitted, AssistantMessageCommitted),
+            )
+            for envelope in events
+        ):
+            raise ValueError(
+                "Only the latest assistant message can be regenerated"
+            )
+
+        user_message = next(
+            (
+                envelope
+                for envelope in reversed(events)
+                if envelope.seq < target.seq
+                and isinstance(envelope.event, UserMessageCommitted)
+            ),
+            None,
+        )
+        if user_message is None:
+            raise ValueError("No user message to regenerate")
+
+        await self._history_store.delete_events_after(
+            session_id, user_message.seq
+        )
+        run_started = next(
+            (
+                envelope
+                for envelope in events
+                if isinstance(envelope.event, RunStarted)
+                and envelope.run_id == user_message.run_id
+            ),
+            None,
+        )
+        if run_started is not None:
+            await self._history_store.delete_events(
+                session_id, (run_started.seq,)
+            )
+
+        await self._reload_active_session(session_id)
+        agent = self._agent
+        if agent is None:
+            raise RuntimeError("Unable to reload the session")
+        self._task = asyncio.create_task(
+            self._run(
+                agent,
+                "",
+                reasoning=reasoning,
+                regenerate=True,
+            ),
+            name="ling-session-regenerate",
+        )
+        return {"accepted": True}
+
+    async def _reload_active_session(self, session_id: str) -> None:
+        record = await self._history_store.get_session(session_id)
+        if record is None:
+            raise ValueError(f"Unknown session: {session_id}")
+        approval_mode = record.approval_mode
+        await self._dispose_agent()
+        self._workspace_root = record.workspace_root
+        self._session_id = session_id
+        self._approval_mode = approval_mode
+        await self._ensure_agent(record.workspace_root)
+        snapshot = await self.snapshot()
+        await self._emit_event(
+            {
+                "type": "session.snapshot",
+                "snapshot": snapshot,
+            }
+        )
 
     async def snapshot(self) -> dict[str, Any]:
         if self._closed:
@@ -594,6 +787,7 @@ class SessionService:
                 item.prompt,
                 item.attachments,
                 item.selections,
+                item.reasoning,
             )
 
             if status != "completed":
@@ -620,13 +814,20 @@ class SessionService:
         prompt: str,
         attachments: Sequence[UserAttachment] = (),
         selections: Sequence[UserSelection] = (),
+        reasoning: str | None = None,
+        *,
+        regenerate: bool = False,
     ) -> str:
         try:
-            result = await agent.prompt(
-                prompt,
-                attachments=attachments,
-                selections=selections,
-            )
+            if regenerate:
+                result = await agent.regenerate(reasoning=reasoning)
+            else:
+                result = await agent.prompt(
+                    prompt,
+                    attachments=attachments,
+                    selections=selections,
+                    reasoning=reasoning,
+                )
         except asyncio.CancelledError:
             await self._emit_event({"type": "run.cancelled"})
             raise
@@ -773,3 +974,66 @@ def _truncate(value: str, limit: int) -> str:
     if len(normalized) <= limit:
         return normalized
     return normalized[: limit - 1].rstrip() + "…"
+
+
+def _resolved_workspace_root(
+    value: str | Path | None,
+) -> Path | None:
+    if value is None:
+        return None
+    if not str(value).strip():
+        return None
+    return Path(value).expanduser().resolve()
+
+
+def _config_from_env() -> HarnessConfig:
+    def int_env(
+        name: str,
+        default: int,
+        minimum: int,
+        maximum: int,
+    ) -> int:
+        raw = os.environ.get(name, "").strip()
+        if not raw:
+            return default
+        try:
+            value = int(raw)
+        except ValueError:
+            return default
+        return value if minimum <= value <= maximum else default
+
+    def float_env(
+        name: str,
+        default: float,
+        minimum: float,
+        maximum: float,
+    ) -> float:
+        raw = os.environ.get(name, "").strip()
+        if not raw:
+            return default
+        try:
+            value = float(raw)
+        except ValueError:
+            return default
+        return value if minimum <= value <= maximum else default
+
+    return HarnessConfig(
+        agent_max_steps=int_env("LING_MAX_STEPS", 10, 1, 100),
+        agent_max_parallel_tools=int_env(
+            "LING_MAX_PARALLEL_TOOLS", 4, 1, 16
+        ),
+        command_timeout_seconds=float_env(
+            "LING_COMMAND_TIMEOUT_SECONDS", 120.0, 1.0, 3600.0
+        ),
+        approval_timeout_seconds=float_env(
+            "LING_APPROVAL_TIMEOUT_SECONDS", 120.0, 1.0, 3600.0
+        ),
+        compaction=CompactionConfig(
+            window_nominal_tokens=int_env(
+                "LING_CONTEXT_WINDOW_TOKENS", 1_000_000, 1024, 10_000_000
+            ),
+            keep_last_user_turns=int_env(
+                "LING_KEEP_LAST_USER_TURNS", 5, 0, 50
+            ),
+        ),
+    )

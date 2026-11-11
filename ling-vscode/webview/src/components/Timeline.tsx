@@ -9,6 +9,7 @@ import type {
 import { CompactionMarker } from "./CompactionMarker";
 import { CheckIcon } from "./icons";
 import { MarkdownMessage } from "./MarkdownMessage";
+import { MessageActions } from "./MessageActions";
 import { MessageAttachments } from "./MessageAttachments";
 import { MessageSelections } from "./MessageSelections";
 import { ToolCallCard } from "./ToolCallCard";
@@ -17,6 +18,10 @@ interface TimelineProps {
   state: TimelineState;
   onOpenAttachment(relativePath: string): void;
   onOpenSelection(selection: UserSelectionSummary): void;
+  onCopyMessage(text: string): void;
+  onDeleteMessage(messageId: string): void;
+  onRegenerateMessage(messageId: string): void;
+  actionsDisabled: boolean;
 }
 
 type TimelineBlock =
@@ -41,8 +46,23 @@ export function Timeline({
   state,
   onOpenAttachment,
   onOpenSelection,
+  onCopyMessage,
+  onDeleteMessage,
+  onRegenerateMessage,
+  actionsDisabled,
 }: TimelineProps) {
   const blocks = groupTimelineEntries(state.entries);
+  const lastAssistantId = [...state.entries]
+    .reverse()
+    .find(
+      (entry) =>
+        entry.kind === "message" &&
+        entry.message.role === "assistant",
+    );
+  const lastAssistantMessageId =
+    lastAssistantId?.kind === "message"
+      ? lastAssistantId.message.id
+      : undefined;
   const timelineRef = useRef<HTMLElement>(null);
   const stickToBottom = useRef(true);
   const lastUserMessageId = useRef<string | undefined>(undefined);
@@ -134,6 +154,10 @@ export function Timeline({
         }
 
         const { entry } = block;
+        const thinkingActive =
+          entry.message.thinkingDone === undefined
+            ? entry.message.streaming
+            : !entry.message.thinkingDone;
         return (
           <section
             className={`message message--${entry.message.role}`}
@@ -143,10 +167,46 @@ export function Timeline({
             }
           >
             {entry.message.role === "assistant" ? (
-              <MarkdownMessage
-                content={entry.message.content}
-                streaming={entry.message.streaming}
-              />
+              <>
+                {entry.message.thinking ? (
+                  <details
+                    className={
+                      thinkingActive
+                        ? "thinking thinking--streaming"
+                        : "thinking"
+                    }
+                    aria-live="off"
+                  >
+                    <summary>
+                      {thinkingActive ? "Thinking…" : "Thoughts"}
+                    </summary>
+                    <pre className="thinking__text">
+                      {entry.message.thinking}
+                    </pre>
+                  </details>
+                ) : null}
+                <MarkdownMessage
+                  content={entry.message.content}
+                  streaming={entry.message.streaming}
+                />
+                {!entry.message.streaming &&
+                (entry.message.content || entry.message.thinking) ? (
+                  <MessageActions
+                    text={entry.message.content}
+                    disabled={actionsDisabled}
+                    onCopy={onCopyMessage}
+                    onDelete={() =>
+                      onDeleteMessage(entry.message.id)
+                    }
+                    onRegenerate={
+                      entry.message.id === lastAssistantMessageId
+                        ? () =>
+                            onRegenerateMessage(entry.message.id)
+                        : undefined
+                    }
+                  />
+                ) : null}
+              </>
             ) : (
               <>
                 <span className="message-author">You</span>
@@ -165,6 +225,14 @@ export function Timeline({
                 {entry.message.content ? (
                   <p>{entry.message.content}</p>
                 ) : null}
+                <MessageActions
+                  text={entry.message.content}
+                  disabled={actionsDisabled}
+                  onCopy={onCopyMessage}
+                  onDelete={() =>
+                    onDeleteMessage(entry.message.id)
+                  }
+                />
               </>
             )}
           </section>
@@ -217,7 +285,11 @@ function groupTimelineEntries(entries: TimelineEntry[]): TimelineBlock[] {
       continue;
     }
 
-    if (entry.message.role === "assistant" && !entry.message.content.trim()) {
+    if (
+      entry.message.role === "assistant" &&
+      !entry.message.content.trim() &&
+      !entry.message.thinking?.trim()
+    ) {
       continue;
     }
 

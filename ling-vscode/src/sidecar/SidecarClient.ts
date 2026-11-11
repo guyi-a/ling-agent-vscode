@@ -27,14 +27,23 @@ export interface SidecarExitInfo {
   signal: NodeJS.Signals | null;
 }
 
-export interface SidecarClientOptions {
+export interface SidecarSettings {
+  apiKey?: string;
+  model?: string;
+  baseUrl?: string;
+  maxSteps?: number;
+  maxParallelTools?: number;
+  commandTimeoutSeconds?: number;
+  approvalTimeoutSeconds?: number;
+  contextWindowTokens?: number;
+  keepLastUserTurns?: number;
+}
+
+export interface SidecarClientOptions extends SidecarSettings {
   extensionPath: string;
   output?: (line: string) => void;
   onExit?: (info: SidecarExitInfo) => void;
   requestTimeoutMs?: number;
-  apiKey?: string;
-  model?: string;
-  baseUrl?: string;
 }
 
 interface SidecarLaunch {
@@ -85,11 +94,7 @@ export function resolveSkillsRoot(
 }
 
 export function buildSidecarEnv(
-  settings: {
-    apiKey?: string;
-    model?: string;
-    baseUrl?: string;
-  },
+  settings: SidecarSettings,
   base: NodeJS.ProcessEnv = process.env,
   skillsRoot?: string,
 ): NodeJS.ProcessEnv {
@@ -101,6 +106,12 @@ export function buildSidecarEnv(
   delete env.LING_API_BASE_URL;
   delete env.LING_PROVIDER;
   delete env.LING_SKILLS_ROOT;
+  delete env.LING_MAX_STEPS;
+  delete env.LING_MAX_PARALLEL_TOOLS;
+  delete env.LING_COMMAND_TIMEOUT_SECONDS;
+  delete env.LING_APPROVAL_TIMEOUT_SECONDS;
+  delete env.LING_CONTEXT_WINDOW_TOKENS;
+  delete env.LING_KEEP_LAST_USER_TURNS;
   env.PYTHONIOENCODING = "utf-8";
   env.PYTHONUNBUFFERED = "1";
   env.PYTHONUTF8 = "1";
@@ -116,7 +127,43 @@ export function buildSidecarEnv(
   if (skillsRoot) {
     env.LING_SKILLS_ROOT = skillsRoot;
   }
+  setNumberEnv(env, "LING_MAX_STEPS", settings.maxSteps);
+  setNumberEnv(
+    env,
+    "LING_MAX_PARALLEL_TOOLS",
+    settings.maxParallelTools,
+  );
+  setNumberEnv(
+    env,
+    "LING_COMMAND_TIMEOUT_SECONDS",
+    settings.commandTimeoutSeconds,
+  );
+  setNumberEnv(
+    env,
+    "LING_APPROVAL_TIMEOUT_SECONDS",
+    settings.approvalTimeoutSeconds,
+  );
+  setNumberEnv(
+    env,
+    "LING_CONTEXT_WINDOW_TOKENS",
+    settings.contextWindowTokens,
+  );
+  setNumberEnv(
+    env,
+    "LING_KEEP_LAST_USER_TURNS",
+    settings.keepLastUserTurns,
+  );
   return env;
+}
+
+function setNumberEnv(
+  env: NodeJS.ProcessEnv,
+  name: string,
+  value: number | undefined,
+): void {
+  if (value !== undefined && Number.isFinite(value)) {
+    env[name] = String(value);
+  }
 }
 
 export class SidecarRpcError extends Error {
@@ -143,25 +190,25 @@ export class SidecarClient {
   private initialized: SidecarInitializeResult | undefined;
   private startPromise: Promise<SidecarInitializeResult> | undefined;
   private expectedExit = false;
-  private apiKey: string | undefined;
-  private model: string | undefined;
-  private baseUrl: string | undefined;
+  private settings: SidecarSettings;
 
   constructor(private readonly options: SidecarClientOptions) {
     this.onExit = options.onExit;
-    this.apiKey = options.apiKey;
-    this.model = options.model;
-    this.baseUrl = options.baseUrl;
+    this.settings = {
+      apiKey: options.apiKey,
+      model: options.model,
+      baseUrl: options.baseUrl,
+      maxSteps: options.maxSteps,
+      maxParallelTools: options.maxParallelTools,
+      commandTimeoutSeconds: options.commandTimeoutSeconds,
+      approvalTimeoutSeconds: options.approvalTimeoutSeconds,
+      contextWindowTokens: options.contextWindowTokens,
+      keepLastUserTurns: options.keepLastUserTurns,
+    };
   }
 
-  setSettings(settings: {
-    apiKey?: string;
-    model?: string;
-    baseUrl?: string;
-  }): void {
-    this.apiKey = settings.apiKey;
-    this.model = settings.model;
-    this.baseUrl = settings.baseUrl;
+  setSettings(settings: SidecarSettings): void {
+    this.settings = { ...settings };
   }
 
   get isRunning(): boolean {
@@ -251,18 +298,14 @@ export class SidecarClient {
     this.expectedExit = false;
     const launch = this.resolveLaunch();
     this.log(
-      this.apiKey
+      this.settings.apiKey
         ? "Sidecar API key source: config file"
         : "Sidecar API key source: none",
     );
     this.log(`Starting sidecar (${launch.mode}): ${launch.command}`);
 
     const env = buildSidecarEnv(
-      {
-        apiKey: this.apiKey,
-        model: this.model,
-        baseUrl: this.baseUrl,
-      },
+      this.settings,
       process.env,
       resolveSkillsRoot(this.options.extensionPath),
     );

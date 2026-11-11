@@ -8,12 +8,20 @@ import {
 } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
+import type { EffortLevel } from "../../shared/uiTypes";
 
 export interface LingSettings {
   version: 1;
   apiKey: string;
   model: string;
   baseUrl: string;
+  effort: EffortLevel;
+  maxSteps: number;
+  maxParallelTools: number;
+  commandTimeoutSeconds: number;
+  approvalTimeoutSeconds: number;
+  contextWindowTokens: number;
+  keepLastUserTurns: number;
 }
 
 export interface MigrationResult {
@@ -27,6 +35,13 @@ export const DEFAULT_SETTINGS: LingSettings = {
   apiKey: "",
   model: "deepseek-chat",
   baseUrl: "https://api.deepseek.com/v1",
+  effort: "high",
+  maxSteps: 10,
+  maxParallelTools: 4,
+  commandTimeoutSeconds: 120,
+  approvalTimeoutSeconds: 120,
+  contextWindowTokens: 1_000_000,
+  keepLastUserTurns: 5,
 };
 
 const KEY_ENV_VARS = [
@@ -145,7 +160,72 @@ function normalizeSettings(value: unknown): LingSettings {
     apiKey,
     model,
     baseUrl: baseUrl || DEFAULT_SETTINGS.baseUrl,
+    effort: normalizeEffort(record.effort),
+    maxSteps: intSetting(record.maxSteps, 10, 1, 100),
+    maxParallelTools: intSetting(record.maxParallelTools, 4, 1, 16),
+    commandTimeoutSeconds: numberSetting(
+      record.commandTimeoutSeconds,
+      120,
+      1,
+      3600,
+    ),
+    approvalTimeoutSeconds: numberSetting(
+      record.approvalTimeoutSeconds,
+      120,
+      1,
+      3600,
+    ),
+    contextWindowTokens: intSetting(
+      record.contextWindowTokens,
+      1_000_000,
+      1024,
+      10_000_000,
+    ),
+    keepLastUserTurns: intSetting(
+      record.keepLastUserTurns,
+      5,
+      0,
+      50,
+    ),
   };
+}
+
+function normalizeEffort(value: unknown): EffortLevel {
+  return value === "low" ||
+    value === "medium" ||
+    value === "high" ||
+    value === "xhigh" ||
+    value === "max"
+    ? value
+    : "high";
+}
+
+function intSetting(
+  value: unknown,
+  fallback: number,
+  min: number,
+  max: number,
+): number {
+  return typeof value === "number" &&
+    Number.isInteger(value) &&
+    value >= min &&
+    value <= max
+    ? value
+    : fallback;
+}
+
+function numberSetting(
+  value: unknown,
+  fallback: number,
+  min: number,
+  max: number,
+): number {
+  return typeof value === "number" &&
+    Number.isFinite(value) &&
+    value >= min &&
+    value <= max
+    ? value
+    : fallback;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
