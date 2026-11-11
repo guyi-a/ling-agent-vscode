@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 import tempfile
 from pathlib import Path
 
@@ -108,6 +109,24 @@ def test_chunk_typescript_file() -> None:
     method = chunks[2]
     assert "Runs the service" in method.comment
     assert method.kind == "method"
+
+
+def test_chunk_file_accepts_unresolved_root() -> None:
+    with tempfile.TemporaryDirectory() as temp:
+        root = Path(temp) / "pkg"
+        root.mkdir()
+        (root / "skills.py").write_text(
+            "def load_skill(name):\n    return name\n",
+            encoding="utf-8",
+        )
+        previous = Path.cwd()
+        os.chdir(temp)
+        try:
+            chunks = chunk_file(Path("pkg/skills.py"), Path("pkg"))
+        finally:
+            os.chdir(previous)
+
+    assert [chunk.symbol for chunk in chunks] == ["load_skill"]
 
 
 def _write(root: Path, path: str, content: str) -> None:

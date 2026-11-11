@@ -98,7 +98,7 @@ def chunk_file(path: Path, root: Path) -> list[Chunk]:
         return []
 
     try:
-        relative = path.resolve().relative_to(root).as_posix()
+        relative = path.resolve().relative_to(root.resolve()).as_posix()
     except ValueError:
         return []
 
