@@ -10,4 +10,9 @@ tsconfig.json
 vite.config.ts
 package-lock.json
 .gitignore
+*.vsix
+__pycache__/**
+a.py
+b.md
+b.py
 a.md

@@ -34,7 +34,7 @@ jobs:
           python-version: "3.12"
 
       - name: Install sidecar dependencies
-        run: python -m pip install --upgrade pip pyinstaller -r ../ling/requirements.txt
+        run: python -m pip install --upgrade pip pyinstaller pytest -r ../ling/requirements.txt
 
       - name: Install extension dependencies
         run: npm ci
@@ -42,7 +42,11 @@ jobs:
       - name: Build sidecar
         run: npm run build:sidecar
 
-      - name: Test
+      - name: Test sidecar
+        working-directory: ling
+        run: python -m pytest -q
+
+      - name: Test extension
         run: npm test
 
       - name: Package VSIX
