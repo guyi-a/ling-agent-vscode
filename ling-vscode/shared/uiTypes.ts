@@ -9,12 +9,41 @@ export type ToolStatus =
   | "Failed"
   | "Cancelled";
 
+export interface ToolDiffRow {
+  type: "context" | "add" | "remove";
+  oldLine?: number;
+  newLine?: number;
+  text: string;
+}
+
+export type ToolDetail =
+  | {
+      kind: "diff";
+      path: string;
+      rows: ToolDiffRow[];
+      added: number;
+      removed: number;
+      truncated?: boolean;
+    }
+  | {
+      kind: "io";
+      input?: string;
+      output?: string;
+      error?: string;
+      exitCode?: number;
+    }
+  | {
+      kind: "text";
+      text: string;
+    };
+
 export interface ToolCall {
   id: string;
   action: ToolAction;
   target: string;
   status: ToolStatus;
   details: string[];
+  detail?: ToolDetail;
 }
 
 export interface ApprovalRequest {
@@ -185,6 +214,21 @@ export interface SkillStatus {
   overridesBuiltin?: boolean;
 }
 
+export interface IndexStatus {
+  files: number;
+  totalFiles: number;
+  chunks: number;
+  vectors: number;
+  indexedFiles: number;
+  percent: number;
+  model: string | null;
+}
+
+export interface IndexBuildStats extends IndexStatus {
+  embedded: number;
+  error?: string;
+}
+
 export interface SettingsView {
   apiKey: string;
   model: string;
@@ -197,6 +241,9 @@ export interface SettingsView {
   approvalTimeoutSeconds: number;
   contextWindowTokens: number;
   keepLastUserTurns: number;
+  embeddingModel: string;
+  embeddingBaseUrl: string;
+  embeddingApiKey: string;
   skills: SkillStatus[];
 }
 

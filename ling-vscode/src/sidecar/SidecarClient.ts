@@ -37,6 +37,9 @@ export interface SidecarSettings {
   approvalTimeoutSeconds?: number;
   contextWindowTokens?: number;
   keepLastUserTurns?: number;
+  embeddingModel?: string;
+  embeddingBaseUrl?: string;
+  embeddingApiKey?: string;
 }
 
 export interface SidecarClientOptions extends SidecarSettings {
@@ -112,6 +115,9 @@ export function buildSidecarEnv(
   delete env.LING_APPROVAL_TIMEOUT_SECONDS;
   delete env.LING_CONTEXT_WINDOW_TOKENS;
   delete env.LING_KEEP_LAST_USER_TURNS;
+  delete env.LING_EMBEDDING_MODEL;
+  delete env.LING_EMBEDDING_BASE_URL;
+  delete env.LING_EMBEDDING_API_KEY;
   env.PYTHONIOENCODING = "utf-8";
   env.PYTHONUNBUFFERED = "1";
   env.PYTHONUTF8 = "1";
@@ -126,6 +132,15 @@ export function buildSidecarEnv(
   }
   if (skillsRoot) {
     env.LING_SKILLS_ROOT = skillsRoot;
+  }
+  if (settings.embeddingModel) {
+    env.LING_EMBEDDING_MODEL = settings.embeddingModel;
+  }
+  if (settings.embeddingBaseUrl) {
+    env.LING_EMBEDDING_BASE_URL = settings.embeddingBaseUrl;
+  }
+  if (settings.embeddingApiKey) {
+    env.LING_EMBEDDING_API_KEY = settings.embeddingApiKey;
   }
   setNumberEnv(env, "LING_MAX_STEPS", settings.maxSteps);
   setNumberEnv(
@@ -204,6 +219,9 @@ export class SidecarClient {
       approvalTimeoutSeconds: options.approvalTimeoutSeconds,
       contextWindowTokens: options.contextWindowTokens,
       keepLastUserTurns: options.keepLastUserTurns,
+      embeddingModel: options.embeddingModel,
+      embeddingBaseUrl: options.embeddingBaseUrl,
+      embeddingApiKey: options.embeddingApiKey,
     };
   }
 

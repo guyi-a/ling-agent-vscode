@@ -1,0 +1,285 @@
+[
+  {
+    "query": "parse PDF page text",
+    "relevant": [
+      {"path": "ling_agent/tools/documents.py", "symbol": "_extract_pdf"}
+    ]
+  },
+  {
+    "query": "extract DOCX paragraphs and tables",
+    "relevant": [
+      {"path": "ling_agent/tools/documents.py", "symbol": "_extract_docx"}
+    ]
+  },
+  {
+    "query": "read PPTX slide text",
+    "relevant": [
+      {"path": "ling_agent/tools/documents.py", "symbol": "_extract_pptx"}
+    ]
+  },
+  {
+    "query": "stream OpenAI SSE chunks",
+    "relevant": [
+      {
+        "path": "ling_ai/adapters/openai_completions.py",
+        "symbol": "_consume_sse"
+      },
+      {
+        "path": "ling_ai/adapters/openai_completions.py",
+        "symbol": "_consume_response"
+      },
+      {
+        "path": "ling_ai/adapters/openai_completions.py",
+        "symbol": "create_openai_completions_stream"
+      }
+    ]
+  },
+  {
+    "query": "build chat completion request payload",
+    "relevant": [
+      {
+        "path": "ling_ai/adapters/openai_completions.py",
+        "symbol": "_build_payload"
+      }
+    ]
+  },
+  {
+    "query": "convert assistant message to wire format",
+    "relevant": [
+      {
+        "path": "ling_ai/adapters/openai_completions.py",
+        "symbol": "_message_to_wire"
+      }
+    ]
+  },
+  {
+    "query": "delete events from SQLite",
+    "relevant": [
+      {"path": "ling_agent/storage.py", "symbol": "delete_events"},
+      {
+        "path": "ling_agent/storage.py",
+        "symbol": "_delete_events_sync"
+      }
+    ]
+  },
+  {
+    "query": "truncate event log after sequence",
+    "relevant": [
+      {
+        "path": "ling_agent/storage.py",
+        "symbol": "delete_events_after"
+      },
+      {
+        "path": "ling_agent/storage.py",
+        "symbol": "_delete_events_after_sync"
+      }
+    ]
+  },
+  {
+    "query": "cancel active run and clear queue",
+    "relevant": [
+      {"path": "ling_rpc/sessions.py", "symbol": "cancel"}
+    ]
+  },
+  {
+    "query": "regenerate last assistant message",
+    "relevant": [
+      {
+        "path": "ling_rpc/sessions.py",
+        "symbol": "regenerate_message"
+      },
+      {"path": "ling_agent/agent.py", "symbol": "regenerate"}
+    ]
+  },
+  {
+    "query": "list sessions for workspace",
+    "relevant": [
+      {"path": "ling_rpc/sessions.py", "symbol": "list_sessions"}
+    ]
+  },
+  {
+    "query": "search session history text",
+    "relevant": [
+      {
+        "path": "ling_rpc/sessions.py",
+        "symbol": "search_sessions"
+      },
+      {
+        "path": "ling_rpc/sessions.py",
+        "symbol": "_search_snippet"
+      }
+    ]
+  },
+  {
+    "query": "build system prompt with skills",
+    "relevant": [
+      {"path": "ling_agent/prompt.py", "symbol": "build_system_prompt"},
+      {
+        "path": "ling_agent/skills.py",
+        "symbol": "format_skills_index"
+      }
+    ]
+  },
+  {
+    "query": "load skill frontmatter and body",
+    "relevant": [
+      {"path": "ling_agent/skills.py", "symbol": "load_skills"},
+      {"path": "ling_agent/skills.py", "symbol": "_load_skill"},
+      {
+        "path": "ling_agent/skills.py",
+        "symbol": "_parse_frontmatter"
+      }
+    ]
+  },
+  {
+    "query": "normalize user questions",
+    "relevant": [
+      {
+        "path": "ling_agent/questions.py",
+        "symbol": "normalize_questions"
+      }
+    ]
+  },
+  {
+    "query": "derive approval effect from tool call",
+    "relevant": [
+      {"path": "ling_agent/effects.py", "symbol": "derive_effect"}
+    ]
+  },
+  {
+    "query": "spill large tool output to disk",
+    "relevant": [
+      {
+        "path": "ling_agent/tools/spill.py",
+        "symbol": "maybe_spill_output"
+      }
+    ]
+  },
+  {
+    "query": "compact conversation history",
+    "relevant": [
+      {
+        "path": "ling_agent/compaction/engine.py",
+        "symbol": "maybe_compact"
+      },
+      {"path": "ling_agent/compaction/split.py", "symbol": "split"}
+    ]
+  },
+  {
+    "query": "project messages into model context",
+    "relevant": [
+      {
+        "path": "ling_agent/compaction/project.py",
+        "symbol": "project_model_messages"
+      },
+      {
+        "path": "ling_agent/compaction/rows.py",
+        "symbol": "rows_from_messages"
+      }
+    ]
+  },
+  {
+    "query": "snapshot timeline for UI",
+    "relevant": [
+      {"path": "ling_rpc/ui_events.py", "symbol": "snapshot_to_ui"}
+    ]
+  },
+  {
+    "query": "project session events into timeline",
+    "relevant": [
+      {
+        "path": "ling_agent/timeline.py",
+        "symbol": "TimelineProjector"
+      },
+      {
+        "path": "ling_rpc/sessions.py",
+        "symbol": "_project_history"
+      }
+    ]
+  },
+  {
+    "query": "read file with line range",
+    "relevant": [
+      {"path": "ling_agent/workspace.py", "symbol": "read_text"},
+      {
+        "path": "ling_agent/workspace.py",
+        "symbol": "_read_resolved_text"
+      }
+    ]
+  },
+  {
+    "query": "search workspace files with regex",
+    "relevant": [
+      {"path": "ling_agent/workspace.py", "symbol": "grep"}
+    ]
+  },
+  {
+    "query": "find files with glob pattern",
+    "relevant": [
+      {"path": "ling_agent/workspace.py", "symbol": "glob"}
+    ]
+  },
+  {
+    "query": "parse streaming tool arguments",
+    "relevant": [
+      {
+        "path": "ling_ai/adapters/openai_completions.py",
+        "symbol": "_parse_streaming_arguments"
+      },
+      {
+        "path": "ling_ai/adapters/openai_completions.py",
+        "symbol": "_finish_tool_call"
+      }
+    ]
+  },
+  {
+    "query": "retry provider HTTP errors",
+    "relevant": [
+      {
+        "path": "ling_ai/adapters/openai_completions.py",
+        "symbol": "_is_retryable_error"
+      },
+      {
+        "path": "ling_ai/adapters/openai_completions.py",
+        "symbol": "_retry_delay"
+      }
+    ]
+  },
+  {
+    "query": "commit assistant message to session",
+    "relevant": [
+      {
+        "path": "ling_agent/session.py",
+        "symbol": "commit_assistant_message"
+      }
+    ]
+  },
+  {
+    "query": "start run with user message",
+    "relevant": [
+      {"path": "ling_agent/session.py", "symbol": "start_run"}
+    ]
+  },
+  {
+    "query": "configure harness from environment",
+    "relevant": [
+      {
+        "path": "ling_rpc/sessions.py",
+        "symbol": "_config_from_env"
+      },
+      {
+        "path": "ling_agent/config.py",
+        "symbol": "HarnessConfig"
+      }
+    ]
+  },
+  {
+    "query": "estimate compaction tokens",
+    "relevant": [
+      {
+        "path": "ling_agent/compaction/estimate.py",
+        "symbol": "estimate_tokens"
+      }
+    ]
+  }
+]

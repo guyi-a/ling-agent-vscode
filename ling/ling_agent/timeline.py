@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from copy import deepcopy
 from dataclasses import dataclass
-from typing import Literal, TypeAlias
+from typing import Any, Literal, TypeAlias
 
 from ling_ai.types import AssistantMessage, TextContent, ThinkingContent, ToolCall, Usage
 
@@ -77,6 +77,7 @@ class ToolTimelineItem:
     ] = "requested"
     output: str = ""
     error: str | None = None
+    details: Any | None = None
     kind: Literal["tool"] = "tool"
 
 
@@ -244,6 +245,7 @@ class TimelineProjector:
                 item.status = status
                 item.output = output
                 item.error = output if event.result.is_error else None
+                item.details = event.result.details
             else:
                 item = ToolTimelineItem(
                     id=event.result.tool_call_id,
@@ -255,6 +257,7 @@ class TimelineProjector:
                     status=status,
                     output=output,
                     error=output if event.result.is_error else None,
+                    details=event.result.details,
                 )
                 self._items.append(item)
             self._completed_tool_ids.add(event.result.tool_call_id)

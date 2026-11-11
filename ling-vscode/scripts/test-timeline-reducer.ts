@@ -9,7 +9,11 @@ import {
   createEmptyTimelineState,
   timelineReducer,
 } from "../webview/src/state/timelineReducer";
-import type { TimelineState } from "../webview/src/types";
+import { groupTimelineEntries } from "../webview/src/state/timelineBlocks";
+import type {
+  TimelineEntry,
+  TimelineState,
+} from "../webview/src/types";
 import {
   isHostToWebviewMessage,
   isUiEvent,
@@ -267,6 +271,82 @@ assert.equal(
   }),
   true,
 );
+assert.equal(
+  isWebviewToHostMessage({ type: "index.build" }),
+  true,
+);
+assert.equal(
+  isHostToWebviewMessage({
+    type: "ling.index-result",
+    ok: true,
+    stats: {
+      files: 2,
+      totalFiles: 2,
+      chunks: 3,
+      vectors: 3,
+      indexedFiles: 2,
+      percent: 100,
+      embedded: 3,
+      model: "text-embedding-v3",
+    },
+  }),
+  true,
+);
+assert.equal(
+  isHostToWebviewMessage({
+    type: "ling.index-status",
+    status: {
+      files: 2,
+      totalFiles: 2,
+      chunks: 3,
+      vectors: 1,
+      indexedFiles: 1,
+      percent: 50,
+      model: "text-embedding-v3",
+    },
+  }),
+  true,
+);
+assert.equal(
+  isHostToWebviewMessage({
+    type: "ling.index-status",
+    status: {
+      files: 2,
+      totalFiles: 2,
+      chunks: 3,
+      vectors: 1,
+      indexedFiles: 1,
+      percent: 150,
+      model: "text-embedding-v3",
+    },
+  }),
+  false,
+);
+assert.equal(
+  isHostToWebviewMessage({
+    type: "ling.index-result",
+    ok: false,
+    error: "embedding provider is down",
+  }),
+  true,
+);
+assert.equal(
+  isHostToWebviewMessage({
+    type: "ling.index-result",
+    ok: true,
+    stats: {
+      files: 2,
+      totalFiles: 5,
+      chunks: 3,
+      vectors: 0,
+      indexedFiles: 2,
+      percent: 40,
+      embedded: 0,
+      model: null,
+    },
+  }),
+  true,
+);
 assert.equal(isUiEvent(snapshotEvent()), true);
 assert.equal(
   isHostToWebviewMessage({
@@ -400,6 +480,68 @@ assert.notEqual(
     : undefined,
   imageAttachment,
 );
+assert.equal(
+  isUiEvent({
+    type: "tool.updated",
+    tool: {
+      id: "tool-detail-1",
+      action: "Edit",
+      target: "a.py",
+      status: "Completed",
+      details: [],
+      detail: {
+        kind: "diff",
+        path: "a.py",
+        rows: [
+          { type: "remove", oldLine: 1, text: "old" },
+          { type: "add", newLine: 1, text: "new" },
+        ],
+        added: 1,
+        removed: 1,
+      },
+    },
+  }),
+  true,
+);
+assert.equal(
+  isUiEvent({
+    type: "tool.updated",
+    tool: {
+      id: "tool-detail-2",
+      action: "Run",
+      target: "python a.py",
+      status: "Completed",
+      details: [],
+      detail: {
+        kind: "io",
+        input: "python a.py",
+        output: "ok",
+      },
+    },
+  }),
+  true,
+);
+assert.equal(
+  isUiEvent({
+    type: "tool.updated",
+    tool: {
+      id: "tool-detail-3",
+      action: "Edit",
+      target: "a.py",
+      status: "Completed",
+      details: [],
+      detail: {
+        kind: "diff",
+        path: "a.py",
+        rows: [{ type: "bogus", text: "x" }],
+        added: 1,
+        removed: 0,
+      },
+    },
+  }),
+  false,
+);
+
 assert.equal(
   isUiEvent({
     type: "thinking.delta",
@@ -561,6 +703,9 @@ assert.equal(
     approvalTimeoutSeconds: 120,
     contextWindowTokens: 1_000_000,
     keepLastUserTurns: 5,
+    embeddingModel: "",
+    embeddingBaseUrl: "",
+    embeddingApiKey: "",
   }),
   true,
 );
@@ -872,6 +1017,133 @@ assert.equal(
     ? selectionState.entries[0].message.selections?.length
     : 0,
   1,
+);
+
+const mergedBlocks = groupTimelineEntries([
+  {
+    kind: "message",
+    message: {
+      id: "u1",
+      role: "user",
+      content: "hi",
+      streaming: false,
+    },
+  },
+  {
+    kind: "message",
+    message: {
+      id: "a1",
+      role: "assistant",
+      content: "",
+      thinking: "one",
+      thinkingDone: true,
+      thinkingDurationMs: 1000,
+      streaming: false,
+    },
+  },
+  {
+    kind: "tool",
+    tool: {
+      id: "t1",
+      action: "Read",
+      target: "a.py",
+      status: "Completed",
+      details: [],
+    },
+  },
+  {
+    kind: "message",
+    message: {
+      id: "a2",
+      role: "assistant",
+      content: "",
+      thinking: "two",
+      thinkingDone: true,
+      thinkingDurationMs: 2000,
+      streaming: false,
+    },
+  },
+  {
+    kind: "message",
+    message: {
+      id: "a3",
+      role: "assistant",
+      content: "done",
+      streaming: false,
+    },
+  },
+  {
+    kind: "message",
+    message: {
+      id: "u2",
+      role: "user",
+      content: "again",
+      streaming: false,
+    },
+  },
+  {
+    kind: "message",
+    message: {
+      id: "a4",
+      role: "assistant",
+      content: "",
+      thinking: "three",
+      thinkingDone: false,
+      streaming: true,
+    },
+  },
+] as TimelineEntry[]);
+
+const thinkingBlocks = mergedBlocks.filter(
+  (block) => block.kind === "run-thinking",
+);
+assert.equal(thinkingBlocks.length, 2);
+assert.equal(
+  thinkingBlocks[0]?.kind === "run-thinking"
+    ? thinkingBlocks[0].thinking
+    : "",
+  "one\n\ntwo",
+);
+assert.equal(
+  thinkingBlocks[0]?.kind === "run-thinking"
+    ? thinkingBlocks[0].durationMs
+    : undefined,
+  3000,
+);
+assert.equal(
+  thinkingBlocks[0]?.kind === "run-thinking"
+    ? thinkingBlocks[0].active
+    : true,
+  false,
+);
+assert.equal(
+  thinkingBlocks[1]?.kind === "run-thinking"
+    ? thinkingBlocks[1].thinking
+    : "",
+  "three",
+);
+assert.equal(
+  thinkingBlocks[1]?.kind === "run-thinking"
+    ? thinkingBlocks[1].active
+    : false,
+  true,
+);
+assert.equal(
+  thinkingBlocks[1]?.kind === "run-thinking"
+    ? thinkingBlocks[1].durationMs
+    : undefined,
+  undefined,
+);
+assert.deepEqual(
+  mergedBlocks.map((block) => block.kind),
+  [
+    "entry",
+    "run-thinking",
+    "tools",
+    "entry",
+    "entry",
+    "run-thinking",
+  ],
 );
 
 console.log("timelineReducer and transport tests passed");

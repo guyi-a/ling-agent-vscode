@@ -57,7 +57,7 @@ class Agent:
         tools: Iterable[AgentTool] = (),
         hooks: HookRegistry | None = None,
         options: StreamOptions | None = None,
-        max_steps: int = 10,
+        max_steps: int = 50,
         max_parallel_tools: int = 1,
         prepare_context: PrepareContext | None = None,
     ) -> None:

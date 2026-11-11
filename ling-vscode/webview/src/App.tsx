@@ -40,6 +40,8 @@ import {
 } from "../../shared/transport";
 import type {
   HistorySession,
+  IndexBuildStats,
+  IndexStatus,
   SettingsView,
 } from "../../shared/uiTypes";
 
@@ -47,6 +49,7 @@ export function App() {
   const host = useMemo(createHostBridge, []);
   const announcedReady = useRef(false);
   const copyNoticeTimer = useRef<number | undefined>(undefined);
+  const buildAfterSave = useRef(false);
   const [state, dispatch] = useReducer(
     timelineReducer,
     createEmptyTimelineState(),
@@ -68,6 +71,9 @@ export function App() {
     useState<SettingsView | null>(null);
   const [settingsError, setSettingsError] = useState("");
   const [settingsNotice, setSettingsNotice] = useState("");
+  const [indexBuilding, setIndexBuilding] = useState(false);
+  const [indexStatus, setIndexStatus] = useState<IndexStatus | null>(null);
+  const [indexError, setIndexError] = useState("");
   const [attachments, setAttachments] = useState<UserAttachmentView[]>([]);
   const [selections, setSelections] = useState<UserSelectionView[]>([]);
   const attachmentRequestSeq = useRef(0);
@@ -113,6 +119,10 @@ export function App() {
         setEffort(next.effort);
       }
       if (error) {
+        if (buildAfterSave.current) {
+          buildAfterSave.current = false;
+          setIndexBuilding(false);
+        }
         setSettingsError(error);
         setSettingsNotice("");
         return;
@@ -121,8 +131,14 @@ export function App() {
       setSettingsNotice(
         warning ?? "Settings saved. The sidecar was restarted.",
       );
+      if (buildAfterSave.current) {
+        buildAfterSave.current = false;
+        setIndexBuilding(true);
+        setIndexError("");
+        host.postMessage({ type: "index.build" });
+      }
     },
-    [],
+    [host],
   );
   const handleAttachmentSaved = useCallback(
     (
@@ -259,6 +275,40 @@ export function App() {
     [addSelection],
   );
 
+  const handleIndexResult = useCallback(
+    (ok: boolean, stats?: IndexBuildStats, error?: string) => {
+      setIndexBuilding(false);
+      if (!ok || !stats) {
+        setIndexError(error ?? "Index build failed.");
+        return;
+      }
+      setIndexStatus(stats);
+      setIndexError(stats.error ?? "");
+    },
+    [],
+  );
+
+  const handleIndexStatus = useCallback((status: IndexStatus) => {
+    setIndexStatus(status);
+  }, []);
+
+  function buildIndex(
+    input: Omit<
+      Extract<WebviewToHostMessage, { type: "settings.save" }>,
+      "type"
+    >,
+  ) {
+    if (host.kind !== "vscode") {
+      setIndexError("Index builds are only available in VS Code.");
+      return;
+    }
+    setIndexBuilding(true);
+    setIndexError("");
+    // Build with the values currently in the form; save first so the
+    // sidecar restarts with the new embedding configuration.
+    saveSettings(input, true);
+  }
+
   useHostEvents(
     host,
     dispatch,
@@ -269,6 +319,8 @@ export function App() {
     handleSettingsSaved,
     handleAttachmentSaved,
     handleSelectionAdded,
+    handleIndexResult,
+    handleIndexStatus,
   );
   useScriptedEvents(dispatch, streamKey, host.kind === "browser");
 
@@ -494,7 +546,9 @@ export function App() {
       Extract<WebviewToHostMessage, { type: "settings.save" }>,
       "type"
     >,
+    andBuild = false,
   ) {
+    buildAfterSave.current = andBuild;
     setSettingsSaving(true);
     setSettingsError("");
     setSettingsNotice("");
@@ -631,13 +685,17 @@ export function App() {
           saving={settingsSaving}
           error={settingsError}
           notice={settingsNotice}
+          indexBuilding={indexBuilding}
+          indexStatus={indexStatus}
+          indexError={indexError}
+          onBuildIndex={buildIndex}
           onSave={saveSettings}
           onClose={closeSettings}
         />
       ) : null}
 
       {isEmpty ? (
-        <EmptyState onPrompt={send} />
+        <EmptyState />
       ) : (
         <Timeline
           state={state}

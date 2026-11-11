@@ -74,6 +74,15 @@ export function EyeOffIcon(props: IconProps) {
   );
 }
 
+export function RefreshIcon(props: IconProps) {
+  return (
+    <IconBase {...props}>
+      <path d="M19 12a7 7 0 1 1-2.05-4.95L19 9" />
+      <path d="M19 4.5V9h-4.5" />
+    </IconBase>
+  );
+}
+
 export function ChevronIcon(props: IconProps) {
   return (
     <IconBase {...props}>

@@ -6,10 +6,12 @@ from pathlib import Path
 from typing import Sequence
 
 from ling_ai.types import Tool, ToolCall
-from ling_core import AgentTool, ToolContext
+from ling_core import AgentTool, ToolContext, ToolExecution
 
-from ..workspace import Workspace
+from ..workspace import Workspace, WorkspaceError
 from .formatting import join_limited
+
+MAX_DETAIL_FILE_BYTES = 100_000
 
 
 def _string_arg(call: ToolCall, name: str, default: str | None = None) -> str:
@@ -103,16 +105,37 @@ def create_file_tools(
 
 
 def create_mutation_tools(workspace: Workspace) -> list[AgentTool]:
-    def write_file(call: ToolCall, context: ToolContext) -> str:
+    def write_file(
+        call: ToolCall,
+        context: ToolContext,
+    ) -> ToolExecution:
         path = _string_arg(call, "path")
         content = _string_arg(call, "content")
-        return workspace.write_text(path, content)
+        previous, existed = _previous_content(workspace, path)
+        output = workspace.write_text(path, content)
+        return ToolExecution(
+            output=output,
+            details={
+                "kind": "write",
+                "previousContent": previous,
+                "previousExists": existed,
+                "previousTruncated": existed and previous is None,
+            },
+        )
 
-    def edit_file(call: ToolCall, context: ToolContext) -> str:
+    def edit_file(
+        call: ToolCall,
+        context: ToolContext,
+    ) -> ToolExecution:
         path = _string_arg(call, "path")
         old_text = _string_arg(call, "old_text")
         new_text = _string_arg(call, "new_text")
-        return workspace.replace_text(path, old_text, new_text)
+        start_line = _find_start_line(workspace, path, old_text)
+        output = workspace.replace_text(path, old_text, new_text)
+        return ToolExecution(
+            output=output,
+            details={"kind": "edit", "startLine": start_line},
+        )
 
     return [
         AgentTool(
@@ -155,6 +178,39 @@ def create_mutation_tools(workspace: Workspace) -> list[AgentTool]:
             handler=edit_file,
         ),
     ]
+
+
+def _previous_content(
+    workspace: Workspace,
+    path: str,
+) -> tuple[str | None, bool]:
+    try:
+        resolved = workspace.resolve(path)
+        if not resolved.is_file():
+            return None, False
+        if resolved.stat().st_size > MAX_DETAIL_FILE_BYTES:
+            return None, True
+        return resolved.read_text(encoding="utf-8"), True
+    except (OSError, UnicodeDecodeError, WorkspaceError):
+        return None, False
+
+
+def _find_start_line(
+    workspace: Workspace,
+    path: str,
+    old_text: str,
+) -> int | None:
+    try:
+        resolved = workspace.resolve(path)
+        if not resolved.is_file():
+            return None
+        text = resolved.read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError, WorkspaceError):
+        return None
+    index = text.find(old_text)
+    if index < 0:
+        return None
+    return text.count("\n", 0, index) + 1
 
 
 __all__ = ["create_file_tools", "create_mutation_tools"]

@@ -27,7 +27,7 @@ class HarnessConfig:
     approval_timeout_seconds: float = 120.0
     prompt_max_chars: int = 100_000
     storage_root: Path | None = None
-    agent_max_steps: int = 10
+    agent_max_steps: int = 50
     agent_max_parallel_tools: int = 4
     compaction: CompactionConfig = field(
         default_factory=CompactionConfig

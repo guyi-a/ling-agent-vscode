@@ -1,11 +1,10 @@
 import { useLayoutEffect, useRef } from "react";
-import type {
-  CompactionItem,
-  TimelineEntry,
-  TimelineState,
-  ToolCall,
-  UserSelectionSummary,
-} from "../types";
+import type { TimelineState, UserSelectionSummary } from "../types";
+import {
+  formatThinkingDuration,
+  groupTimelineEntries,
+} from "../state/timelineBlocks";
+import type { TimelineBlock } from "../state/timelineBlocks";
 import { CompactionMarker } from "./CompactionMarker";
 import { MarkdownMessage } from "./MarkdownMessage";
 import { MessageActions } from "./MessageActions";
@@ -22,20 +21,6 @@ interface TimelineProps {
   onRegenerateMessage(messageId: string): void;
   actionsDisabled: boolean;
 }
-
-type TimelineBlock =
-  | {
-      kind: "entry";
-      entry: Extract<TimelineEntry, { kind: "message" }>;
-    }
-  | {
-      kind: "tools";
-      tools: ToolCall[];
-    }
-  | {
-      kind: "compaction";
-      compaction: CompactionItem;
-    };
 
 export function Timeline({
   state,
@@ -126,25 +111,39 @@ export function Timeline({
           );
         }
 
+        if (block.kind === "run-thinking") {
+          const label = block.active
+            ? "Thinking…"
+            : block.durationMs !== undefined
+              ? `Thought for ${formatThinkingDuration(
+                  block.durationMs,
+                )}`
+              : "Thoughts";
+          return (
+            <details
+              className={
+                block.active
+                  ? "thinking thinking--streaming"
+                  : "thinking"
+              }
+              key={block.id}
+              aria-live="off"
+            >
+              <summary>
+                <span>{label}</span>
+                <span
+                  className="thinking__chevron"
+                  aria-hidden="true"
+                >
+                  ›
+                </span>
+              </summary>
+              <pre className="thinking__text">{block.thinking}</pre>
+            </details>
+          );
+        }
+
         const { entry } = block;
-        const thinkingActive =
-          entry.message.thinkingDone === undefined
-            ? entry.message.streaming
-            : !entry.message.thinkingDone;
-        const thinkingClass = [
-          "thinking",
-          thinkingActive ? "thinking--streaming" : "",
-          entry.message.content ? "" : "thinking--only",
-        ]
-          .filter(Boolean)
-          .join(" ");
-        const thinkingLabel = thinkingActive
-          ? "Thinking…"
-          : entry.message.thinkingDurationMs !== undefined
-            ? `Thought for ${formatThinkingDuration(
-                entry.message.thinkingDurationMs,
-              )}`
-            : "Thoughts";
         return (
           <section
             className={`message message--${entry.message.role}`}
@@ -155,25 +154,6 @@ export function Timeline({
           >
             {entry.message.role === "assistant" ? (
               <>
-                {entry.message.thinking ? (
-                  <details
-                    className={thinkingClass}
-                    aria-live="off"
-                  >
-                    <summary>
-                      <span>{thinkingLabel}</span>
-                      <span
-                        className="thinking__chevron"
-                        aria-hidden="true"
-                      >
-                        ›
-                      </span>
-                    </summary>
-                    <pre className="thinking__text">
-                      {entry.message.thinking}
-                    </pre>
-                  </details>
-                ) : null}
                 <MarkdownMessage
                   content={entry.message.content}
                   streaming={entry.message.streaming}
@@ -247,53 +227,6 @@ export function Timeline({
   );
 }
 
-function groupTimelineEntries(entries: TimelineEntry[]): TimelineBlock[] {
-  const blocks: TimelineBlock[] = [];
-
-  for (const entry of entries) {
-    if (entry.kind === "tool") {
-      const previous = blocks.at(-1);
-      if (previous?.kind === "tools") {
-        previous.tools.push(entry.tool);
-      } else {
-        blocks.push({ kind: "tools", tools: [entry.tool] });
-      }
-      continue;
-    }
-
-    if (entry.kind === "approval") {
-      continue;
-    }
-
-    if (entry.kind === "compaction") {
-      blocks.push({ kind: "compaction", compaction: entry.compaction });
-      continue;
-    }
-
-    if (
-      entry.message.role === "assistant" &&
-      !entry.message.content.trim() &&
-      !entry.message.thinking?.trim()
-    ) {
-      continue;
-    }
-
-    blocks.push({ kind: "entry", entry });
-  }
-
-  return blocks;
-}
-
-function formatThinkingDuration(durationMs: number): string {
-  const seconds = Math.max(1, Math.round(durationMs / 1000));
-  if (seconds < 60) {
-    return `${seconds}s`;
-  }
-  const minutes = Math.floor(seconds / 60);
-  const rest = seconds % 60;
-  return rest > 0 ? `${minutes}m ${rest}s` : `${minutes}m`;
-}
-
 function getBlockKey(block: TimelineBlock): string {
   if (block.kind === "tools") {
     return `tools-${block.tools[0]?.id ?? "empty"}`;
@@ -301,6 +234,10 @@ function getBlockKey(block: TimelineBlock): string {
 
   if (block.kind === "compaction") {
     return block.compaction.id;
+  }
+
+  if (block.kind === "run-thinking") {
+    return block.id;
   }
 
   return block.entry.message.id;

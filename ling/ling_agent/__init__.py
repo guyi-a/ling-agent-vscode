@@ -126,6 +126,8 @@ from .tools import (
     create_skill_tools,
 )
 from .workspace import (
+    DEFAULT_IGNORED_DIRECTORIES,
+    DEFAULT_IGNORED_PATHS,
     Workspace,
     WorkspaceError,
     WorkspaceFileError,
@@ -214,6 +216,8 @@ __all__ = [
     "UsageUpdated",
     "UserTimelineItem",
     "UserMessageCommitted",
+    "DEFAULT_IGNORED_DIRECTORIES",
+    "DEFAULT_IGNORED_PATHS",
     "Workspace",
     "WorkspaceError",
     "WorkspaceFileError",

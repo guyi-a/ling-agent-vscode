@@ -8,6 +8,7 @@ import path from "node:path";
 import * as vscode from "vscode";
 import { resolveScratchWorkspaceRoot } from "./scratchWorkspace";
 import {
+  isIndexStatus,
   isUiEvent,
   isWebviewToHostMessage,
   MAX_ATTACHMENTS_PER_MESSAGE,
@@ -20,6 +21,8 @@ import type {
   ApprovalMode,
   EffortLevel,
   HistorySession,
+  IndexBuildStats,
+  IndexStatus,
   SessionSnapshot,
   SettingsView,
   SkillStatus,
@@ -73,6 +76,9 @@ function sidecarSettings(settings: LingSettings): SidecarSettings {
     approvalTimeoutSeconds: settings.approvalTimeoutSeconds,
     contextWindowTokens: settings.contextWindowTokens,
     keepLastUserTurns: settings.keepLastUserTurns,
+    embeddingModel: settings.embeddingModel || undefined,
+    embeddingBaseUrl: settings.embeddingBaseUrl || undefined,
+    embeddingApiKey: settings.embeddingApiKey || undefined,
   };
 }
 
@@ -179,6 +185,9 @@ export async function activate(
         );
       }
     }),
+    vscode.commands.registerCommand("ling.buildIndex", async () =>
+      provider.buildIndexFromCommand(),
+    ),
     vscode.commands.registerCommand("ling.addSelection", async () =>
       provider.addSelection("any"),
     ),
@@ -227,6 +236,7 @@ class ChatViewProvider implements vscode.WebviewViewProvider {
   private historyQuery = "";
   private scratchRoot: string | undefined;
   private sessionCommand: Promise<void> = Promise.resolve();
+  private indexBuildPromise: Promise<IndexBuildStats> | undefined;
 
   constructor(
     private readonly extensionUri: vscode.Uri,
@@ -401,10 +411,15 @@ class ChatViewProvider implements vscode.WebviewViewProvider {
 
       case "settings.get":
         this.postSettings();
+        void this.refreshIndexStatus();
         break;
 
       case "settings.save":
         void this.handleSettingsSave(value);
+        break;
+
+      case "index.build":
+        void this.handleIndexBuild();
         break;
 
       case "effort.change":
@@ -472,6 +487,15 @@ class ChatViewProvider implements vscode.WebviewViewProvider {
   }
 
   handleSidecarNotification(method: string, params: unknown): void {
+    if (method === "index.progress") {
+      if (isIndexStatus(params)) {
+        this.postToWebview({
+          type: "ling.index-status",
+          status: params,
+        });
+      }
+      return;
+    }
     if (
       method !== "ui.event" ||
       !isRecord(params) ||
@@ -813,6 +837,9 @@ class ChatViewProvider implements vscode.WebviewViewProvider {
       approvalTimeoutSeconds: this.settings.approvalTimeoutSeconds,
       contextWindowTokens: this.settings.contextWindowTokens,
       keepLastUserTurns: this.settings.keepLastUserTurns,
+      embeddingModel: this.settings.embeddingModel,
+      embeddingBaseUrl: this.settings.embeddingBaseUrl,
+      embeddingApiKey: this.settings.embeddingApiKey,
       skills: this.skillStatuses(),
     };
   }
@@ -878,6 +905,92 @@ class ChatViewProvider implements vscode.WebviewViewProvider {
     );
   }
 
+  private async refreshIndexStatus(): Promise<void> {
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      try {
+        await this.sidecar.start();
+        const status = await this.sidecar.call<IndexStatus>(
+          "index.status",
+          { workspaceRoot: this.sessionWorkspaceRoot() },
+          15_000,
+        );
+        this.postToWebview({ type: "ling.index-status", status });
+        return;
+      } catch (error) {
+        if (attempt === 0) {
+          await new Promise((resolve) => setTimeout(resolve, 800));
+          continue;
+        }
+        this.output.appendLine(
+          `Unable to read code index status: ${formatError(error)}`,
+        );
+      }
+    }
+  }
+
+  private async handleIndexBuild(): Promise<void> {
+    try {
+      const stats = await this.buildIndex();
+      this.postToWebview({ type: "ling.index-result", ok: true, stats });
+    } catch (error) {
+      this.output.appendLine(
+        `Code index build failed: ${formatError(error)}`,
+      );
+      this.postToWebview({
+        type: "ling.index-result",
+        ok: false,
+        error: formatError(error),
+      });
+    }
+  }
+
+  async buildIndexFromCommand(): Promise<void> {
+    try {
+      const stats = await vscode.window.withProgress(
+        {
+          location: vscode.ProgressLocation.Notification,
+          title: "Ling: building code index",
+        },
+        () => this.buildIndex(),
+      );
+      await vscode.window.showInformationMessage(
+        `Ling code index: ${stats.chunks} chunks, ` +
+          `${stats.vectors} vectors (${stats.files} files)`,
+      );
+    } catch (error) {
+      this.output.appendLine(
+        `Code index build failed: ${formatError(error)}`,
+      );
+      await vscode.window.showErrorMessage(
+        `Ling code index failed: ${formatError(error)}`,
+      );
+    }
+  }
+
+  private buildIndex(): Promise<IndexBuildStats> {
+    this.indexBuildPromise ??= this.runIndexBuild().finally(() => {
+      this.indexBuildPromise = undefined;
+    });
+    return this.indexBuildPromise;
+  }
+
+  private async runIndexBuild(): Promise<IndexBuildStats> {
+    const workspaceRoot = this.sessionWorkspaceRoot();
+    this.output.appendLine(`Building code index for ${workspaceRoot}`);
+    await this.sidecar.start();
+    const stats = await this.sidecar.call<IndexBuildStats>(
+      "index.build",
+      { workspaceRoot },
+      300_000,
+    );
+    this.output.appendLine(
+      `Code index: ${stats.files} files, ${stats.chunks} chunks, ` +
+        `${stats.vectors} vectors (${stats.embedded} new)` +
+        (stats.error ? `; embedding failed: ${stats.error}` : ""),
+    );
+    return stats;
+  }
+
   private postSettings(error?: string): void {
     this.postToWebview({
       type: "ling.settings",
@@ -891,6 +1004,11 @@ class ChatViewProvider implements vscode.WebviewViewProvider {
   ): Promise<void> {
     const model = value.model.trim();
     const baseUrl = value.baseUrl.trim().replace(/\/+$/, "");
+    const embeddingModel = value.embeddingModel.trim();
+    const embeddingBaseUrl = value.embeddingBaseUrl
+      .trim()
+      .replace(/\/+$/, "");
+    const embeddingApiKey = value.embeddingApiKey.trim();
     if (!model || !baseUrl) {
       this.postToWebview({
         type: "ling.settings-saved",
@@ -912,6 +1030,9 @@ class ChatViewProvider implements vscode.WebviewViewProvider {
       approvalTimeoutSeconds: value.approvalTimeoutSeconds,
       contextWindowTokens: value.contextWindowTokens,
       keepLastUserTurns: value.keepLastUserTurns,
+      embeddingModel,
+      embeddingBaseUrl,
+      embeddingApiKey,
     };
 
     try {

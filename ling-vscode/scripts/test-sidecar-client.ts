@@ -1,5 +1,10 @@
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
+import {
+  mkdirSync,
+  mkdtempSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import {
@@ -62,6 +67,28 @@ async function main(): Promise<void> {
   assert.equal(configured.OPENAI_API_KEY, undefined);
   assert.equal(configured.LING_MODEL, "deepseek-chat");
   assert.equal(configured.LING_API_BASE_URL, "https://api.deepseek.com/v1");
+  assert.equal(configured.LING_EMBEDDING_MODEL, undefined);
+
+  const embedded = buildSidecarEnv(
+    {
+      embeddingModel: "text-embedding-v4",
+      embeddingBaseUrl:
+        "https://dashscope.aliyuncs.com/compatible-mode/v1",
+      embeddingApiKey: "sk-embed",
+    },
+    {
+      ...process.env,
+      LING_EMBEDDING_MODEL: "stale-model",
+      LING_EMBEDDING_BASE_URL: "https://stale.test",
+      LING_EMBEDDING_API_KEY: "stale-key",
+    },
+  );
+  assert.equal(embedded.LING_EMBEDDING_MODEL, "text-embedding-v4");
+  assert.equal(
+    embedded.LING_EMBEDDING_BASE_URL,
+    "https://dashscope.aliyuncs.com/compatible-mode/v1",
+  );
+  assert.equal(embedded.LING_EMBEDDING_API_KEY, "sk-embed");
 
   const unconfigured = buildSidecarEnv(
     {},
@@ -106,8 +133,65 @@ async function main(): Promise<void> {
     assert.equal(snapshot.phase, "idle");
     assert.equal(snapshot.approvalMode, "auto");
 
+    const indexRoot = mkdtempSync(join(tmpdir(), "ling-index-"));
+    try {
+      writeFileSync(
+        join(indexRoot, "a.py"),
+        "def load_skill():\n    return 1\n",
+        "utf8",
+      );
+      const stats = await client.call<{
+        files: number;
+        chunks: number;
+        vectors: number;
+        embedded: number;
+        model: string | null;
+      }>("index.build", { workspaceRoot: indexRoot });
+      assert.equal(stats.files, 1);
+      assert.equal(stats.chunks, 1);
+      assert.equal(stats.vectors, 0);
+      assert.equal(stats.embedded, 0);
+      assert.equal(stats.model, null);
+
+      const status = await client.call<{
+        files: number;
+        totalFiles: number;
+        percent: number;
+        model: string | null;
+      }>("index.status", { workspaceRoot: indexRoot });
+      assert.equal(status.files, 1);
+      assert.equal(status.totalFiles, 1);
+      assert.equal(status.percent, 100);
+      assert.equal(status.model, null);
+    } finally {
+      rmSync(indexRoot, { recursive: true, force: true });
+    }
+
     await client.stop();
     assert.equal(client.isRunning, false);
+
+    const embeddingRoot = mkdtempSync(
+      join(tmpdir(), "ling-index-embed-"),
+    );
+    const embeddingClient = new SidecarClient({
+      extensionPath: process.cwd(),
+      requestTimeoutMs: 4_000,
+      embeddingModel: "text-embedding-v4",
+      embeddingBaseUrl:
+        "https://dashscope.aliyuncs.com/compatible-mode/v1",
+      embeddingApiKey: "sk-test",
+      output: (line) => lines.push(line),
+    });
+    try {
+      await embeddingClient.start();
+      const status = await embeddingClient.call<{
+        model: string | null;
+      }>("index.status", { workspaceRoot: embeddingRoot });
+      assert.equal(status.model, "text-embedding-v4");
+    } finally {
+      await embeddingClient.stop();
+      rmSync(embeddingRoot, { recursive: true, force: true });
+    }
 
     const restarted = await client.start();
     assert.equal(restarted.protocolVersion, 1);

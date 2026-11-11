@@ -40,6 +40,8 @@ class AgentTool:
 class ToolExecution:
     output: ToolOutput
     is_error: bool = False
+    # Harness/UI metadata; never sent to the model.
+    details: Any | None = None
 
 
 ToolHandler: TypeAlias = Callable[
@@ -117,6 +119,7 @@ class ToolRegistry:
             content=_output_content(execution.output),
             is_error=execution.is_error,
             timestamp=_now_ms(),
+            details=execution.details,
         )
 
 

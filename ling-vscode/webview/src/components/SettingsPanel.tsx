@@ -2,9 +2,31 @@ import { useEffect, useState, type FormEvent } from "react";
 import type {
   DiffView,
   EffortLevel,
+  IndexStatus,
   SettingsView,
 } from "../types";
-import { EyeIcon, EyeOffIcon } from "./icons";
+import {
+  EyeIcon,
+  EyeOffIcon,
+  RefreshIcon,
+} from "./icons";
+
+interface SettingsInput {
+  apiKey: string;
+  model: string;
+  baseUrl: string;
+  effort: EffortLevel;
+  diffView: DiffView;
+  maxSteps: number;
+  maxParallelTools: number;
+  commandTimeoutSeconds: number;
+  approvalTimeoutSeconds: number;
+  contextWindowTokens: number;
+  keepLastUserTurns: number;
+  embeddingModel: string;
+  embeddingBaseUrl: string;
+  embeddingApiKey: string;
+}
 
 interface SettingsPanelProps {
   settings: SettingsView | null;
@@ -12,19 +34,11 @@ interface SettingsPanelProps {
   saving: boolean;
   error: string;
   notice: string;
-  onSave(input: {
-    apiKey: string;
-    model: string;
-    baseUrl: string;
-    effort: EffortLevel;
-    diffView: DiffView;
-    maxSteps: number;
-    maxParallelTools: number;
-    commandTimeoutSeconds: number;
-    approvalTimeoutSeconds: number;
-    contextWindowTokens: number;
-    keepLastUserTurns: number;
-  }): void;
+  indexBuilding: boolean;
+  indexStatus: IndexStatus | null;
+  indexError: string;
+  onBuildIndex(input: SettingsInput): void;
+  onSave(input: SettingsInput): void;
   onClose(): void;
 }
 
@@ -34,6 +48,10 @@ export function SettingsPanel({
   saving,
   error,
   notice,
+  indexBuilding,
+  indexStatus,
+  indexError,
+  onBuildIndex,
   onSave,
   onClose,
 }: SettingsPanelProps) {
@@ -42,13 +60,17 @@ export function SettingsPanel({
   const [baseUrl, setBaseUrl] = useState("");
   const [effort, setEffort] = useState<EffortLevel>("high");
   const [diffView, setDiffView] = useState<DiffView>("inline");
-  const [maxSteps, setMaxSteps] = useState("10");
+  const [maxSteps, setMaxSteps] = useState("50");
   const [maxParallelTools, setMaxParallelTools] = useState("4");
   const [commandTimeout, setCommandTimeout] = useState("120");
   const [approvalTimeout, setApprovalTimeout] = useState("120");
   const [contextWindow, setContextWindow] = useState("1000000");
   const [keepTurns, setKeepTurns] = useState("5");
+  const [embeddingModel, setEmbeddingModel] = useState("");
+  const [embeddingBaseUrl, setEmbeddingBaseUrl] = useState("");
+  const [embeddingApiKey, setEmbeddingApiKey] = useState("");
   const [showKey, setShowKey] = useState(false);
+  const [showEmbeddingKey, setShowEmbeddingKey] = useState(false);
 
   useEffect(() => {
     if (!settings) {
@@ -65,21 +87,15 @@ export function SettingsPanel({
     setApprovalTimeout(String(settings.approvalTimeoutSeconds));
     setContextWindow(String(settings.contextWindowTokens));
     setKeepTurns(String(settings.keepLastUserTurns));
+    setEmbeddingModel(settings.embeddingModel);
+    setEmbeddingBaseUrl(settings.embeddingBaseUrl);
+    setEmbeddingApiKey(settings.embeddingApiKey);
     setShowKey(false);
+    setShowEmbeddingKey(false);
   }, [settings]);
 
-  function handleSubmit(event: FormEvent) {
-    event.preventDefault();
-    if (
-      !model.trim() ||
-      !baseUrl.trim() ||
-      !numbersValid() ||
-      !settings
-    ) {
-      return;
-    }
-
-    onSave({
+  function currentInput(): SettingsInput {
+    return {
       apiKey: apiKey.trim(),
       model: model.trim(),
       baseUrl: baseUrl.trim(),
@@ -91,7 +107,34 @@ export function SettingsPanel({
       approvalTimeoutSeconds: Number(approvalTimeout),
       contextWindowTokens: Number(contextWindow),
       keepLastUserTurns: Number(keepTurns),
-    });
+      embeddingModel: embeddingModel.trim(),
+      embeddingBaseUrl: embeddingBaseUrl.trim(),
+      embeddingApiKey: embeddingApiKey.trim(),
+    };
+  }
+
+  function formValid(): boolean {
+    return (
+      Boolean(model.trim()) &&
+      Boolean(baseUrl.trim()) &&
+      numbersValid() &&
+      settings !== null
+    );
+  }
+
+  function handleSubmit(event: FormEvent) {
+    event.preventDefault();
+    if (!formValid()) {
+      return;
+    }
+    onSave(currentInput());
+  }
+
+  function handleBuild() {
+    if (!formValid()) {
+      return;
+    }
+    onBuildIndex(currentInput());
   }
 
   function numbersValid(): boolean {
@@ -132,7 +175,11 @@ export function SettingsPanel({
         ) : !settings ? (
           <p className="settings-loading">Settings are unavailable.</p>
         ) : (
-          <form onSubmit={handleSubmit}>
+          <form
+            id="ling-settings-form"
+            onSubmit={handleSubmit}
+            noValidate
+          >
             <div className="settings-field">
               <label
                 className="settings-label"
@@ -149,7 +196,6 @@ export function SettingsPanel({
                   placeholder="sk-..."
                   autoComplete="off"
                   spellCheck={false}
-                  autoFocus
                   onChange={(event) => setApiKey(event.target.value)}
                 />
                 <button
@@ -191,6 +237,183 @@ export function SettingsPanel({
               />
             </label>
 
+            <p className="settings-section">Semantic search (optional)</p>
+
+            <div className="settings-field">
+              <label
+                className="settings-label"
+                htmlFor="ling-embedding-model"
+              >
+                Embedding model
+              </label>
+              <input
+                id="ling-embedding-model"
+                className="settings-input"
+                value={embeddingModel}
+                placeholder="text-embedding-v4"
+                spellCheck={false}
+                autoComplete="off"
+                onChange={(event) =>
+                  setEmbeddingModel(event.target.value)
+                }
+              />
+              <p className="settings-hint">
+                Change this when using another provider.
+              </p>
+            </div>
+
+            <label className="settings-field">
+              <span className="settings-label">
+                Embedding base URL
+              </span>
+              <input
+                className="settings-input"
+                value={embeddingBaseUrl}
+                placeholder="https://dashscope.aliyuncs.com/compatible-mode/v1"
+                spellCheck={false}
+                autoComplete="off"
+                onChange={(event) =>
+                  setEmbeddingBaseUrl(event.target.value)
+                }
+              />
+            </label>
+
+            <div className="settings-field">
+              <label
+                className="settings-label"
+                htmlFor="ling-embedding-key"
+              >
+                Embedding API Key
+              </label>
+              <div className="settings-key-input">
+                <input
+                  id="ling-embedding-key"
+                  className="settings-input settings-input--key"
+                  type={showEmbeddingKey ? "text" : "password"}
+                  value={embeddingApiKey}
+                  placeholder="Defaults to the API Key above"
+                  autoComplete="off"
+                  spellCheck={false}
+                  onChange={(event) =>
+                    setEmbeddingApiKey(event.target.value)
+                  }
+                />
+                <button
+                  className="settings-eye"
+                  type="button"
+                  aria-label={
+                    showEmbeddingKey
+                      ? "Hide embedding API key"
+                      : "Show embedding API key"
+                  }
+                  title={
+                    showEmbeddingKey
+                      ? "Hide embedding API key"
+                      : "Show embedding API key"
+                  }
+                  onClick={() =>
+                    setShowEmbeddingKey((value) => !value)
+                  }
+                >
+                  {showEmbeddingKey ? <EyeOffIcon /> : <EyeIcon />}
+                </button>
+              </div>
+              <p className="settings-hint">
+                Leave empty for keyword-only search.
+              </p>
+            </div>
+
+            <div className="settings-examples">
+              <p className="settings-examples__title">
+                Compatible providers
+              </p>
+              <div className="settings-example">
+                <span className="settings-example__name">
+                  Alibaba Cloud
+                </span>
+                <span className="settings-example__value">
+                  dashscope.aliyuncs.com/compatible-mode/v1 ·
+                  text-embedding-v4
+                </span>
+              </div>
+              <div className="settings-example">
+                <span className="settings-example__name">
+                  SiliconFlow
+                </span>
+                <span className="settings-example__value">
+                  api.siliconflow.cn/v1 · BAAI/bge-m3
+                </span>
+              </div>
+              <p className="settings-hint">
+                DeepSeek has no embeddings API. The chat key is reused
+                only when both base URLs match.
+              </p>
+            </div>
+
+            <p className="settings-section">Code index</p>
+
+            <div className="settings-index">
+              <div className="settings-index__row">
+                <span className="settings-index__percent">
+                  {indexStatus ? `${indexStatus.percent}%` : "—"}
+                </span>
+                <span className="settings-index__count">
+                  {indexStatus
+                    ? `${indexStatus.indexedFiles} / ${
+                        indexStatus.model
+                          ? indexStatus.files
+                          : indexStatus.totalFiles
+                      } files indexed`
+                    : "Checking index..."}
+                </span>
+                <button
+                  className="settings-index__button"
+                  type="button"
+                  title="Save settings and build or refresh the code index"
+                  disabled={indexBuilding || !canSave}
+                  onClick={handleBuild}
+                >
+                  <RefreshIcon
+                    className={indexBuilding ? "spinning" : undefined}
+                  />
+                  <span>
+                    {indexBuilding ? "Building..." : "Build index"}
+                  </span>
+                </button>
+              </div>
+              <div
+                className={`settings-index__bar${
+                  indexStatus ? "" : " settings-index__bar--loading"
+                }`}
+                role="progressbar"
+                aria-valuemin={0}
+                aria-valuemax={100}
+                aria-valuenow={indexStatus?.percent ?? 0}
+              >
+                <div
+                  className="settings-index__fill"
+                  style={
+                    indexStatus
+                      ? { width: `${indexStatus.percent}%` }
+                      : undefined
+                  }
+                />
+              </div>
+              <p className="settings-hint">
+                {indexStatus
+                  ? `${indexStatus.chunks} chunks · ${indexStatus.vectors} vectors. `
+                  : "Builds the keyword and vector index. "}
+                Incremental (only changed chunks are re-embedded).
+                Build saves the settings above first. Dependencies and
+                build output (node_modules, .venv, dist) are skipped.
+              </p>
+            </div>
+            {indexError ? (
+              <p className="settings-error" role="alert">
+                {indexError}
+              </p>
+            ) : null}
+
             <p className="settings-section">Model behavior</p>
 
             <label className="settings-field">
@@ -228,7 +451,9 @@ export function SettingsPanel({
 
             <div className="settings-grid">
               <label className="settings-field">
-                <span className="settings-label">Max steps</span>
+                <span className="settings-label">
+                  Max steps per message
+                </span>
                 <input
                   className="settings-input"
                   type="number"
@@ -295,7 +520,6 @@ export function SettingsPanel({
                 type="number"
                 min={1024}
                 max={10000000}
-                step={1024}
                 value={contextWindow}
                 onChange={(event) =>
                   setContextWindow(event.target.value)
@@ -347,6 +571,13 @@ export function SettingsPanel({
               </ul>
             )}
 
+          </form>
+        )}
+      </div>
+
+      {settings ? (
+        <div className="settings-footer">
+          <div className="settings-footer-status">
             {error ? (
               <p className="settings-error" role="alert">
                 {error}
@@ -357,26 +588,26 @@ export function SettingsPanel({
                 {notice}
               </p>
             ) : null}
-
-            <div className="settings-actions">
-              <button
-                className="button button--secondary"
-                type="button"
-                onClick={onClose}
-              >
-                Cancel
-              </button>
-              <button
-                className="button button--primary"
-                type="submit"
-                disabled={!canSave}
-              >
-                {saving ? "Saving..." : "Save"}
-              </button>
-            </div>
-          </form>
-        )}
-      </div>
+          </div>
+          <div className="settings-footer-actions">
+            <button
+              className="button button--secondary"
+              type="button"
+              onClick={onClose}
+            >
+              Cancel
+            </button>
+            <button
+              className="button button--primary"
+              type="submit"
+              form="ling-settings-form"
+              disabled={!canSave}
+            >
+              {saving ? "Saving..." : "Save"}
+            </button>
+          </div>
+        </div>
+      ) : null}
     </section>
   );
 }

@@ -16,6 +16,7 @@ venv/
 
 # Ling state
 .ling/
+ling/ling_retrieval/report*.json
 
 # Local-only material
 comment-copilot/

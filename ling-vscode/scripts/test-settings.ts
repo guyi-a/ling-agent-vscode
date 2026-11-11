@@ -22,7 +22,8 @@ async function main(): Promise<void> {
     const missing = await readSettings(configPath);
     assert.deepEqual(missing, DEFAULT_SETTINGS);
     assert.equal(missing.effort, "high");
-    assert.equal(missing.maxSteps, 10);
+    assert.equal(missing.maxSteps, 50);
+    assert.equal(missing.embeddingModel, "text-embedding-v4");
 
     const rawPath = join(dir, "raw.json");
     await writeFile(
@@ -44,12 +45,18 @@ async function main(): Promise<void> {
     );
     const normalized = await readSettings(rawPath);
     assert.equal(normalized.effort, "high");
-    assert.equal(normalized.maxSteps, 10);
+    assert.equal(normalized.maxSteps, 50);
     assert.equal(normalized.maxParallelTools, 4);
     assert.equal(normalized.commandTimeoutSeconds, 120);
     assert.equal(normalized.approvalTimeoutSeconds, 45);
     assert.equal(normalized.contextWindowTokens, 2048);
     assert.equal(normalized.keepLastUserTurns, 5);
+    assert.equal(normalized.embeddingModel, "text-embedding-v4");
+    assert.equal(
+      normalized.embeddingBaseUrl,
+      DEFAULT_SETTINGS.embeddingBaseUrl,
+    );
+    assert.equal(normalized.embeddingApiKey, "");
 
     const migrated = migrateApiKey(
       { ...DEFAULT_SETTINGS, apiKey: "" },
@@ -65,6 +72,10 @@ async function main(): Promise<void> {
         model: " deepseek-reasoner ",
         baseUrl: "https://example.test/v1///",
         effort: "xhigh",
+        embeddingModel: " text-embedding-v4 ",
+        embeddingBaseUrl:
+          "https://dashscope.aliyuncs.com/compatible-mode/v1///",
+        embeddingApiKey: " sk-embed ",
       },
       configPath,
     );
@@ -74,6 +85,12 @@ async function main(): Promise<void> {
     assert.equal(loaded.baseUrl, "https://example.test/v1");
     assert.equal(loaded.apiKey, "sk-deepseek");
     assert.equal(loaded.effort, "xhigh");
+    assert.equal(loaded.embeddingModel, "text-embedding-v4");
+    assert.equal(
+      loaded.embeddingBaseUrl,
+      "https://dashscope.aliyuncs.com/compatible-mode/v1",
+    );
+    assert.equal(loaded.embeddingApiKey, "sk-embed");
 
     const raw = JSON.parse(await readFile(configPath, "utf8")) as {
       version: number;

@@ -75,6 +75,35 @@ def test_workspace_read_list_glob_and_grep() -> None:
             raise AssertionError("Expected missing file error")
 
 
+def test_workspace_search_skips_ignored_directories() -> None:
+    with tempfile.TemporaryDirectory() as temp:
+        root = Path(temp)
+        _write(root, "src/a.py", "alpha\n")
+        _write(root, "src/node_modules/nested.js", "alpha\n")
+        _write(root, "node_modules/pkg/index.js", "alpha\n")
+        _write(root, "dist/bundle.js", "alpha\n")
+        _write(root, "__pycache__/cached.py", "alpha\n")
+        _write(root, "media/webview/assets/app.js", "alpha\n")
+        _write(root, "media/icon.svg", "alpha\n")
+        _write(root, "build", "alpha\n")  # a file, not a directory
+        workspace = Workspace(root)
+
+        assert workspace.grep("alpha") == [
+            "build:1:alpha",
+            "media/icon.svg:1:alpha",
+            "src/a.py:1:alpha",
+        ]
+        assert workspace.list_files(".", recursive=True) == [
+            "build",
+            "media",
+            "media/icon.svg",
+            "src",
+            "src/a.py",
+        ]
+        assert workspace.glob("**/*.js") == []
+        assert workspace.glob("**/*.py") == ["src/a.py"]
+
+
 def test_workspace_rejects_binary_text_reads() -> None:
     with tempfile.TemporaryDirectory() as temp:
         root = Path(temp)
@@ -107,5 +136,6 @@ def test_workspace_output_bounds() -> None:
 if __name__ == "__main__":
     test_workspace_path_resolution_and_escape()
     test_workspace_read_list_glob_and_grep()
+    test_workspace_search_skips_ignored_directories()
     test_workspace_output_bounds()
     print("all ling_agent workspace tests passed")

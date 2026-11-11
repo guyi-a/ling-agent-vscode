@@ -22,6 +22,9 @@ export interface LingSettings {
   approvalTimeoutSeconds: number;
   contextWindowTokens: number;
   keepLastUserTurns: number;
+  embeddingModel: string;
+  embeddingBaseUrl: string;
+  embeddingApiKey: string;
 }
 
 export interface MigrationResult {
@@ -30,18 +33,24 @@ export interface MigrationResult {
   source?: "LING_API_KEY" | "DEEPSEEK_API_KEY" | "OPENAI_API_KEY";
 }
 
+export const DEFAULT_EMBEDDING_BASE_URL =
+  "https://dashscope.aliyuncs.com/compatible-mode/v1";
+
 export const DEFAULT_SETTINGS: LingSettings = {
   version: 1,
   apiKey: "",
   model: "deepseek-chat",
   baseUrl: "https://api.deepseek.com/v1",
   effort: "high",
-  maxSteps: 10,
+  maxSteps: 50,
   maxParallelTools: 4,
   commandTimeoutSeconds: 120,
   approvalTimeoutSeconds: 120,
   contextWindowTokens: 1_000_000,
   keepLastUserTurns: 5,
+  embeddingModel: "text-embedding-v4",
+  embeddingBaseUrl: DEFAULT_EMBEDDING_BASE_URL,
+  embeddingApiKey: "",
 };
 
 const KEY_ENV_VARS = [
@@ -154,6 +163,21 @@ function normalizeSettings(value: unknown): LingSettings {
       ? record.baseUrl.trim()
       : DEFAULT_SETTINGS.baseUrl;
   const baseUrl = baseUrlInput.replace(/\/+$/, "");
+  const embeddingModel =
+    typeof record.embeddingModel === "string" &&
+    record.embeddingModel.trim()
+      ? record.embeddingModel.trim()
+      : DEFAULT_SETTINGS.embeddingModel;
+  const embeddingBaseUrl = (
+    typeof record.embeddingBaseUrl === "string" &&
+    record.embeddingBaseUrl.trim()
+      ? record.embeddingBaseUrl.trim()
+      : DEFAULT_EMBEDDING_BASE_URL
+  ).replace(/\/+$/, "");
+  const embeddingApiKey =
+    typeof record.embeddingApiKey === "string"
+      ? record.embeddingApiKey.trim()
+      : "";
 
   return {
     version: 1,
@@ -161,7 +185,7 @@ function normalizeSettings(value: unknown): LingSettings {
     model,
     baseUrl: baseUrl || DEFAULT_SETTINGS.baseUrl,
     effort: normalizeEffort(record.effort),
-    maxSteps: intSetting(record.maxSteps, 10, 1, 100),
+    maxSteps: intSetting(record.maxSteps, 50, 1, 100),
     maxParallelTools: intSetting(record.maxParallelTools, 4, 1, 16),
     commandTimeoutSeconds: numberSetting(
       record.commandTimeoutSeconds,
@@ -187,6 +211,9 @@ function normalizeSettings(value: unknown): LingSettings {
       0,
       50,
     ),
+    embeddingModel,
+    embeddingBaseUrl,
+    embeddingApiKey,
   };
 }
 

@@ -2,6 +2,8 @@ import { useEffect, type Dispatch } from "react";
 import type {
   ApprovalMode,
   HistorySession,
+  IndexBuildStats,
+  IndexStatus,
   SettingsView,
   UserAttachmentView,
   UserSelectionView,
@@ -33,6 +35,12 @@ export function useHostEvents(
     selection?: UserSelectionView,
     error?: string,
   ) => void,
+  onIndexResult: (
+    ok: boolean,
+    stats?: IndexBuildStats,
+    error?: string,
+  ) => void,
+  onIndexStatus: (status: IndexStatus) => void,
 ): void {
   useEffect(
     () =>
@@ -75,6 +83,14 @@ export function useHostEvents(
           onSelectionAdded(message.selection, message.error);
           return;
         }
+        if (message.type === "ling.index-result") {
+          onIndexResult(message.ok, message.stats, message.error);
+          return;
+        }
+        if (message.type === "ling.index-status") {
+          onIndexStatus(message.status);
+          return;
+        }
         onWorkspaceName(message.workspaceName);
       }),
     [
@@ -86,6 +102,8 @@ export function useHostEvents(
       onSettingsSaved,
       onAttachmentSaved,
       onSelectionAdded,
+      onIndexResult,
+      onIndexStatus,
       onWorkspaceName,
     ],
   );

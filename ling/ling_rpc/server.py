@@ -54,7 +54,10 @@ class JsonRpcServer:
         self._stdout = stdout
         self._stderr = stderr
         self._write_lock = asyncio.Lock()
-        self._sessions = sessions or SessionService(self._emit_ui_event)
+        self._sessions = sessions or SessionService(
+            self._emit_ui_event,
+            emit_index_progress=self._emit_index_progress,
+        )
         self._comments = comments or CommentService()
         self.running = True
 
@@ -378,6 +381,38 @@ class JsonRpcServer:
                 )
             }
 
+        if method == "index.build":
+            workspace_root = params.get("workspaceRoot")
+            if not isinstance(workspace_root, str) or not (
+                workspace_root.strip()
+            ):
+                raise JsonRpcError(
+                    -32602,
+                    "workspaceRoot must be a non-empty string",
+                )
+            try:
+                return await self._sessions.build_code_index(
+                    workspace_root
+                )
+            except (RuntimeError, ValueError) as exc:
+                raise JsonRpcError(-32001, str(exc)) from exc
+
+        if method == "index.status":
+            workspace_root = params.get("workspaceRoot")
+            if not isinstance(workspace_root, str) or not (
+                workspace_root.strip()
+            ):
+                raise JsonRpcError(
+                    -32602,
+                    "workspaceRoot must be a non-empty string",
+                )
+            try:
+                return await self._sessions.code_index_status(
+                    workspace_root
+                )
+            except (RuntimeError, ValueError) as exc:
+                raise JsonRpcError(-32001, str(exc)) from exc
+
         if method == "session.delete":
             session_id = params.get("sessionId")
             if not isinstance(session_id, str) or not session_id:
@@ -469,6 +504,18 @@ class JsonRpcServer:
                 "jsonrpc": "2.0",
                 "method": "ui.event",
                 "params": {"event": event},
+            }
+        )
+
+    async def _emit_index_progress(
+        self,
+        stats: dict[str, Any],
+    ) -> None:
+        await self._write_message(
+            {
+                "jsonrpc": "2.0",
+                "method": "index.progress",
+                "params": stats,
             }
         )
 

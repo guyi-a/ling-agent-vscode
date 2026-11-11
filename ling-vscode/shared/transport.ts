@@ -7,6 +7,8 @@ import type {
   DiffView,
   EffortLevel,
   HistorySession,
+  IndexBuildStats,
+  IndexStatus,
   QueuedMessage,
   QuestionRequest,
   RunPhase,
@@ -15,6 +17,8 @@ import type {
   TimelineEntry,
   ToolAction,
   ToolCall,
+  ToolDetail,
+  ToolDiffRow,
   ToolStatus,
   UserAttachmentRef,
   UserAttachmentView,
@@ -92,6 +96,9 @@ export type WebviewToHostMessage =
       approvalTimeoutSeconds: number;
       contextWindowTokens: number;
       keepLastUserTurns: number;
+      embeddingModel: string;
+      embeddingBaseUrl: string;
+      embeddingApiKey: string;
     }
   | {
       type: "effort.change";
@@ -139,6 +146,9 @@ export type WebviewToHostMessage =
   | {
       type: "history.open";
       sessionId: string;
+    }
+  | {
+      type: "index.build";
     };
 
 export type HostToWebviewMessage =
@@ -177,6 +187,16 @@ export type HostToWebviewMessage =
       type: "ling.selection-added";
       selection?: UserSelectionView;
       error?: string;
+    }
+  | {
+      type: "ling.index-result";
+      ok: boolean;
+      stats?: IndexBuildStats;
+      error?: string;
+    }
+  | {
+      type: "ling.index-status";
+      status: IndexStatus;
     };
 
 export function isWebviewToHostMessage(
@@ -271,6 +291,8 @@ export function isWebviewToHostMessage(
       return isApprovalMode(value.mode);
     case "settings.get":
       return true;
+    case "index.build":
+      return true;
     case "settings.save":
       return (
         typeof value.apiKey === "string" &&
@@ -283,7 +305,10 @@ export function isWebviewToHostMessage(
         isPositiveNumber(value.commandTimeoutSeconds) &&
         isPositiveNumber(value.approvalTimeoutSeconds) &&
         isPositiveInteger(value.contextWindowTokens) &&
-        isNonNegativeInteger(value.keepLastUserTurns)
+        isNonNegativeInteger(value.keepLastUserTurns) &&
+        typeof value.embeddingModel === "string" &&
+        typeof value.embeddingBaseUrl === "string" &&
+        typeof value.embeddingApiKey === "string"
       );
     case "effort.change":
       return isEffortLevel(value.effort);
@@ -365,6 +390,17 @@ export function isHostToWebviewMessage(
         typeof value.error === "string")
     );
   }
+  if (value.type === "ling.index-result") {
+    return (
+      typeof value.ok === "boolean" &&
+      (value.stats === undefined || isIndexBuildStats(value.stats)) &&
+      (value.error === undefined ||
+        typeof value.error === "string")
+    );
+  }
+  if (value.type === "ling.index-status") {
+    return isIndexStatus(value.status);
+  }
   return (
     value.type === "ling.ui-event" &&
     typeof value.sequence === "number" &&
@@ -432,6 +468,31 @@ export function isUiEvent(value: unknown): value is UiEvent {
   }
 }
 
+export function isIndexStatus(value: unknown): value is IndexStatus {
+  return (
+    isRecord(value) &&
+    isNonNegativeInteger(value.files) &&
+    isNonNegativeInteger(value.totalFiles) &&
+    isNonNegativeInteger(value.chunks) &&
+    isNonNegativeInteger(value.vectors) &&
+    isNonNegativeInteger(value.indexedFiles) &&
+    isNonNegativeInteger(value.percent) &&
+    value.percent <= 100 &&
+    (value.model === null || typeof value.model === "string")
+  );
+}
+
+function isIndexBuildStats(value: unknown): value is IndexBuildStats {
+  if (!isIndexStatus(value)) {
+    return false;
+  }
+  const record = value as unknown as Record<string, unknown>;
+  return (
+    isNonNegativeInteger(record.embedded) &&
+    (record.error === undefined || typeof record.error === "string")
+  );
+}
+
 function isSettingsView(value: unknown): value is SettingsView {
   return (
     isRecord(value) &&
@@ -446,6 +507,9 @@ function isSettingsView(value: unknown): value is SettingsView {
     isPositiveNumber(value.approvalTimeoutSeconds) &&
     isPositiveInteger(value.contextWindowTokens) &&
     isNonNegativeInteger(value.keepLastUserTurns) &&
+    typeof value.embeddingModel === "string" &&
+    typeof value.embeddingBaseUrl === "string" &&
+    typeof value.embeddingApiKey === "string" &&
     Array.isArray(value.skills) &&
     value.skills.every(isSkillStatus)
   );
@@ -614,7 +678,50 @@ function isToolCall(value: unknown): value is ToolCall {
     isToolAction(value.action) &&
     typeof value.target === "string" &&
     isToolStatus(value.status) &&
-    isStringArray(value.details)
+    isStringArray(value.details) &&
+    (value.detail === undefined || isToolDetail(value.detail))
+  );
+}
+
+function isToolDetail(value: unknown): value is ToolDetail {
+  if (!isRecord(value)) {
+    return false;
+  }
+  if (value.kind === "diff") {
+    return (
+      typeof value.path === "string" &&
+      Array.isArray(value.rows) &&
+      value.rows.every((row) => isToolDiffRow(row)) &&
+      typeof value.added === "number" &&
+      typeof value.removed === "number" &&
+      (value.truncated === undefined ||
+        typeof value.truncated === "boolean")
+    );
+  }
+  if (value.kind === "io") {
+    return (
+      (value.input === undefined || typeof value.input === "string") &&
+      (value.output === undefined || typeof value.output === "string") &&
+      (value.error === undefined || typeof value.error === "string") &&
+      (value.exitCode === undefined ||
+        typeof value.exitCode === "number")
+    );
+  }
+  if (value.kind === "text") {
+    return typeof value.text === "string";
+  }
+  return false;
+}
+
+function isToolDiffRow(value: unknown): value is ToolDiffRow {
+  return (
+    isRecord(value) &&
+    (value.type === "context" ||
+      value.type === "add" ||
+      value.type === "remove") &&
+    (value.oldLine === undefined || typeof value.oldLine === "number") &&
+    (value.newLine === undefined || typeof value.newLine === "number") &&
+    typeof value.text === "string"
   );
 }
 

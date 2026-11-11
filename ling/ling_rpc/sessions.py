@@ -7,7 +7,7 @@ import os
 import uuid
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Sequence
+from typing import Any, Awaitable, Callable, Sequence
 
 from ling_agent import (
     ApprovalDecision,
@@ -29,7 +29,7 @@ from ling_agent.compaction import CompactionConfig, SummarizeFn
 from ling_ai.stream import StreamFunction
 from ling_ai.types import Model, TextContent
 
-from .provider import resolve_model
+from .provider import resolve_embedder, resolve_model
 from .questions import RpcQuestionHandler
 from .ui_events import EmitUiEvent, RpcEventSink, UiEvent, snapshot_to_ui
 
@@ -90,6 +90,8 @@ class _QueuedPrompt:
 
 MAX_QUEUED_PROMPTS = 20
 
+EmitIndexProgress = Callable[[dict[str, Any]], Awaitable[None]]
+
 
 class SessionService:
     """Own the active coding agent and expose it through RPC-friendly methods."""
@@ -103,12 +105,15 @@ class SessionService:
         config: HarnessConfig | None = None,
         storage_root: str | Path | None = None,
         summarize_fn: SummarizeFn | None = None,
+        emit_index_progress: EmitIndexProgress | None = None,
     ) -> None:
         self._emit_event = emit_event
+        self._emit_index_progress = emit_index_progress
         self._configured_model = model
         self._configured_stream = stream_fn
         self._config = config or _config_from_env()
         self._summarize_fn = summarize_fn
+        self._embedder = resolve_embedder()
         resolved_storage_root = (
             storage_root
             or os.environ.get("LING_STORAGE_ROOT")
@@ -730,6 +735,7 @@ class SessionService:
             summarize_fn=self._summarize_fn,
             builtin_skills_root=self._builtin_skills_root,
             questions=self._questions,
+            embedder=self._embedder,
         )
         if self._session_id is not None:
             await self._agent.resume(self._session_id)
@@ -739,6 +745,38 @@ class SessionService:
         return resolve_model(
             self._configured_model,
             self._configured_stream,
+        )
+
+    async def build_code_index(self, workspace_root: str) -> dict:
+        root = Path(workspace_root).expanduser().resolve()
+        if not root.is_dir():
+            raise ValueError(f"Workspace does not exist: {root}")
+        from ling_retrieval.index import CodeIndex
+
+        index = CodeIndex(root)
+        loop = asyncio.get_running_loop()
+        emit = self._emit_index_progress
+
+        def progress(stats: dict) -> None:
+            if emit is not None:
+                asyncio.run_coroutine_threadsafe(emit(stats), loop)
+
+        return await asyncio.to_thread(
+            index.build,
+            embedder=self._embedder,
+            progress=progress,
+        )
+
+    async def code_index_status(self, workspace_root: str) -> dict:
+        root = Path(workspace_root).expanduser().resolve()
+        if not root.is_dir():
+            raise ValueError(f"Workspace does not exist: {root}")
+        from ling_retrieval.index import CodeIndex
+
+        index = CodeIndex(root)
+        return await asyncio.to_thread(
+            index.status,
+            embedder=self._embedder,
         )
 
     async def _run_queue(
@@ -989,7 +1027,7 @@ def _config_from_env() -> HarnessConfig:
         return value if minimum <= value <= maximum else default
 
     return HarnessConfig(
-        agent_max_steps=int_env("LING_MAX_STEPS", 10, 1, 100),
+        agent_max_steps=int_env("LING_MAX_STEPS", 50, 1, 100),
         agent_max_parallel_tools=int_env(
             "LING_MAX_PARALLEL_TOOLS", 4, 1, 16
         ),

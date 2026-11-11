@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 import time
 from pathlib import Path
-from typing import Sequence
+from typing import TYPE_CHECKING, Sequence
 
 from ling_ai.stream import StreamFunction, StreamOptions
 from ling_ai.types import (
@@ -86,6 +86,9 @@ from .tools import (
 from .tools.spill import create_spill_hook
 from .workspace import Workspace
 
+if TYPE_CHECKING:
+    from ling_retrieval.embedding import Embedder
+
 
 def _now_ms() -> int:
     return int(time.time() * 1000)
@@ -135,6 +138,7 @@ class CodingAgent:
         summarize_fn: SummarizeFn | None = None,
         builtin_skills_root: str | Path | None = None,
         questions: QuestionHandler | None = None,
+        embedder: "Embedder | None" = None,
     ) -> None:
         self.model = model
         self.stream_fn = stream_fn
@@ -144,6 +148,7 @@ class CodingAgent:
         self.event_sink = event_sink
         self.summarize_fn = summarize_fn
         self.questions = questions
+        self.embedder = embedder
         self._builtin_skills_root = (
             Path(builtin_skills_root).expanduser().resolve()
             if builtin_skills_root is not None
@@ -258,7 +263,10 @@ class CodingAgent:
                 self.workspace,
                 extra_read_roots=self._skill_read_roots,
             ),
-            *create_search_tools(self.workspace),
+            *create_search_tools(
+                self.workspace,
+                embedder=self.embedder,
+            ),
             *create_mutation_tools(self.workspace),
             *create_command_tools(self.workspace, self.config),
             *create_document_tools(self.workspace, self.config),

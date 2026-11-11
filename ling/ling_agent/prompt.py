@@ -16,6 +16,7 @@ DEFAULT_TOOL_NAMES = (
     "list_files",
     "glob",
     "grep",
+    "search_codebase",
     "write_file",
     "edit_file",
     "run_command",
@@ -49,6 +50,10 @@ Available tools: {tool_names}.
 
 - Use read_file, list_files, glob, and grep for exploration. Prefer targeted
   reads and searches; batch independent reads when possible.
+- Use search_codebase to find relevant functions by concept or behavior,
+  especially across files. Use grep for exact strings, error codes, or logs,
+  and read_file when you already know the path. Search results are clues
+  rather than proof; read the target file before editing.
 - Do not scan the entire repository unless the task requires it.
 - read_file output is bounded. If it is truncated, narrow the range or read a
   smaller section; do not assume the unseen content.

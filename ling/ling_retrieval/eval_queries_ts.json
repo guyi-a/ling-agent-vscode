@@ -1,0 +1,272 @@
+[
+  {
+    "query": "collect comment target from cursor",
+    "relevant": [
+      {
+        "path": "src/comment/targetCollector.ts",
+        "symbol": "collectCommentTarget"
+      }
+    ]
+  },
+  {
+    "query": "find symbol at cursor using language server",
+    "relevant": [
+      {
+        "path": "src/comment/targetCollector.ts",
+        "symbol": "findSymbolFromLanguageServer"
+      }
+    ]
+  },
+  {
+    "query": "fallback text scan for Python symbols",
+    "relevant": [
+      {
+        "path": "src/comment/targetCollector.ts",
+        "symbol": "findSymbolFromText"
+      }
+    ]
+  },
+  {
+    "query": "show comment diff preview",
+    "relevant": [
+      {
+        "path": "src/comment/commentPreview.ts",
+        "symbol": "show"
+      }
+    ]
+  },
+  {
+    "query": "accept generated comment and save file",
+    "relevant": [
+      {
+        "path": "src/comment/commentPreview.ts",
+        "symbol": "accept"
+      }
+    ]
+  },
+  {
+    "query": "reject generated comment preview",
+    "relevant": [
+      {
+        "path": "src/comment/commentPreview.ts",
+        "symbol": "reject"
+      }
+    ]
+  },
+  {
+    "query": "format comment block with indentation",
+    "relevant": [
+      {
+        "path": "src/comment/format.ts",
+        "symbol": "formatCommentBlock"
+      }
+    ]
+  },
+  {
+    "query": "apply comment insertion or replacement",
+    "relevant": [
+      {
+        "path": "src/comment/format.ts",
+        "symbol": "applyComment"
+      }
+    ]
+  },
+  {
+    "query": "detect leading JSDoc block",
+    "relevant": [
+      {
+        "path": "src/comment/language.ts",
+        "symbol": "leadingJsDocStart"
+      }
+    ]
+  },
+  {
+    "query": "check supported comment language",
+    "relevant": [
+      {
+        "path": "src/comment/language.ts",
+        "symbol": "isSupportedCommentLanguage"
+      }
+    ]
+  },
+  {
+    "query": "provide generate comment codelens",
+    "relevant": [
+      {
+        "path": "src/comment/commentCodeLens.ts",
+        "symbol": "CommentCodeLensProvider"
+      }
+    ]
+  },
+  {
+    "query": "visit symbols for comment codelens",
+    "relevant": [
+      {
+        "path": "src/comment/commentCodeLens.ts",
+        "symbol": "visitSymbols"
+      }
+    ]
+  },
+  {
+    "query": "build codelens from text scan",
+    "relevant": [
+      {
+        "path": "src/comment/commentCodeLens.ts",
+        "symbol": "fromText"
+      }
+    ]
+  },
+  {
+    "query": "resolve command target uri and line",
+    "relevant": [
+      {
+        "path": "src/comment/commentController.ts",
+        "symbol": "resolveCommandTarget"
+      }
+    ]
+  },
+  {
+    "query": "generate comment through sidecar",
+    "relevant": [
+      {
+        "path": "src/comment/commentController.ts",
+        "symbol": "generate"
+      }
+    ]
+  },
+  {
+    "query": "build sidecar environment variables",
+    "relevant": [
+      {
+        "path": "src/sidecar/SidecarClient.ts",
+        "symbol": "buildSidecarEnv"
+      }
+    ]
+  },
+  {
+    "query": "start sidecar process",
+    "relevant": [
+      {
+        "path": "src/sidecar/SidecarClient.ts",
+        "symbol": "start"
+      }
+    ]
+  },
+  {
+    "query": "handle sidecar stdout RPC messages",
+    "relevant": [
+      {
+        "path": "src/sidecar/SidecarClient.ts",
+        "symbol": "handleStdoutLine"
+      }
+    ]
+  },
+  {
+    "query": "resolve bundled skills root",
+    "relevant": [
+      {
+        "path": "src/sidecar/SidecarClient.ts",
+        "symbol": "resolveSkillsRoot"
+      }
+    ]
+  },
+  {
+    "query": "read Ling settings from config file",
+    "relevant": [
+      {
+        "path": "src/settings/config.ts",
+        "symbol": "readSettings"
+      }
+    ]
+  },
+  {
+    "query": "compute proposed content for diff",
+    "relevant": [
+      {
+        "path": "src/diff/proposed.ts",
+        "symbol": "computeProposedContent"
+      }
+    ]
+  },
+  {
+    "query": "restore editor tab after diff closes",
+    "relevant": [
+      {
+        "path": "src/diffController.ts",
+        "symbol": "revealDocument"
+      }
+    ]
+  },
+  {
+    "query": "cancel active run through sidecar",
+    "relevant": [
+      {
+        "path": "src/extension.ts",
+        "symbol": "handleCancelRun"
+      }
+    ]
+  },
+  {
+    "query": "handle webview message dispatch",
+    "relevant": [
+      {
+        "path": "src/extension.ts",
+        "symbol": "handleWebviewMessage"
+      }
+    ]
+  },
+  {
+    "query": "group timeline entries by message and tools",
+    "relevant": [
+      {
+        "path": "webview/src/components/Timeline.tsx",
+        "symbol": "groupTimelineEntries"
+      }
+    ]
+  },
+  {
+    "query": "append thinking delta to timeline",
+    "relevant": [
+      {
+        "path": "webview/src/state/timelineReducer.ts",
+        "symbol": "appendThinkingDelta"
+      }
+    ]
+  },
+  {
+    "query": "complete thinking block",
+    "relevant": [
+      {
+        "path": "webview/src/state/timelineReducer.ts",
+        "symbol": "completeThinking"
+      }
+    ]
+  },
+  {
+    "query": "effort slider control",
+    "relevant": [
+      {
+        "path": "webview/src/components/EffortSlider.tsx",
+        "symbol": "EffortSlider"
+      }
+    ]
+  },
+  {
+    "query": "mode picker menu",
+    "relevant": [
+      {
+        "path": "webview/src/components/ModePicker.tsx",
+        "symbol": "ModePicker"
+      }
+    ]
+  },
+  {
+    "query": "message actions copy delete regenerate",
+    "relevant": [
+      {
+        "path": "webview/src/components/MessageActions.tsx",
+        "symbol": "MessageActions"
+      }
+    ]
+  }
+]
