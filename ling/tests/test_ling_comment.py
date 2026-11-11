@@ -12,7 +12,7 @@ from ling_ai.events import DoneEvent, ErrorEvent
 from ling_ai.stream import AssistantMessageEventStream, StreamOptions
 from ling_ai.types import AssistantMessage, Context, Model, TextContent, Usage
 from ling_comment.pipeline import generate_comment
-from ling_comment.prompt import build_user_prompt
+from ling_comment.prompt import build_user_prompt, system_prompt
 from ling_comment.targets import (
     CommentError,
     CommentTarget,
@@ -92,6 +92,12 @@ class StaticStream:
         return stream
 
 
+TYPESCRIPT_SOURCE = (
+    "export function add(a: number, b: number): number {\n"
+    "  return a + b;\n"
+    "}\n"
+)
+
 FUNCTION_SOURCE = '''@cache
 def calc(
     items: list[str],
@@ -123,7 +129,7 @@ class CommentTargetTests(unittest.TestCase):
         self.assertEqual(analysis.returns, "float")
         self.assertEqual(analysis.raises, ("ValueError",))
         self.assertEqual(analysis.decorators, ("cache",))
-        self.assertIsNone(analysis.existing_docstring)
+        self.assertIsNone(analysis.existing_comment)
         self.assertEqual(analysis.placement.line, 9)
         self.assertEqual(analysis.placement.indent, "    ")
 
@@ -203,16 +209,33 @@ class CommentTargetTests(unittest.TestCase):
 
         self.assertEqual(analysis.raises, ("ValueError",))
 
-    def test_existing_docstring_is_rejected(self) -> None:
+    def test_existing_docstring_is_replaced(self) -> None:
         source = (
             "def calc():\n"
             '    """Existing."""\n'
             "    return 1\n"
         )
-        with self.assertRaises(CommentError) as context:
-            analyze_target(_target(source))
+        analysis = analyze_target(_target(source))
 
-        self.assertEqual(context.exception.reason, "already_commented")
+        self.assertEqual(analysis.existing_comment, "Existing.")
+        self.assertTrue(analysis.placement.replace)
+        self.assertEqual(analysis.placement.line, 1)
+        self.assertEqual(analysis.placement.end_line, 2)
+        self.assertEqual(analysis.placement.indent, "    ")
+
+    def test_multiline_docstring_replacement_range(self) -> None:
+        source = (
+            "def calc():\n"
+            '    """Line one.\n'
+            "\n"
+            "    Line two.\n"
+            '    """\n'
+            "    return 1\n"
+        )
+        analysis = analyze_target(_target(source))
+
+        self.assertEqual(analysis.placement.line, 1)
+        self.assertEqual(analysis.placement.end_line, 5)
 
     def test_one_line_body_is_rejected(self) -> None:
         with self.assertRaises(CommentError) as context:
@@ -224,8 +247,8 @@ class CommentTargetTests(unittest.TestCase):
         with self.assertRaises(CommentError) as context:
             analyze_target(
                 _target(
-                    "function calc() { return 1; }\n",
-                    language_id="typescript",
+                    "def calc():\n    return 1\n",
+                    language_id="ruby",
                 )
             )
 
@@ -233,6 +256,152 @@ class CommentTargetTests(unittest.TestCase):
             context.exception.reason,
             "unsupported_language",
         )
+
+    def test_typescript_function_analysis(self) -> None:
+        source = (
+            "export function calc(\n"
+            "  items: string[],\n"
+            "  rate: number = 0.1,\n"
+            "  options?: { strict: boolean },\n"
+            "): number {\n"
+            "  return 0;\n"
+            "}\n"
+        )
+        analysis = analyze_target(
+            _target(source, language_id="typescript")
+        )
+
+        self.assertIn("export function calc(", analysis.signature)
+        self.assertIn("): number", analysis.signature)
+        self.assertEqual(
+            [parameter.name for parameter in analysis.parameters],
+            ["items", "rate", "options"],
+        )
+        self.assertEqual(
+            analysis.parameters[0].annotation,
+            "string[]",
+        )
+        self.assertEqual(analysis.parameters[1].default, "0.1")
+        self.assertEqual(
+            analysis.parameters[2].annotation,
+            "{ strict: boolean }",
+        )
+        self.assertEqual(analysis.returns, "number")
+        self.assertEqual(analysis.raises, ())
+        self.assertEqual(analysis.placement.line, 0)
+        self.assertEqual(analysis.placement.indent, "")
+
+    def test_typescript_method_placement(self) -> None:
+        source = (
+            "    async run(value: string): Promise<void> {\n"
+            "        return;\n"
+            "    }\n"
+        )
+        analysis = analyze_target(
+            _target(
+                source,
+                name="run",
+                kind="method",
+                start_line=10,
+                language_id="typescript",
+            )
+        )
+
+        self.assertIn("async run(value: string)", analysis.signature)
+        self.assertEqual(analysis.returns, "Promise<void>")
+        self.assertEqual(analysis.placement.line, 10)
+        self.assertEqual(analysis.placement.indent, "    ")
+
+    def test_typescript_decorated_method(self) -> None:
+        source = (
+            "    @logged\n"
+            "    @cached\n"
+            "    async run(): Promise<void> {\n"
+            "        return;\n"
+            "    }\n"
+        )
+        analysis = analyze_target(
+            _target(
+                source,
+                name="run",
+                kind="method",
+                start_line=5,
+                language_id="typescript",
+            )
+        )
+
+        self.assertEqual(
+            analysis.decorators,
+            ("@logged", "@cached"),
+        )
+        self.assertEqual(analysis.placement.line, 5)
+        self.assertEqual(analysis.placement.indent, "    ")
+
+    def test_typescript_leading_jsdoc_is_replaced(self) -> None:
+        source = (
+            "/**\n"
+            " * Old.\n"
+            " */\n"
+            "export function add(a: number): number {\n"
+            "  return a;\n"
+            "}\n"
+        )
+        analysis = analyze_target(
+            _target(source, name="add", language_id="typescript")
+        )
+
+        self.assertIn("Old.", analysis.existing_comment or "")
+        self.assertTrue(analysis.placement.replace)
+        self.assertEqual(analysis.placement.line, 0)
+        self.assertEqual(analysis.placement.end_line, 3)
+        self.assertEqual(
+            analysis.signature,
+            "export function add(a: number): number",
+        )
+
+    def test_typescript_class_analysis(self) -> None:
+        source = (
+            "export class Service<T> extends Base "
+            "implements Runner {\n"
+            "  run(): void {}\n"
+            "}\n"
+        )
+        analysis = analyze_target(
+            _target(
+                source,
+                name="Service",
+                kind="class",
+                language_id="typescript",
+            )
+        )
+
+        self.assertEqual(
+            analysis.signature,
+            "export class Service<T> extends Base implements Runner",
+        )
+        self.assertEqual(analysis.parameters, ())
+        self.assertIsNone(analysis.returns)
+
+    def test_typescript_arrow_function(self) -> None:
+        source = (
+            "export const add = (a: number, b: number = 1) "
+            "=> a + b;\n"
+        )
+        analysis = analyze_target(
+            _target(
+                source,
+                name="add",
+                language_id="typescript",
+            )
+        )
+
+        self.assertIn("export const add =", analysis.signature)
+        self.assertEqual(
+            [parameter.name for parameter in analysis.parameters],
+            ["a", "b"],
+        )
+        self.assertEqual(analysis.parameters[1].default, "1")
+        self.assertIsNone(analysis.returns)
 
 
 class CommentPromptTests(unittest.TestCase):
@@ -247,6 +416,29 @@ class CommentPromptTests(unittest.TestCase):
         self.assertIn("Raises: ValueError", prompt)
         self.assertIn("Decorators: cache", prompt)
         self.assertIn("<source>", prompt)
+
+    def test_prompt_includes_existing_comment(self) -> None:
+        source = (
+            "def calc():\n"
+            '    """Old."""\n'
+            "    return 1\n"
+        )
+        target = _target(source)
+        prompt = build_user_prompt(target, analyze_target(target))
+
+        self.assertIn("Existing comment:", prompt)
+        self.assertIn("Old.", prompt)
+        self.assertIn("Rewrite it", prompt)
+
+    def test_prompt_selects_format_by_language(self) -> None:
+        target = _target(TYPESCRIPT_SOURCE, name="add", language_id="typescript")
+        prompt = build_user_prompt(target, analyze_target(target))
+
+        self.assertIn("Language: typescript", prompt)
+        self.assertIn("- a: number", prompt)
+        self.assertIn("Returns: number", prompt)
+        self.assertIn("JSDoc", system_prompt("typescript"))
+        self.assertIn("docstring", system_prompt("python"))
 
 
 class CommentPipelineTests(unittest.IsolatedAsyncioTestCase):
@@ -279,6 +471,60 @@ class CommentPipelineTests(unittest.IsolatedAsyncioTestCase):
         )
 
         self.assertEqual(result.comment, '"""Adds two numbers."""')
+
+    async def test_wraps_plain_text_in_jsdoc(self) -> None:
+        stream = StaticStream(_message("Adds two numbers."))
+
+        result = await generate_comment(
+            _target(
+                TYPESCRIPT_SOURCE,
+                name="add",
+                language_id="typescript",
+            ),
+            model=MODEL,
+            stream_fn=stream,
+        )
+
+        self.assertEqual(
+            result.comment,
+            "/**\n * Adds two numbers.\n */",
+        )
+        self.assertEqual(result.placement.line, 0)
+        self.assertEqual(result.placement.indent, "")
+
+    async def test_keeps_existing_jsdoc(self) -> None:
+        comment = "/**\n * Adds two numbers.\n */"
+        stream = StaticStream(_message(comment))
+
+        result = await generate_comment(
+            _target(
+                TYPESCRIPT_SOURCE,
+                name="add",
+                language_id="typescript",
+            ),
+            model=MODEL,
+            stream_fn=stream,
+        )
+
+        self.assertEqual(result.comment, comment)
+
+    async def test_strips_star_prefixes_before_wrapping(self) -> None:
+        stream = StaticStream(_message("* Adds.\n* More."))
+
+        result = await generate_comment(
+            _target(
+                TYPESCRIPT_SOURCE,
+                name="add",
+                language_id="typescript",
+            ),
+            model=MODEL,
+            stream_fn=stream,
+        )
+
+        self.assertEqual(
+            result.comment,
+            "/**\n * Adds.\n * More.\n */",
+        )
 
     async def test_empty_response_is_rejected(self) -> None:
         stream = StaticStream(_message("   "))
@@ -409,7 +655,9 @@ class CommentRpcTests(unittest.IsolatedAsyncioTestCase):
 
             self.assertEqual(response["error"]["code"], -32602)
 
-    async def test_comment_generate_reports_reason(self) -> None:
+    async def test_comment_generate_replaces_existing_docstring(
+        self,
+    ) -> None:
         with tempfile.TemporaryDirectory() as temp:
             events: list[dict[str, Any]] = []
 
@@ -428,7 +676,7 @@ class CommentRpcTests(unittest.IsolatedAsyncioTestCase):
                 sessions=sessions,
                 comments=CommentService(
                     model=MODEL,
-                    stream_fn=StaticStream(_message('"""x"""')),
+                    stream_fn=StaticStream(_message('"""Updated."""')),
                 ),
             )
 
@@ -455,10 +703,14 @@ class CommentRpcTests(unittest.IsolatedAsyncioTestCase):
             finally:
                 await sessions.close()
 
-            self.assertEqual(response["error"]["code"], -32001)
+            self.assertNotIn("error", response)
             self.assertEqual(
-                response["error"]["data"]["reason"],
-                "already_commented",
+                response["result"]["comment"],
+                '"""Updated."""',
+            )
+            self.assertEqual(
+                response["result"]["placement"],
+                {"line": 1, "indent": "    ", "endLine": 2},
             )
 
 

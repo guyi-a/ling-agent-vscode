@@ -15,6 +15,7 @@ export interface CommentTarget {
 export interface CommentPlacement {
   line: number;
   indent: string;
+  endLine?: number;
 }
 
 export interface CommentGeneration {
@@ -28,13 +29,24 @@ export function isCommentGeneration(
   if (!isRecord(value) || !isRecord(value.placement)) {
     return false;
   }
+  const placement = value.placement;
+  if (
+    typeof value.comment !== "string" ||
+    value.comment.length === 0 ||
+    typeof placement.line !== "number" ||
+    !Number.isInteger(placement.line) ||
+    placement.line < 0 ||
+    typeof placement.indent !== "string"
+  ) {
+    return false;
+  }
+  if (placement.endLine === undefined) {
+    return true;
+  }
   return (
-    typeof value.comment === "string" &&
-    value.comment.length > 0 &&
-    typeof value.placement.line === "number" &&
-    Number.isInteger(value.placement.line) &&
-    value.placement.line >= 0 &&
-    typeof value.placement.indent === "string"
+    typeof placement.endLine === "number" &&
+    Number.isInteger(placement.endLine) &&
+    placement.endLine > placement.line
   );
 }
 

@@ -32,12 +32,15 @@ class CommentService:
             model=model,
             stream_fn=stream_fn,
         )
+        placement: dict[str, object] = {
+            "line": result.placement.line,
+            "indent": result.placement.indent,
+        }
+        if result.placement.end_line is not None:
+            placement["endLine"] = result.placement.end_line
         return {
             "comment": result.comment,
-            "placement": {
-                "line": result.placement.line,
-                "indent": result.placement.indent,
-            },
+            "placement": placement,
         }
 
 

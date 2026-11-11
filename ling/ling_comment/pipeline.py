@@ -10,8 +10,9 @@ from dataclasses import dataclass
 from ling_ai.stream import StreamFunction, StreamOptions
 from ling_ai.types import Context, Model, TextContent, UserMessage
 
-from .prompt import SYSTEM_PROMPT, build_user_prompt
+from .prompt import build_user_prompt, system_prompt
 from .targets import (
+    PYTHON_LANGUAGES,
     CommentError,
     CommentTarget,
     Placement,
@@ -35,7 +36,7 @@ async def generate_comment(
 ) -> CommentResult:
     analysis = analyze_target(target)
     context = Context(
-        system_prompt=SYSTEM_PROMPT,
+        system_prompt=system_prompt(target.language_id),
         messages=[
             UserMessage(
                 content=build_user_prompt(target, analysis),
@@ -61,13 +62,25 @@ async def generate_comment(
         if isinstance(block, TextContent)
     )
     return CommentResult(
-        comment=normalize_docstring(text),
+        comment=normalize_comment(text, target.language_id),
         placement=analysis.placement,
         analysis=analysis,
     )
 
 
-def normalize_docstring(text: str) -> str:
+def normalize_comment(text: str, language_id: str) -> str:
+    cleaned = _strip_fence(text)
+    if not cleaned:
+        raise CommentError(
+            "empty_response",
+            "The model returned an empty comment.",
+        )
+    if language_id in PYTHON_LANGUAGES:
+        return _normalize_docstring(cleaned)
+    return _normalize_jsdoc(cleaned)
+
+
+def _strip_fence(text: str) -> str:
     cleaned = text.replace("\r\n", "\n").replace("\r", "\n").strip()
     fenced = re.search(
         r"```[A-Za-z0-9_-]*\s*\n(.*?)\n```",
@@ -76,11 +89,10 @@ def normalize_docstring(text: str) -> str:
     )
     if fenced is not None:
         cleaned = fenced.group(1).strip()
-    if not cleaned:
-        raise CommentError(
-            "empty_response",
-            "The model returned an empty comment.",
-        )
+    return cleaned
+
+
+def _normalize_docstring(cleaned: str) -> str:
     if not (cleaned.startswith('"""') or cleaned.startswith("'''")):
         cleaned = f'"""{cleaned}"""'
     try:
@@ -93,4 +105,19 @@ def normalize_docstring(text: str) -> str:
     return cleaned
 
 
-__all__ = ["CommentResult", "generate_comment", "normalize_docstring"]
+def _normalize_jsdoc(cleaned: str) -> str:
+    if cleaned.startswith("/**") and cleaned.endswith("*/"):
+        return cleaned
+    if cleaned.startswith("/*") and cleaned.endswith("*/"):
+        cleaned = cleaned[2:-2].strip()
+
+    lines: list[str] = []
+    for line in cleaned.splitlines():
+        line = line.strip()
+        if line.startswith("*"):
+            line = line[1:].lstrip()
+        lines.append(f" * {line}".rstrip())
+    return "/**\n" + "\n".join(lines) + "\n */"
+
+
+__all__ = ["CommentResult", "generate_comment", "normalize_comment"]

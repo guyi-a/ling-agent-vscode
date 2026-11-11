@@ -2,10 +2,11 @@ import path from "node:path";
 import * as vscode from "vscode";
 import type {
   CommentGeneration,
+  CommentPlacement,
   CommentTarget,
 } from "../../shared/commentTypes";
 import { ensureInlineDiffView } from "../diff/view";
-import { formatCommentBlock, insertAtLine } from "./format";
+import { applyComment, formatCommentBlock } from "./format";
 
 const SCHEME = "ling-comment";
 const CONTEXT_KEY = "ling.commentPreview";
@@ -13,7 +14,7 @@ const CONTEXT_KEY = "ling.commentPreview";
 interface ActivePreview {
   documentUri: vscode.Uri;
   documentVersion: number;
-  placementLine: number;
+  placement: CommentPlacement;
   block: string;
   modifiedUri: vscode.Uri;
 }
@@ -71,10 +72,19 @@ export class CommentPreviewController implements vscode.Disposable {
       );
     }
 
-    const line = generation.placement.line;
-    if (line < 0 || line > document.lineCount) {
+    const placement = generation.placement;
+    if (placement.line < 0 || placement.line > document.lineCount) {
       throw new Error(
         "The generated placement is outside the document.",
+      );
+    }
+    if (
+      placement.endLine !== undefined &&
+      (placement.endLine <= placement.line ||
+        placement.endLine > document.lineCount)
+    ) {
+      throw new Error(
+        "The generated replacement range is outside the document.",
       );
     }
 
@@ -82,10 +92,14 @@ export class CommentPreviewController implements vscode.Disposable {
       document.eol === vscode.EndOfLine.CRLF ? "\r\n" : "\n";
     const block = formatCommentBlock(
       generation.comment,
-      generation.placement.indent,
+      placement.indent,
       eol,
     );
-    const modifiedText = insertAtLine(document.getText(), line, block);
+    const modifiedText = applyComment(
+      document.getText(),
+      placement,
+      block,
+    );
 
     const modifiedUri = vscode.Uri.from({
       scheme: SCHEME,
@@ -109,7 +123,7 @@ export class CommentPreviewController implements vscode.Disposable {
     this.active = {
       documentUri: document.uri,
       documentVersion: document.version,
-      placementLine: line,
+      placement,
       block,
       modifiedUri,
     };
@@ -140,17 +154,31 @@ export class CommentPreviewController implements vscode.Disposable {
     }
 
     const edit = new vscode.WorkspaceEdit();
-    edit.insert(
-      document.uri,
-      new vscode.Position(active.placementLine, 0),
-      active.block,
-    );
+    if (active.placement.endLine !== undefined) {
+      edit.replace(
+        document.uri,
+        new vscode.Range(
+          active.placement.line,
+          0,
+          active.placement.endLine,
+          0,
+        ),
+        active.block,
+      );
+    } else {
+      edit.insert(
+        document.uri,
+        new vscode.Position(active.placement.line, 0),
+        active.block,
+      );
+    }
     const applied = await vscode.workspace.applyEdit(edit);
     if (!applied) {
       throw new Error("Unable to insert the comment.");
     }
     const saved = await document.save();
     await this.close();
+    await this.revealDocument(active.documentUri);
     if (!saved) {
       void vscode.window.showWarningMessage(
         "Comment inserted, but the file could not be saved.",
@@ -159,7 +187,11 @@ export class CommentPreviewController implements vscode.Disposable {
   }
 
   async reject(): Promise<void> {
+    const active = this.active;
     await this.close();
+    if (active) {
+      await this.revealDocument(active.documentUri);
+    }
   }
 
   dispose(): void {
@@ -189,6 +221,23 @@ export class CommentPreviewController implements vscode.Disposable {
       }
     }
     this.provider.delete(active.modifiedUri);
+  }
+
+  private async revealDocument(uri: vscode.Uri): Promise<void> {
+    const visible = vscode.window.visibleTextEditors.some(
+      (editor) => editor.document.uri.toString() === uri.toString(),
+    );
+    if (visible) {
+      return;
+    }
+    const document = vscode.workspace.textDocuments.find(
+      (item) => item.uri.toString() === uri.toString(),
+    );
+    if (document) {
+      await vscode.window.showTextDocument(document, {
+        preview: false,
+      });
+    }
   }
 
   private setContext(active: boolean): void {

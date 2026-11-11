@@ -1,3 +1,5 @@
+import type { CommentPlacement } from "../../shared/commentTypes";
+
 export function formatCommentBlock(
   comment: string,
   indent: string,
@@ -13,9 +15,9 @@ export function formatCommentBlock(
   return `${block}${eol}`;
 }
 
-export function insertAtLine(
+export function applyComment(
   text: string,
-  line: number,
+  placement: CommentPlacement,
   block: string,
 ): string {
   const eol = text.includes("\r\n") ? "\r\n" : "\n";
@@ -24,6 +26,18 @@ export function insertAtLine(
   if (blockLines.at(-1) === "") {
     blockLines.pop();
   }
-  lines.splice(line, 0, ...blockLines);
+  const remove =
+    placement.endLine !== undefined
+      ? placement.endLine - placement.line
+      : 0;
+  lines.splice(placement.line, remove, ...blockLines);
   return lines.join(eol);
+}
+
+export function insertAtLine(
+  text: string,
+  line: number,
+  block: string,
+): string {
+  return applyComment(text, { line, indent: "" }, block);
 }

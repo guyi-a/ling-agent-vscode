@@ -4,8 +4,12 @@ import type {
   CommentSymbolKind,
   CommentTarget,
 } from "../../shared/commentTypes";
-
-const SUPPORTED_LANGUAGES = new Set(["python"]);
+import {
+  isJsLanguage,
+  isPythonLanguage,
+  isSupportedCommentLanguage,
+  leadingJsDocStart,
+} from "./language";
 
 export class CommentTargetError extends Error {}
 
@@ -25,9 +29,9 @@ export async function collectCommentTarget(
   document: vscode.TextDocument,
   position: vscode.Position,
 ): Promise<CollectedCommentTarget> {
-  if (!SUPPORTED_LANGUAGES.has(document.languageId)) {
+  if (!isSupportedCommentLanguage(document.languageId)) {
     throw new CommentTargetError(
-      "Comment generation supports Python only in this version.",
+      "Comment generation supports Python, TypeScript, and JavaScript.",
     );
   }
   if (document.uri.scheme !== "file") {
@@ -42,8 +46,11 @@ export async function collectCommentTarget(
       "Place the cursor inside a function, method, or class.",
     );
   }
-
-  const startLine = symbol.range.start.line;
+  const symbolStart = symbol.range.start.line;
+  const startLine =
+    (isJsLanguage(document.languageId)
+      ? leadingJsDocStart(document, symbolStart)
+      : undefined) ?? symbolStart;
   const endLine = symbol.range.end.line;
   const sourceRange = new vscode.Range(
     startLine,
@@ -84,9 +91,12 @@ async function findSymbolAt(
     document,
     position,
   );
-  return (
-    fromLanguageServer ?? findSymbolFromText(document, position)
-  );
+  if (fromLanguageServer) {
+    return fromLanguageServer;
+  }
+  return isPythonLanguage(document.languageId)
+    ? findSymbolFromText(document, position)
+    : undefined;
 }
 
 async function findSymbolFromLanguageServer(
@@ -107,7 +117,7 @@ async function findSymbolFromLanguageServer(
   }
 
   const matches: SymbolMatch[] = [];
-  visitSymbols(raw, position, undefined, matches);
+  visitSymbols(raw, document, position, undefined, matches);
   if (matches.length === 0) {
     return undefined;
   }
@@ -123,6 +133,7 @@ function rangeSize(range: vscode.Range): number {
 
 function visitSymbols(
   nodes: readonly unknown[],
+  document: vscode.TextDocument,
   position: vscode.Position,
   parentClassName: string | undefined,
   matches: SymbolMatch[],
@@ -144,7 +155,10 @@ function visitSymbols(
       continue;
     }
 
-    const kind = toCommentKind(node.kind);
+    const kind = toCommentKind(
+      node.kind,
+      document.lineAt(range.start.line).text,
+    );
     if (kind && node.name) {
       matches.push({
         name: node.name,
@@ -157,6 +171,7 @@ function visitSymbols(
     if (Array.isArray(node.children)) {
       visitSymbols(
         node.children,
+        document,
         position,
         node.kind === vscode.SymbolKind.Class
           ? (node.name ?? parentClassName)
@@ -169,6 +184,7 @@ function visitSymbols(
 
 function toCommentKind(
   kind: vscode.SymbolKind,
+  text: string,
 ): CommentSymbolKind | undefined {
   switch (kind) {
     case vscode.SymbolKind.Function:
@@ -178,6 +194,11 @@ function toCommentKind(
       return "method";
     case vscode.SymbolKind.Class:
       return "class";
+    case vscode.SymbolKind.Variable:
+    case vscode.SymbolKind.Constant:
+      return /=>|\bfunction\b/.test(text)
+        ? "function"
+        : undefined;
     default:
       return undefined;
   }

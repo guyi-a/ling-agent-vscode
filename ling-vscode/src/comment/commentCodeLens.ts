@@ -1,4 +1,10 @@
 import * as vscode from "vscode";
+import {
+  isJsLanguage,
+  isPythonLanguage,
+  isSupportedCommentLanguage,
+  leadingJsDocStart,
+} from "./language";
 
 const DEF_PATTERN =
   /^(\s*)(?:async\s+)?def\s+([A-Za-z_][A-Za-z0-9_]*)/;
@@ -14,7 +20,7 @@ export class CommentCodeLensProvider
     document: vscode.TextDocument,
   ): vscode.CodeLens[] | Thenable<vscode.CodeLens[]> {
     if (
-      document.languageId !== "python" ||
+      !isSupportedCommentLanguage(document.languageId) ||
       document.uri.scheme !== "file"
     ) {
       return [];
@@ -32,9 +38,12 @@ export class CommentCodeLensProvider
     const fromLanguageServer = await this.fromLanguageServer(
       document,
     );
-    return fromLanguageServer.length > 0
-      ? fromLanguageServer
-      : fromText(document);
+    if (fromLanguageServer.length > 0) {
+      return fromLanguageServer;
+    }
+    return isPythonLanguage(document.languageId)
+      ? fromText(document)
+      : [];
   }
 
   private async fromLanguageServer(
@@ -77,12 +86,19 @@ function visitSymbols(
       continue;
     }
 
-    if (isCommentKind(node.kind)) {
+    if (
+      isCommentKind(
+        node.kind,
+        document.lineAt(range.start.line).text,
+      )
+    ) {
       const line =
         node.selectionRange?.start.line ?? range.start.line;
-      if (!hasDocstring(document, line)) {
-        lenses.push(lensAt(document, range.start.line, line));
-      }
+      const lensLine = isJsLanguage(document.languageId)
+        ? (leadingJsDocStart(document, range.start.line) ??
+          range.start.line)
+        : range.start.line;
+      lenses.push(lensAt(document, lensLine, line));
     }
 
     if (Array.isArray(node.children)) {
@@ -98,9 +114,6 @@ function fromText(
   for (let line = 0; line < document.lineCount; line++) {
     const text = document.lineAt(line).text;
     if (!DEF_PATTERN.test(text) && !CLASS_PATTERN.test(text)) {
-      continue;
-    }
-    if (hasDocstring(document, line)) {
       continue;
     }
     lenses.push(lensAt(document, decoratorStart(document, line), line));
@@ -148,34 +161,27 @@ function decoratorStart(
   return start;
 }
 
-function hasDocstring(
-  document: vscode.TextDocument,
-  defLine: number,
-): boolean {
-  const indent = leadingSpaces(document.lineAt(defLine).text);
-  for (let line = defLine + 1; line < document.lineCount; line++) {
-    const text = document.lineAt(line).text;
-    if (!text.trim()) {
-      continue;
-    }
-    if (leadingSpaces(text) <= indent) {
-      return false;
-    }
-    const trimmed = text.trim();
-    return trimmed.startsWith('"""') || trimmed.startsWith("'''");
-  }
-  return false;
-}
-
 function leadingSpaces(text: string): number {
   return text.length - text.trimStart().length;
 }
 
-function isCommentKind(kind: vscode.SymbolKind): boolean {
-  return (
+function isCommentKind(
+  kind: vscode.SymbolKind,
+  text: string,
+): boolean {
+  if (
     kind === vscode.SymbolKind.Function ||
     kind === vscode.SymbolKind.Method ||
     kind === vscode.SymbolKind.Constructor ||
     kind === vscode.SymbolKind.Class
-  );
+  ) {
+    return true;
+  }
+  if (
+    kind === vscode.SymbolKind.Variable ||
+    kind === vscode.SymbolKind.Constant
+  ) {
+    return /=>|\bfunction\b/.test(text);
+  }
+  return false;
 }

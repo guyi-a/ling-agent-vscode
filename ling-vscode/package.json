@@ -126,7 +126,7 @@
       "editor/context": [
         {
           "command": "ling.generateComment",
-          "when": "editorLangId == python",
+          "when": "editorLangId =~ /^(python|typescript|javascript|typescriptreact|javascriptreact)$/",
           "group": "navigation@8"
         },
         {
