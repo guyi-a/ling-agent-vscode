@@ -226,6 +226,7 @@ class ChatViewProvider implements vscode.WebviewViewProvider {
   private eventSequence = 0;
   private historyQuery = "";
   private scratchRoot: string | undefined;
+  private sessionCommand: Promise<void> = Promise.resolve();
 
   constructor(
     private readonly extensionUri: vscode.Uri,
@@ -349,16 +350,20 @@ class ChatViewProvider implements vscode.WebviewViewProvider {
 
       case "session.new":
         this.output.appendLine("New session requested");
-        void this.handleNewSession();
+        void this.enqueueSessionCommand(() =>
+          this.handleNewSession(),
+        );
         break;
 
       case "chat.submit":
-        void this.handleChatSubmit(
-          value.text,
-          value.approvalMode,
-          value.effort,
-          value.attachments,
-          value.selections,
+        void this.enqueueSessionCommand(() =>
+          this.handleChatSubmit(
+            value.text,
+            value.approvalMode,
+            value.effort,
+            value.attachments,
+            value.selections,
+          ),
         );
         break;
 
@@ -415,12 +420,16 @@ class ChatViewProvider implements vscode.WebviewViewProvider {
         break;
 
       case "session.queued.sendNow":
-        void this.handleQueuedSendNow(value.queuedId);
+        void this.enqueueSessionCommand(() =>
+          this.handleQueuedSendNow(value.queuedId),
+        );
         break;
 
       case "run.cancel":
         this.output.appendLine("Run cancellation requested");
-        void this.handleCancelRun();
+        void this.enqueueSessionCommand(() =>
+          this.handleCancelRun(),
+        );
         break;
 
       case "message.delete":
@@ -1039,6 +1048,17 @@ class ChatViewProvider implements vscode.WebviewViewProvider {
         message: `Unable to cancel the run: ${formatError(error)}`,
       });
     }
+  }
+
+  private enqueueSessionCommand<T>(
+    command: () => Promise<T>,
+  ): Promise<T> {
+    const result = this.sessionCommand.then(command);
+    this.sessionCommand = result.then(
+      () => undefined,
+      () => undefined,
+    );
+    return result;
   }
 
   private async handleApprovalResolve(

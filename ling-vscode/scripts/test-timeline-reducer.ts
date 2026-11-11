@@ -68,6 +68,12 @@ assert.equal(
     : undefined,
   false,
 );
+assert.equal(
+  typeof (thinkingEntry?.kind === "message"
+    ? thinkingEntry.message.thinkingStartedAt
+    : undefined),
+  "number",
+);
 
 thinkingState = apply(thinkingState, {
   type: "thinking.completed",
@@ -83,6 +89,12 @@ assert.equal(
     ? doneEntry.message.thinkingDone
     : undefined,
   true,
+);
+assert.equal(
+  typeof (doneEntry?.kind === "message"
+    ? doneEntry.message.thinkingDurationMs
+    : undefined),
+  "number",
 );
 
 thinkingState = apply(thinkingState, {
@@ -100,6 +112,18 @@ assert.equal(
     ? resumedEntry.message.thinkingDone
     : undefined,
   false,
+);
+assert.equal(
+  resumedEntry?.kind === "message"
+    ? resumedEntry.message.thinkingDurationMs
+    : undefined,
+  undefined,
+);
+assert.equal(
+  typeof (resumedEntry?.kind === "message"
+    ? resumedEntry.message.thinkingStartedAt
+    : undefined),
+  "number",
 );
 assert.equal(
   resumedEntry?.kind === "message"

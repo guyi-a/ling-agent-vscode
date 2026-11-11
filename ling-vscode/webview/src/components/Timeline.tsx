@@ -138,6 +138,13 @@ export function Timeline({
         ]
           .filter(Boolean)
           .join(" ");
+        const thinkingLabel = thinkingActive
+          ? "Thinking…"
+          : entry.message.thinkingDurationMs !== undefined
+            ? `Thought for ${formatThinkingDuration(
+                entry.message.thinkingDurationMs,
+              )}`
+            : "Thoughts";
         return (
           <section
             className={`message message--${entry.message.role}`}
@@ -154,7 +161,13 @@ export function Timeline({
                     aria-live="off"
                   >
                     <summary>
-                      {thinkingActive ? "Thinking…" : "Thoughts"}
+                      <span>{thinkingLabel}</span>
+                      <span
+                        className="thinking__chevron"
+                        aria-hidden="true"
+                      >
+                        ›
+                      </span>
                     </summary>
                     <pre className="thinking__text">
                       {entry.message.thinking}
@@ -185,22 +198,24 @@ export function Timeline({
               </>
             ) : (
               <>
-                <span className="message-author">You</span>
-                {entry.message.attachments?.length ? (
-                  <MessageAttachments
-                    attachments={entry.message.attachments}
-                    onOpen={onOpenAttachment}
-                  />
-                ) : null}
-                {entry.message.selections?.length ? (
-                  <MessageSelections
-                    selections={entry.message.selections}
-                    onOpen={onOpenSelection}
-                  />
-                ) : null}
-                {entry.message.content ? (
-                  <p>{entry.message.content}</p>
-                ) : null}
+                <div className="message-bubble">
+                  <span className="message-author">You</span>
+                  {entry.message.attachments?.length ? (
+                    <MessageAttachments
+                      attachments={entry.message.attachments}
+                      onOpen={onOpenAttachment}
+                    />
+                  ) : null}
+                  {entry.message.selections?.length ? (
+                    <MessageSelections
+                      selections={entry.message.selections}
+                      onOpen={onOpenSelection}
+                    />
+                  ) : null}
+                  {entry.message.content ? (
+                    <p>{entry.message.content}</p>
+                  ) : null}
+                </div>
                 <MessageActions
                   text={entry.message.content}
                   disabled={actionsDisabled}
@@ -267,6 +282,16 @@ function groupTimelineEntries(entries: TimelineEntry[]): TimelineBlock[] {
   }
 
   return blocks;
+}
+
+function formatThinkingDuration(durationMs: number): string {
+  const seconds = Math.max(1, Math.round(durationMs / 1000));
+  if (seconds < 60) {
+    return `${seconds}s`;
+  }
+  const minutes = Math.floor(seconds / 60);
+  const rest = seconds % 60;
+  return rest > 0 ? `${minutes}m ${rest}s` : `${minutes}m`;
 }
 
 function getBlockKey(block: TimelineBlock): string {

@@ -23,6 +23,7 @@ type ApprovalResolver = (
 
 interface ActiveDiff {
   approval: ApprovalRequest;
+  fileUri: vscode.Uri;
   originalUri: vscode.Uri;
   modifiedUri: vscode.Uri;
   originalVirtual: boolean;
@@ -74,7 +75,7 @@ export class DiffController implements vscode.Disposable {
       const active = this.active;
       if (active && !this.isDiffOpen(active.modifiedUri)) {
         this.dismissed.add(active.approval.id);
-        void this.closeActive();
+        void this.closeActive(true);
       }
     });
     this.setContext(false);
@@ -125,7 +126,7 @@ export class DiffController implements vscode.Disposable {
         isEditableApproval(item) && !this.dismissed.has(item.id),
     );
     if (!approval || !isEditableApproval(approval)) {
-      await this.closeActive();
+      await this.closeActive(true);
       return;
     }
     if (this.active?.approval.id === approval.id) {
@@ -206,6 +207,7 @@ export class DiffController implements vscode.Disposable {
     );
     this.active = {
       approval,
+      fileUri,
       originalUri,
       modifiedUri,
       originalVirtual: !exists,
@@ -215,7 +217,7 @@ export class DiffController implements vscode.Disposable {
     await ensureInlineDiffView(this.output);
   }
 
-  private async closeActive(): Promise<void> {
+  private async closeActive(reveal = false): Promise<void> {
     const active = this.active;
     if (!active) {
       this.setContext(false);
@@ -238,6 +240,42 @@ export class DiffController implements vscode.Disposable {
     this.provider.delete(active.modifiedUri);
     if (active.originalVirtual) {
       this.provider.delete(active.originalUri);
+    }
+    if (reveal) {
+      await this.revealDocument(active.fileUri);
+    }
+  }
+
+  private async revealDocument(uri: vscode.Uri): Promise<void> {
+    try {
+      await vscode.workspace.fs.stat(uri);
+    } catch {
+      return;
+    }
+    const visible = vscode.window.visibleTextEditors.some(
+      (editor) => editor.document.uri.toString() === uri.toString(),
+    );
+    if (visible) {
+      return;
+    }
+    const open = vscode.workspace.textDocuments.find(
+      (document) => document.uri.toString() === uri.toString(),
+    );
+    if (open) {
+      await vscode.window.showTextDocument(open, {
+        preview: false,
+      });
+      return;
+    }
+    try {
+      const document = await vscode.workspace.openTextDocument(uri);
+      await vscode.window.showTextDocument(document, {
+        preview: false,
+      });
+    } catch (error) {
+      this.output?.(
+        `Unable to reopen ${uri.fsPath}: ${formatError(error)}`,
+      );
     }
   }
 

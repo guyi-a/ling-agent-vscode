@@ -116,6 +116,8 @@ export interface TimelineMessage {
   content: string;
   thinking?: string;
   thinkingDone?: boolean;
+  thinkingStartedAt?: number;
+  thinkingDurationMs?: number;
   streaming: boolean;
   attachments?: UserAttachmentView[];
   selections?: UserSelectionSummary[];

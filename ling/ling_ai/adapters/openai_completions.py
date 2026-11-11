@@ -325,6 +325,10 @@ def _message_to_wire(message: Message, compat: _Compat) -> list[dict[str, Any]]:
             block.text for block in message.content if isinstance(block, TextContent)
         )
         calls = [block for block in message.content if isinstance(block, ToolCall)]
+        if not text and not calls:
+            # Aborted or failed turns can leave an assistant message with no
+            # content; providers reject those instead of ignoring them.
+            return []
         wire: dict[str, Any] = {"role": "assistant", "content": text or None}
         thinking = "\n".join(
             block.thinking
@@ -421,6 +425,8 @@ def _build_payload(
                 }
             )
         wire_messages = _message_to_wire(message, compat)
+        if not wire_messages:
+            continue
         messages.extend(wire_messages)
         last_role = wire_messages[-1]["role"]
 

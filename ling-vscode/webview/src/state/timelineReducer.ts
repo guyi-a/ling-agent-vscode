@@ -166,14 +166,24 @@ function appendMessageDelta(
     }
 
     found = true;
+    const thinkingPatch = entry.message.thinking
+      ? {
+          thinkingDone: true,
+          ...(entry.message.thinkingStartedAt !== undefined &&
+          entry.message.thinkingDurationMs === undefined
+            ? {
+                thinkingDurationMs:
+                  Date.now() - entry.message.thinkingStartedAt,
+              }
+            : {}),
+        }
+      : {};
     return {
       kind: "message" as const,
       message: {
         ...entry.message,
         content: entry.message.content + delta,
-        ...(entry.message.thinking
-          ? { thinkingDone: true }
-          : {}),
+        ...thinkingPatch,
         streaming: true,
       },
     };
@@ -215,12 +225,20 @@ function appendThinkingDelta(
     }
 
     found = true;
+    const continuing =
+      entry.message.thinkingStartedAt !== undefined &&
+      !entry.message.thinkingDone &&
+      entry.message.thinkingDurationMs === undefined;
     return {
       kind: "message" as const,
       message: {
         ...entry.message,
         thinking: (entry.message.thinking ?? "") + delta,
         thinkingDone: false,
+        thinkingStartedAt: continuing
+          ? entry.message.thinkingStartedAt
+          : Date.now(),
+        thinkingDurationMs: undefined,
         streaming: true,
       },
     };
@@ -234,6 +252,8 @@ function appendThinkingDelta(
         role: "assistant",
         content: "",
         thinking: delta,
+        thinkingDone: false,
+        thinkingStartedAt: Date.now(),
         streaming: true,
       },
     });
@@ -253,19 +273,30 @@ function completeThinking(
 ): TimelineState {
   return {
     ...state,
-    entries: state.entries.map((entry) =>
-      entry.kind === "message" &&
-      entry.message.id === messageId &&
-      entry.message.role === "assistant"
-        ? {
-            kind: "message",
-            message: {
-              ...entry.message,
-              thinkingDone: true,
-            },
-          }
-        : entry,
-    ),
+    entries: state.entries.map((entry) => {
+      if (
+        entry.kind !== "message" ||
+        entry.message.id !== messageId ||
+        entry.message.role !== "assistant"
+      ) {
+        return entry;
+      }
+      const duration =
+        entry.message.thinkingDurationMs ??
+        (entry.message.thinkingStartedAt !== undefined
+          ? Date.now() - entry.message.thinkingStartedAt
+          : undefined);
+      return {
+        kind: "message",
+        message: {
+          ...entry.message,
+          thinkingDone: true,
+          ...(duration !== undefined
+            ? { thinkingDurationMs: duration }
+            : {}),
+        },
+      };
+    }),
   };
 }
 

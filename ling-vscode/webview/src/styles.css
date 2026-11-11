@@ -763,15 +763,23 @@ button:disabled {
 .message--user {
   display: flex;
   flex-direction: column;
+  align-items: flex-end;
   gap: 4px;
   align-self: flex-end;
   max-width: 88%;
-  padding: 11px 13px;
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+.message-bubble {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-width: 100%;
+  padding: 9px 12px;
   border: 1px solid var(--line);
   border-radius: 11px;
   background: var(--panel);
-  font-size: 13px;
-  line-height: 1.55;
 }
 
 .message-attachments {
@@ -890,6 +898,7 @@ button:disabled {
 
 .message--user .message-actions {
   justify-content: flex-end;
+  margin-top: 0;
 }
 
 .message-action {
@@ -951,19 +960,24 @@ button:disabled {
 }
 
 .thinking {
-  margin: 0 0 6px;
-  border: 1px solid var(--line);
-  border-radius: 7px;
-  background: color-mix(in srgb, var(--panel) 55%, transparent);
+  margin: 0 0 4px;
 }
 
 .thinking summary {
-  padding: 6px 9px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 0;
   color: var(--muted);
-  font-size: 11.5px;
-  line-height: 1.35;
+  font-size: 12px;
+  line-height: 1.4;
+  list-style: none;
   cursor: pointer;
   user-select: none;
+}
+
+.thinking summary::-webkit-details-marker {
+  display: none;
 }
 
 .thinking summary:hover {
@@ -978,14 +992,21 @@ button:disabled {
   margin-bottom: 0;
 }
 
-.thinking[open] summary {
-  border-bottom: 1px solid var(--line);
+.thinking__chevron {
+  display: inline-block;
+  font-size: 14px;
+  line-height: 1;
+  transition: transform 140ms ease;
+}
+
+.thinking[open] .thinking__chevron {
+  transform: rotate(90deg);
 }
 
 .thinking__text {
   max-height: 260px;
   margin: 0;
-  padding: 9px;
+  padding: 4px 0 2px 14px;
   overflow: auto;
   color: var(--muted);
   font-family: inherit;

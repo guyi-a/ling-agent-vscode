@@ -110,6 +110,30 @@ def test_build_payload() -> None:
     assert payload["max_tokens"] == 100
 
 
+def test_build_payload_skips_empty_assistant_messages() -> None:
+    context = Context(
+        messages=[
+            UserMessage(content="first", timestamp=0),
+            AssistantMessage(
+                content=[],
+                provider="deepseek",
+                model="deepseek-chat",
+                usage=Usage(),
+                stop_reason="aborted",
+                timestamp=1,
+            ),
+            UserMessage(content="second", timestamp=2),
+        ]
+    )
+
+    payload = _build_payload(MODEL, context, StreamOptions())
+
+    assert [message["role"] for message in payload["messages"]] == [
+        "user",
+        "user",
+    ]
+
+
 def test_reasoning_payload() -> None:
     context = Context(
         messages=[
