@@ -131,7 +131,7 @@ def test_derive_effect_for_current_tools() -> None:
             )
         assert isinstance(global_memory, FilesystemWriteEffect)
         assert global_memory.scope == "global"
-        assert global_memory.path == (
+        assert global_memory.path.resolve() == (
             root / "global-memory" / "style.md"
         ).resolve()
 
