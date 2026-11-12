@@ -38,7 +38,7 @@ def test_plan_store_creates_markdown_file() -> None:
 
         path = store.create("# Fix login flow\n\n1. Read the code")
         assert path.exists()
-        assert path.parent == root / ".agents" / "plans"
+        assert path.parent == (root / ".agents" / "plans").resolve()
         assert "fix-login-flow" in path.name
         text = path.read_text(encoding="utf-8")
         assert text.startswith("---\n")
@@ -57,7 +57,10 @@ def test_plan_store_update_reuses_file() -> None:
         updated = store.update("# First plan\n\nStep two")
 
         assert updated == path
-        files = list((root / ".agents" / "plans").iterdir())
+        files = [
+            item.resolve()
+            for item in (root / ".agents" / "plans").iterdir()
+        ]
         assert files == [path]
         text = path.read_text(encoding="utf-8")
         assert "Step two" in text
