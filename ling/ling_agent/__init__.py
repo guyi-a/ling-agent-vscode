@@ -91,6 +91,14 @@ from .skills import (
     load_skills,
     workspace_skills_root,
 )
+from .subagents import (
+    EXPLORE_TOOL_NAMES,
+    SubagentError,
+    SubagentResult,
+    SubagentRunner,
+    TraceSink,
+    build_explore_prompt,
+)
 from .storage import (
     DuplicateEventError,
     SQLiteSessionStore,
@@ -202,7 +210,13 @@ __all__ = [
     "StreamFrameEnvelope",
     "StreamFrameBuffer",
     "StorageError",
+    "EXPLORE_TOOL_NAMES",
     "SubagentEffect",
+    "SubagentError",
+    "SubagentResult",
+    "SubagentRunner",
+    "TraceSink",
+    "build_explore_prompt",
     "ToolArgumentsDelta",
     "ToolExecutionStarted",
     "ToolResultCommitted",

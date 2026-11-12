@@ -221,6 +221,13 @@ class JsonRpcServer:
             )
             attachments = _parse_user_attachments(params.get("attachments"))
             selections = _parse_user_selections(params.get("selections"))
+            display_text = params.get("displayText")
+            if display_text is not None and not isinstance(
+                display_text, str
+            ):
+                raise JsonRpcError(
+                    -32602, "displayText must be a string"
+                )
             reasoning = params.get("reasoning")
             if reasoning in (None, "", "auto"):
                 reasoning = None
@@ -256,6 +263,7 @@ class JsonRpcServer:
                     attachments=attachments,
                     selections=selections,
                     reasoning=reasoning,
+                    display_text=display_text,
                 )
             except (RuntimeError, ValueError) as exc:
                 raise JsonRpcError(-32001, str(exc)) from exc

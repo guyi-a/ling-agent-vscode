@@ -160,6 +160,16 @@ export function CheckIcon(props: IconProps) {
   );
 }
 
+export function PlanIcon(props: IconProps) {
+  return (
+    <IconBase {...props}>
+      <path d="M8.5 5H7v14h10V5h-1.5" />
+      <path d="M9 3.5h6v3H9z" />
+      <path d="M9.5 10h5M9.5 13h5M9.5 16h3" />
+    </IconBase>
+  );
+}
+
 export function ToolIcon({
   action,
   ...props
@@ -186,6 +196,20 @@ export function ToolIcon({
       <IconBase {...props}>
         <path d="m12 4 1.8 4.2L18 10l-4.2 1.8L12 16l-1.8-4.2L6 10l4.2-1.8L12 4Z" />
         <path d="m18 15 .9 2.1L21 18l-2.1.9L18 21l-.9-2.1L15 18l2.1-.9L18 15Z" />
+      </IconBase>
+    );
+  }
+
+  if (action === "Plan") {
+    return <PlanIcon {...props} />;
+  }
+
+  if (action === "Subagent") {
+    return (
+      <IconBase {...props}>
+        <circle cx="6" cy="4.5" r="1.6" />
+        <path d="M6 6.5v7a3 3 0 0 0 3 3h6" />
+        <path d="m12.5 13.5 3 3-3 3" />
       </IconBase>
     );
   }

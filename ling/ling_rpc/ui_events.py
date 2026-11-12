@@ -19,6 +19,7 @@ from ling_agent import (
     TimelineItem,
     TimelineProjector,
     TimelineSnapshot,
+    ToolResultCommitted,
     ToolTimelineItem,
     UserTimelineItem,
     question_request_to_dict,
@@ -204,6 +205,23 @@ class RpcEventSink:
                 "snapshot": snapshot,
             }
         )
+        event = envelope.event
+        if (
+            isinstance(event, ToolResultCommitted)
+            and not event.result.is_error
+            and event.result.tool_name == "create_plan"
+        ):
+            details = event.result.details
+            if isinstance(details, dict):
+                plan_path = details.get("path")
+                if isinstance(plan_path, str):
+                    await self._emit(
+                        {
+                            "type": "plan.created",
+                            "path": plan_path,
+                            "sessionId": envelope.session_id,
+                        }
+                    )
 
     async def emit_stream_frame(self, envelope: StreamFrameEnvelope) -> None:
         projector = self._projector_for(envelope.session_id)
@@ -382,6 +400,26 @@ def _tool_detail(item: ToolTimelineItem) -> dict[str, Any] | None:
             **({"error": item.error} if item.error else {}),
         }
 
+    if item.name in ("create_plan", "update_plan"):
+        path = metadata.get("path")
+        text = metadata.get("text")
+        if isinstance(path, str) and isinstance(text, str):
+            return {
+                "kind": "plan",
+                "path": path,
+                "text": text,
+            }
+        return None
+
+    if item.name == "todo_write":
+        todos = metadata.get("todos")
+        if isinstance(todos, list):
+            return {"kind": "todo", "todos": todos}
+        return None
+
+    if item.name == "spawn_subagent":
+        return _subagent_detail(item, arguments, metadata)
+
     if item.name in _IO_TOOLS:
         return {
             "kind": "io",
@@ -391,6 +429,50 @@ def _tool_detail(item: ToolTimelineItem) -> dict[str, Any] | None:
         }
 
     return None
+
+
+def _subagent_detail(
+    item: ToolTimelineItem,
+    arguments: dict[str, Any],
+    metadata: dict[str, Any],
+) -> dict[str, Any] | None:
+    description = metadata.get("description")
+    if not isinstance(description, str):
+        value = arguments.get("description")
+        description = value if isinstance(value, str) else ""
+    summary = metadata.get("summary")
+    if not isinstance(summary, str):
+        summary = ""
+        if item.output:
+            try:
+                parsed = json.loads(item.output)
+            except (TypeError, ValueError):
+                parsed = None
+            if isinstance(parsed, dict):
+                value = parsed.get("summary")
+                if isinstance(value, str):
+                    summary = value
+    trace = metadata.get("trace")
+    entries = (
+        [
+            entry
+            for entry in trace
+            if isinstance(entry, dict)
+        ]
+        if isinstance(trace, list)
+        else []
+    )
+    if not description and not summary and not entries and not item.error:
+        return None
+    return {
+        "kind": "subagent",
+        "description": description,
+        "subagentType": "explore",
+        "mode": "foreground",
+        **({"summary": summary} if summary else {}),
+        **({"trace": entries} if entries else {}),
+        **({"error": item.error} if item.error else {}),
+    }
 
 
 def _format_tool_input(
@@ -495,7 +577,11 @@ def _approval_request(item: ApprovalTimelineItem) -> dict[str, Any]:
 
 def _tool_action(
     name: str,
-) -> Literal["Read", "Edit", "Run", "Skill"]:
+) -> Literal["Read", "Edit", "Run", "Skill", "Plan", "Subagent"]:
+    if name in ("create_plan", "update_plan", "todo_write"):
+        return "Plan"
+    if name == "spawn_subagent":
+        return "Subagent"
     if name == "load_skill":
         return "Skill"
     if name in (
@@ -512,6 +598,22 @@ def _tool_action(
 
 
 def _tool_target(name: str, arguments: dict[str, object]) -> str:
+    if name == "spawn_subagent":
+        value = arguments.get("description")
+        if isinstance(value, str) and value:
+            return value[:60]
+    if name == "todo_write":
+        todos = arguments.get("todos")
+        if isinstance(todos, list):
+            count = len(todos)
+            return f"{count} todo" + ("" if count == 1 else "s")
+    if name in ("create_plan", "update_plan"):
+        plan = arguments.get("plan")
+        if isinstance(plan, str):
+            for line in plan.splitlines():
+                text = line.strip().lstrip("#").strip()
+                if text:
+                    return text[:60]
     for key in ("path", "command", "pattern", "name"):
         value = arguments.get(key)
         if isinstance(value, str) and value:

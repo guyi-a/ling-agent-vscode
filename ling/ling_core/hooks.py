@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import inspect
 from dataclasses import dataclass
-from typing import Awaitable, Callable, ClassVar, TypeAlias
+from typing import Any, Awaitable, Callable, ClassVar, TypeAlias
 
 from ling_ai.types import AssistantMessage, Context, ToolCall, UserMessage
 
@@ -35,6 +35,7 @@ class PostToolUse(HookEvent):
     output: ToolOutput
     context: ToolContext
     is_error: bool = False
+    details: Any | None = None
     stage: ClassVar[str] = "post_tool_use"
 
 

@@ -23,6 +23,7 @@ from .effects import (
     approval_reason,
     derive_effect,
     effect_digest,
+    plan_mode_denial,
 )
 from .workspace import Workspace
 
@@ -260,7 +261,12 @@ def create_approval_hook(
             return _deny("Approval cancelled")
 
         effect = derive_effect(event.call, resolved_workspace)
-        reason = approval_reason(effect, mode_provider(), event.call)
+        mode_now = mode_provider()
+        if mode_now is ApprovalMode.PLAN:
+            denial = plan_mode_denial(effect)
+            if denial is not None:
+                return _deny(denial)
+        reason = approval_reason(effect, mode_now, event.call)
         if reason is None:
             return None
         if handler is None:

@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.13.0
+
+- Add Plan as a fourth approval mode, alongside Manual, Edit automatically, and Auto; cycle modes with Shift+Tab.
+- Plan mode explores read-only and writes a markdown plan under `.agents/plans/`. Plans appear as chat cards with Open source and Build actions.
+- Build a plan from its card or the `Build plan…` CodeLens: choose the execution mode first, and edits made to the plan file are used as-is.
+- Open the rendered plan preview automatically for the first plan created in a session; later plans stay in the chat card.
+- Add a foreground explore subagent: `spawn_subagent` delegates read-only codebase research to an isolated agent and returns a concise summary.
+- Show live subagent traces with compact tool cards, and keep the full trace available after completion.
+- Improve tool routing guidance for `search_codebase`, grep, glob, and direct file reads.
+- Restore the last conversation when the chat opens, with a boot screen while the sidecar reconnects.
+- Color the composer border by approval mode.
+- Fix Windows webview builds occasionally bundling two React copies, which could blank the chat.
+
 ## 0.12.0
 
 - Add semantic code search: `search_codebase` now combines BM25 keyword

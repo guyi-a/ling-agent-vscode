@@ -551,6 +551,7 @@ class Session:
         execution = ToolExecution(
             output=event.output,
             is_error=event.is_error,
+            details=event.details,
         )
         await self.commit_tool_result(
             ToolRegistry.to_result(event.call, execution)

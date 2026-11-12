@@ -6,7 +6,9 @@ import { fileURLToPath } from "node:url";
 const scriptDir = dirname(fileURLToPath(import.meta.url));
 const extensionRoot = resolve(scriptDir, "..");
 const lingRoot = resolve(extensionRoot, "..", "ling");
-const outputDir = join(extensionRoot, "resources", "sidecar");
+const outputDir =
+  process.env.LING_SIDECAR_OUTPUT_DIR?.trim() ||
+  join(extensionRoot, "resources", "sidecar");
 const workDir = join(lingRoot, "build", "sidecar");
 const specDir = join(lingRoot, "build");
 const python =

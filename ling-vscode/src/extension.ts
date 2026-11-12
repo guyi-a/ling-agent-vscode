@@ -40,6 +40,7 @@ import { CommentCodeLensProvider } from "./comment/commentCodeLens";
 import { CommentController } from "./comment/commentController";
 import { CommentPreviewController } from "./comment/commentPreview";
 import { DiffController } from "./diffController";
+import { PlanCodeLensProvider } from "./plan/planCodeLens";
 import {
   captureEditorSelection,
   captureTerminalSelection,
@@ -158,6 +159,7 @@ export async function activate(
   sidecar.onNotification = (method, params) =>
     provider.handleSidecarNotification(method, params);
   const selectionCodeLens = new SelectionCodeLensProvider();
+  const planCodeLens = new PlanCodeLensProvider();
 
   context.subscriptions.push(
     output,
@@ -187,6 +189,14 @@ export async function activate(
     }),
     vscode.commands.registerCommand("ling.buildIndex", async () =>
       provider.buildIndexFromCommand(),
+    ),
+    vscode.commands.registerCommand(
+      "ling.buildPlan",
+      async (uri?: vscode.Uri) => {
+        if (uri && uri.scheme === "file") {
+          await provider.buildPlanFromUri(uri);
+        }
+      },
     ),
     vscode.commands.registerCommand("ling.addSelection", async () =>
       provider.addSelection("any"),
@@ -221,6 +231,10 @@ export async function activate(
       [{ scheme: "file" }, { scheme: "untitled" }],
       selectionCodeLens,
     ),
+    vscode.languages.registerCodeLensProvider(
+      [{ scheme: "file", language: "markdown" }],
+      planCodeLens,
+    ),
   );
 }
 
@@ -237,6 +251,10 @@ class ChatViewProvider implements vscode.WebviewViewProvider {
   private scratchRoot: string | undefined;
   private sessionCommand: Promise<void> = Promise.resolve();
   private indexBuildPromise: Promise<IndexBuildStats> | undefined;
+  private lastBuildMode: ApprovalMode = "manual";
+  private readonly openedPlans = new Set<string>();
+  private readonly openedPlanSessions = new Set<string>();
+  private restoredLastSession = false;
 
   constructor(
     private readonly extensionUri: vscode.Uri,
@@ -473,7 +491,131 @@ class ChatViewProvider implements vscode.WebviewViewProvider {
       case "history.open":
         void this.handleOpenHistory(value.sessionId);
         break;
+
+      case "plan.open":
+        void this.handlePlanOpen(value.path);
+        break;
+
+      case "plan.build":
+        void this.enqueueSessionCommand(() =>
+          this.handlePlanBuild(value.path),
+        );
+        break;
     }
+  }
+
+  private planFilePath(relativePath: string): string {
+    const workspaceRoot = this.sessionWorkspaceRoot();
+    const plansRoot = path.join(workspaceRoot, ".agents", "plans");
+    const resolved = path.resolve(workspaceRoot, relativePath);
+    const relative = path.relative(plansRoot, resolved);
+    if (relative.startsWith("..") || path.isAbsolute(relative)) {
+      throw new Error("Plan path must be inside .agents/plans.");
+    }
+    return resolved;
+  }
+
+  private async handlePlanOpen(relativePath: string): Promise<void> {
+    try {
+      const file = this.planFilePath(relativePath);
+      await vscode.window.showTextDocument(vscode.Uri.file(file), {
+        preview: true,
+      });
+    } catch (error) {
+      this.output.appendLine(
+        `Unable to open plan: ${formatError(error)}`,
+      );
+      await vscode.window.showErrorMessage(
+        `Unable to open plan: ${formatError(error)}`,
+      );
+    }
+  }
+
+  private async handlePlanBuild(relativePath: string): Promise<void> {
+    try {
+      const file = this.planFilePath(relativePath);
+      const raw = readFileSync(file, "utf8");
+      const markdown = stripPlanFrontmatter(raw);
+      if (!markdown.trim()) {
+        throw new Error("The plan file is empty.");
+      }
+      const mode = await this.pickBuildMode();
+      if (!mode) {
+        return;
+      }
+      this.lastBuildMode = mode;
+      this.postToWebview({ type: "ling.mode-changed", mode });
+      await vscode.commands.executeCommand(`${CHAT_VIEW_ID}.focus`);
+      const title = planTitle(markdown, relativePath);
+      await this.handleChatSubmit(
+        "请执行以下已批准方案。按步骤实施，用 todo_write 跟踪进度。" +
+          `\n\nPlan file: ${relativePath}\n\n${markdown}`,
+        mode,
+        "high",
+        [],
+        [],
+        `Build plan: ${title}`,
+      );
+    } catch (error) {
+      this.output.appendLine(
+        `Unable to build plan: ${formatError(error)}`,
+      );
+      await vscode.window.showErrorMessage(
+        `Unable to build plan: ${formatError(error)}`,
+      );
+    }
+  }
+
+  private async pickBuildMode(): Promise<ApprovalMode | undefined> {
+    const options: Array<{
+      label: string;
+      description: string;
+      mode: ApprovalMode;
+    }> = [
+      {
+        label: "Manual",
+        description: "Approve every edit and command",
+        mode: "manual",
+      },
+      {
+        label: "Edit automatically",
+        description: "Allow edits, ask before commands",
+        mode: "accept-write",
+      },
+      {
+        label: "Auto",
+        description: "Approve safe actions, ask before risky ones",
+        mode: "auto",
+      },
+    ];
+    const ordered = [...options].sort((left, right) => {
+      if (left.mode === this.lastBuildMode) {
+        return -1;
+      }
+      if (right.mode === this.lastBuildMode) {
+        return 1;
+      }
+      return 0;
+    });
+    const choice = await vscode.window.showQuickPick(ordered, {
+      title: "Build plan",
+      placeHolder: "Choose a mode for this build",
+    });
+    return choice?.mode;
+  }
+
+  async buildPlanFromUri(uri: vscode.Uri): Promise<void> {
+    const workspaceRoot = this.sessionWorkspaceRoot();
+    const relative = path.relative(workspaceRoot, uri.fsPath);
+    if (relative.startsWith("..") || path.isAbsolute(relative)) {
+      await vscode.window.showErrorMessage(
+        "This plan is outside the active Ling workspace.",
+      );
+      return;
+    }
+    await this.enqueueSessionCommand(() =>
+      this.handlePlanBuild(relative),
+    );
   }
 
   handleSidecarExit(info: SidecarExitInfo): void {
@@ -507,7 +649,51 @@ class ChatViewProvider implements vscode.WebviewViewProvider {
       return;
     }
 
+    if (params.event.type === "plan.created") {
+      this.handlePlanCreated(
+        params.event.path,
+        params.event.sessionId,
+      );
+      return;
+    }
     this.postEvent(params.event);
+  }
+
+  private handlePlanCreated(
+    relativePath: string,
+    sessionId: string,
+  ): void {
+    if (this.openedPlanSessions.has(sessionId)) {
+      return;
+    }
+    if (this.openedPlans.has(relativePath)) {
+      return;
+    }
+    this.openedPlanSessions.add(sessionId);
+    this.openedPlans.add(relativePath);
+    void this.openPlanPreview(relativePath);
+  }
+
+  private async openPlanPreview(relativePath: string): Promise<void> {
+    try {
+      const file = this.planFilePath(relativePath);
+      const uri = vscode.Uri.file(file);
+      try {
+        await vscode.commands.executeCommand(
+          "markdown.showPreview",
+          uri,
+        );
+      } catch {
+        await vscode.window.showTextDocument(uri, {
+          preview: true,
+          preserveFocus: true,
+        });
+      }
+    } catch (error) {
+      this.output.appendLine(
+        `Unable to reveal plan: ${formatError(error)}`,
+      );
+    }
   }
 
   private async postHostContext(): Promise<void> {
@@ -530,10 +716,20 @@ class ChatViewProvider implements vscode.WebviewViewProvider {
       const snapshot = await this.sidecar.call<SessionSnapshot>(
         "session.snapshot",
       );
-      this.postEvent({
-        type: "session.snapshot",
-        snapshot,
-      });
+      let restored = false;
+      if (
+        snapshot.entries.length === 0 &&
+        snapshot.phase === "idle"
+      ) {
+        restored = await this.restoreLastSession();
+      }
+      if (!restored) {
+        this.postEvent({
+          type: "session.snapshot",
+          snapshot,
+        });
+      }
+      this.postToWebview({ type: "ling.ready" });
     } catch (error) {
       this.output.appendLine(
         `Sidecar handshake failed: ${formatError(error)}`,
@@ -542,6 +738,7 @@ class ChatViewProvider implements vscode.WebviewViewProvider {
         type: "run.failed",
         message: `Unable to connect to the Ling sidecar: ${formatError(error)}`,
       });
+      this.postToWebview({ type: "ling.ready" });
     }
   }
 
@@ -565,6 +762,7 @@ class ChatViewProvider implements vscode.WebviewViewProvider {
     effort: EffortLevel = "high",
     attachments: UserAttachmentRef[] = [],
     selections: UserSelectionRef[] = [],
+    displayText?: string,
   ): Promise<void> {
     this.output.appendLine(
       `Chat request received (${text.length} chars, ${attachments.length} attachments, ${selections.length} selections)`,
@@ -587,6 +785,7 @@ class ChatViewProvider implements vscode.WebviewViewProvider {
         reasoning: effort,
         ...(attachments.length > 0 ? { attachments } : {}),
         ...(selections.length > 0 ? { selections } : {}),
+        ...(displayText ? { displayText } : {}),
       });
       this.output.appendLine("Session run accepted by sidecar");
     } catch (error) {
@@ -1320,6 +1519,37 @@ class ChatViewProvider implements vscode.WebviewViewProvider {
     await this.handleHistoryList();
   }
 
+  private async restoreLastSession(): Promise<boolean> {
+    if (this.restoredLastSession) {
+      return false;
+    }
+    this.restoredLastSession = true;
+    try {
+      const workspaceRoot = this.sessionWorkspaceRoot();
+      const result = await this.sidecar.call<{
+        sessions: HistorySession[];
+      }>("session.list", { workspaceRoot });
+      const latest = result.sessions[0];
+      if (!latest) {
+        return false;
+      }
+      const snapshot = await this.sidecar.call<SessionSnapshot>(
+        "session.open",
+        { sessionId: latest.id, workspaceRoot },
+      );
+      this.postEvent({ type: "session.snapshot", snapshot });
+      this.output.appendLine(
+        `Restored last conversation: ${latest.id}`,
+      );
+      return true;
+    } catch (error) {
+      this.output.appendLine(
+        `Unable to restore last conversation: ${formatError(error)}`,
+      );
+      return false;
+    }
+  }
+
   private async handleOpenHistory(sessionId: string): Promise<void> {
     try {
       await this.sidecar.start();
@@ -1466,6 +1696,32 @@ function stringify(value: unknown): string {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
+}
+
+function planTitle(markdown: string, relativePath: string): string {
+  const heading = markdown.match(/^\s{0,3}#{1,6}\s+(.+)$/m);
+  const raw = heading
+    ? heading[1].trim()
+    : (relativePath.split("/").pop() ?? relativePath).replace(
+        /\.md$/i,
+        "",
+      );
+  return raw.length > 80 ? `${raw.slice(0, 77)}...` : raw;
+}
+
+function stripPlanFrontmatter(text: string): string {
+  const normalized = text.replace(/^﻿/, "");
+  if (
+    !normalized.startsWith("---\n") &&
+    !normalized.startsWith("---\r\n")
+  ) {
+    return normalized;
+  }
+  const closing = normalized.indexOf("\n---", 4);
+  if (closing < 0) {
+    return normalized;
+  }
+  return normalized.slice(closing + 4).replace(/^\s+/, "");
 }
 
 function formatError(error: unknown): string {

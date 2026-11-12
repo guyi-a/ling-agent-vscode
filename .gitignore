@@ -21,7 +21,7 @@ ling/ling_retrieval/report*.json
 # Local-only material
 comment-copilot/
 .claude/
-.agents/plans/
+**/.agents/plans/
 
 # OS / editor
 .DS_Store

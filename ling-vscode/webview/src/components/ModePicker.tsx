@@ -21,13 +21,18 @@ const MODES: Array<{
   },
   {
     value: "accept-write",
-    label: "Accept writes",
+    label: "Edit automatically",
     title: "Allow workspace writes, ask before normal commands",
   },
   {
     value: "auto",
     label: "Auto",
     title: "Allow normal operations, ask before risky operations",
+  },
+  {
+    value: "plan",
+    label: "Plan",
+    title: "Explore the code and present a plan before editing",
   },
 ];
 
@@ -131,7 +136,7 @@ export function ModePicker({
         aria-expanded={open}
         aria-controls={open ? `${baseId}-menu` : undefined}
         aria-label={`Chat options: ${current.label}`}
-        title="Approval mode and reasoning effort"
+        title="Approval mode and reasoning effort · Shift+Tab to switch"
         onClick={() => (open ? setOpen(false) : openMenu())}
         onKeyDown={(event) => {
           if (event.key === "ArrowDown" || event.key === "ArrowUp") {
@@ -212,6 +217,9 @@ export function ModePicker({
           <EffortSlider value={effort} onChange={onEffortChange} />
           <p className="mode-picker__effort-hint">
             Higher effort spends more reasoning tokens.
+          </p>
+          <p className="mode-picker__effort-hint">
+            Press Shift+Tab to cycle modes.
           </p>
         </div>
       ) : null}

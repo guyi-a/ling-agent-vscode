@@ -1,14 +1,42 @@
-import { useState } from "react";
-import type { ToolCall, ToolDetail } from "../types";
+import { useEffect, useRef, useState } from "react";
+import type {
+  SubagentTraceEntry,
+  ToolAction,
+  ToolCall,
+  ToolDetail,
+  ToolStatus,
+} from "../types";
 import { ChevronIcon, ToolIcon } from "./icons";
+import { MarkdownMessage } from "./MarkdownMessage";
 
 interface ToolCallCardProps {
   call: ToolCall;
+  subagentTrace?: SubagentTraceEntry[];
+  actionsDisabled?: boolean;
+  onOpenPlan?(path: string): void;
+  onBuildPlan?(path: string): void;
 }
 
-export function ToolCallCard({ call }: ToolCallCardProps) {
-  const [expanded, setExpanded] = useState(false);
+export function ToolCallCard({
+  call,
+  subagentTrace,
+  actionsDisabled = false,
+  onOpenPlan,
+  onBuildPlan,
+}: ToolCallCardProps) {
+  const [expanded, setExpanded] = useState(
+    call.detail?.kind === "plan" || call.detail?.kind === "subagent",
+  );
   const statusClass = call.status.toLowerCase();
+
+  useEffect(() => {
+    if (
+      call.detail?.kind === "plan" ||
+      call.detail?.kind === "subagent"
+    ) {
+      setExpanded(true);
+    }
+  }, [call.detail?.kind]);
   const diff =
     call.detail?.kind === "diff" ? call.detail : undefined;
 
@@ -56,6 +84,21 @@ export function ToolCallCard({ call }: ToolCallCardProps) {
               <ToolDiff detail={call.detail} />
             ) : call.detail.kind === "io" ? (
               <ToolIO detail={call.detail} />
+            ) : call.detail.kind === "plan" ? (
+              <ToolPlan
+                detail={call.detail}
+                disabled={actionsDisabled}
+                onOpen={onOpenPlan}
+                onBuild={onBuildPlan}
+              />
+            ) : call.detail.kind === "todo" ? (
+              <ToolTodo detail={call.detail} />
+            ) : call.detail.kind === "subagent" ? (
+              <ToolSubagent
+                detail={call.detail}
+                trace={subagentTrace}
+                status={call.status}
+              />
             ) : (
               <pre className="tool-text">{call.detail.text}</pre>
             )
@@ -106,6 +149,398 @@ function ToolDiff({
       ) : null}
     </div>
   );
+}
+
+function ToolPlan({
+  detail,
+  disabled = false,
+  onOpen,
+  onBuild,
+}: {
+  detail: Extract<ToolDetail, { kind: "plan" }>;
+  disabled?: boolean;
+  onOpen?: (path: string) => void;
+  onBuild?: (path: string) => void;
+}) {
+  const [showAll, setShowAll] = useState(false);
+  const long = detail.text.length > 1_200;
+
+  return (
+    <div className="tool-plan">
+      <div className="tool-plan__header">
+        <span className="tool-plan__path" title={detail.path}>
+          {detail.path}
+        </span>
+        <div className="tool-plan__actions">
+          {onOpen ? (
+            <button
+              className="tool-plan__button"
+              type="button"
+              title="Open the plan markdown source"
+              onClick={() => onOpen(detail.path)}
+            >
+              Open source
+            </button>
+          ) : null}
+          {onBuild ? (
+            <button
+              className="tool-plan__button tool-plan__button--build"
+              type="button"
+              disabled={disabled}
+              onClick={() => onBuild(detail.path)}
+            >
+              Build
+            </button>
+          ) : null}
+        </div>
+      </div>
+      <div
+        className={`tool-plan__body${
+          long && !showAll ? " tool-plan__body--clamped" : ""
+        }`}
+      >
+        <MarkdownMessage content={detail.text} streaming={false} />
+      </div>
+      {long ? (
+        <button
+          className="tool-plan__more"
+          type="button"
+          onClick={() => setShowAll((value) => !value)}
+        >
+          {showAll ? "Show less" : "Show full plan"}
+        </button>
+      ) : null}
+    </div>
+  );
+}
+
+function ToolTodo({
+  detail,
+}: {
+  detail: Extract<ToolDetail, { kind: "todo" }>;
+}) {
+  return (
+    <div className="tool-todo">
+      {detail.todos.map((todo) => (
+        <div
+          className={`tool-todo__item tool-todo__item--${todo.status}`}
+          key={todo.id}
+        >
+          <span className="tool-todo__mark" aria-hidden="true">
+            {todo.status === "completed"
+              ? "✓"
+              : todo.status === "in_progress"
+                ? "•"
+                : todo.status === "cancelled"
+                  ? "×"
+                  : "○"}
+          </span>
+          <span className="tool-todo__text">{todo.content}</span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function ToolSubagent({
+  detail,
+  trace,
+  status,
+}: {
+  detail: Extract<ToolDetail, { kind: "subagent" }>;
+  trace?: SubagentTraceEntry[];
+  status: ToolStatus;
+}) {
+  const live = trace ?? [];
+  const persisted = detail.trace ?? [];
+  // A compacted/late live stream can be partial; persisted details are whole.
+  const entries = persisted.length >= live.length ? persisted : live;
+  const toolCount = entries.filter(
+    (entry) => entry.kind === "tool_call",
+  ).length;
+  const running = status === "Running" || status === "Waiting";
+  const [showTrace, setShowTrace] = useState(running);
+  const traceRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    // Live while running; after completion the summary is the main view.
+    setShowTrace(running);
+  }, [running]);
+
+  useEffect(() => {
+    const element = traceRef.current;
+    if (showTrace && running && element) {
+      element.scrollTop = element.scrollHeight;
+    }
+  }, [entries.length, showTrace, running]);
+
+  return (
+    <div className="tool-subagent">
+      <div className="tool-subagent__header">
+        <span className="tool-subagent__description">
+          {detail.description}
+        </span>
+        <span className="tool-subagent__badge">
+          {detail.subagentType} · {detail.mode}
+        </span>
+      </div>
+
+      {detail.summary ? (
+        <div className="tool-subagent__summary">
+          <MarkdownMessage content={detail.summary} streaming={false} />
+        </div>
+      ) : null}
+
+      {detail.error && !detail.summary ? (
+        <p className="tool-subagent__error">{detail.error}</p>
+      ) : null}
+
+      {running && entries.length === 0 ? (
+        <p className="tool-subagent__empty">Working…</p>
+      ) : null}
+
+      {entries.length > 0 ? (
+        <div className="tool-subagent__trace">
+          <button
+            className="tool-subagent__trace-toggle"
+            type="button"
+            onClick={() => setShowTrace((value) => !value)}
+          >
+            {showTrace
+              ? `Hide trace · ${toolCount} tools`
+              : `View trace · ${toolCount} tools`}
+          </button>
+          {showTrace ? (
+            <div
+              className="tool-subagent__trace-body"
+              ref={traceRef}
+            >
+              <SubagentTraceEntries entries={entries} />
+            </div>
+          ) : null}
+        </div>
+      ) : null}
+
+      {!running && !detail.summary && !detail.error && entries.length === 0 ? (
+        <p className="tool-subagent__empty">No summary returned.</p>
+      ) : null}
+    </div>
+  );
+}
+
+type SubagentToolCall = Extract<
+  SubagentTraceEntry,
+  { kind: "tool_call" }
+>;
+type SubagentToolResult = Extract<
+  SubagentTraceEntry,
+  { kind: "tool_result" }
+>;
+type SubagentDisplayItem =
+  | {
+      kind: "assistant";
+      entry: Extract<SubagentTraceEntry, { kind: "assistant" }>;
+    }
+  | {
+      kind: "tool";
+      call: SubagentToolCall;
+      result?: SubagentToolResult;
+    }
+  | {
+      kind: "error";
+      entry: Extract<SubagentTraceEntry, { kind: "error" }>;
+    };
+
+function groupSubagentTrace(
+  entries: SubagentTraceEntry[],
+): SubagentDisplayItem[] {
+  const items: SubagentDisplayItem[] = [];
+  const toolIndexes = new Map<string, number>();
+  for (const entry of entries) {
+    if (entry.kind === "tool_call") {
+      toolIndexes.set(entry.id, items.length);
+      items.push({ kind: "tool", call: entry });
+      continue;
+    }
+    if (entry.kind === "tool_result") {
+      const index = toolIndexes.get(entry.id);
+      if (index === undefined) {
+        items.push({
+          kind: "tool",
+          call: {
+            kind: "tool_call",
+            id: entry.id,
+            name: entry.name,
+            arguments: {},
+          },
+          result: entry,
+        });
+        continue;
+      }
+      const item = items[index];
+      if (item.kind === "tool") {
+        item.result = entry;
+      }
+      continue;
+    }
+    if (entry.kind === "assistant") {
+      items.push({ kind: "assistant", entry });
+      continue;
+    }
+    items.push({ kind: "error", entry });
+  }
+  return items;
+}
+
+function SubagentTraceEntries({
+  entries,
+}: {
+  entries: SubagentTraceEntry[];
+}) {
+  const items = groupSubagentTrace(entries);
+  return (
+    <>
+      {items.map((item, index) => {
+        if (item.kind === "tool") {
+          return (
+            <SubagentToolCard
+              call={item.call}
+              result={item.result}
+              key={`tool-${item.call.id}-${index}`}
+            />
+          );
+        }
+        if (item.kind === "assistant") {
+          const entry = item.entry;
+          return (
+            <div
+              className="tool-subagent__trace-entry"
+              key={`assistant-${entry.id}-${index}`}
+            >
+              <span className="tool-subagent__trace-label">
+                Assistant
+              </span>
+              {entry.thinking ? (
+                <details className="tool-subagent__thinking">
+                  <summary>Thinking</summary>
+                  <pre>{entry.thinking}</pre>
+                </details>
+              ) : null}
+              {entry.text ? (
+                <MarkdownMessage
+                  content={entry.text}
+                  streaming={false}
+                />
+              ) : null}
+            </div>
+          );
+        }
+        return (
+          <div
+            className="tool-subagent__trace-entry tool-subagent__trace-entry--error"
+            key={`error-${index}`}
+          >
+            <span className="tool-subagent__trace-label">Error</span>
+            <p>{item.entry.message}</p>
+          </div>
+        );
+      })}
+    </>
+  );
+}
+
+function SubagentToolCard({
+  call,
+  result,
+}: {
+  call: SubagentToolCall;
+  result?: SubagentToolResult;
+}) {
+  const [expanded, setExpanded] = useState(false);
+  const action = subagentToolAction(call.name);
+  const status = result
+    ? result.isError
+      ? "Failed"
+      : "Completed"
+    : "Running";
+  const statusClass = status.toLowerCase();
+  const statusStyle = result ? statusClass : "waiting";
+
+  return (
+    <article className={`subagent-tool subagent-tool--${statusClass}`}>
+      <button
+        className="subagent-tool__row"
+        type="button"
+        aria-expanded={expanded}
+        onClick={(event) => {
+          event.stopPropagation();
+          setExpanded((value) => !value);
+        }}
+      >
+        <span className="subagent-tool__icon">
+          <ToolIcon action={action} />
+        </span>
+        <span className="subagent-tool__action">{action}</span>
+        <span className="subagent-tool__target">
+          {subagentToolTarget(call)}
+        </span>
+        <span
+          className={`subagent-tool__status subagent-tool__status--${statusStyle}`}
+        >
+          <span className="status-dot" />
+          {status}
+        </span>
+        <ChevronIcon className="subagent-tool__chevron" />
+      </button>
+      {expanded ? (
+        <div className="subagent-tool__details">
+          <div className="tool-io">
+            <div className="tool-io__section">
+              <div className="tool-io__label">IN</div>
+              <pre className="tool-io__text">
+                {JSON.stringify(call.arguments, null, 2)}
+              </pre>
+            </div>
+            <div className="tool-io__section">
+              <div className="tool-io__label">OUT</div>
+              <pre
+                className={`tool-io__text${
+                  result?.isError ? " tool-io__text--error" : ""
+                }`}
+              >
+                {result
+                  ? result.output || "(no output)"
+                  : "Running…"}
+              </pre>
+            </div>
+          </div>
+        </div>
+      ) : null}
+    </article>
+  );
+}
+
+function subagentToolAction(name: string): ToolAction {
+  if (
+    name === "read_file" ||
+    name === "list_files" ||
+    name === "grep" ||
+    name === "glob" ||
+    name === "search_codebase"
+  ) {
+    return "Read";
+  }
+  return "Run";
+}
+
+function subagentToolTarget(call: SubagentToolCall): string {
+  for (const key of ["path", "query", "pattern", "name", "command"]) {
+    const value = call.arguments[key];
+    if (typeof value === "string" && value.trim()) {
+      return value;
+    }
+  }
+  return call.name;
 }
 
 function ToolIO({

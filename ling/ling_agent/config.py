@@ -29,6 +29,8 @@ class HarnessConfig:
     storage_root: Path | None = None
     agent_max_steps: int = 50
     agent_max_parallel_tools: int = 4
+    subagent_max_steps: int = 30
+    subagent_max_summary_chars: int = 8_000
     compaction: CompactionConfig = field(
         default_factory=CompactionConfig
     )
@@ -51,6 +53,8 @@ class HarnessConfig:
             "prompt_max_chars": self.prompt_max_chars,
             "agent_max_steps": self.agent_max_steps,
             "agent_max_parallel_tools": self.agent_max_parallel_tools,
+            "subagent_max_steps": self.subagent_max_steps,
+            "subagent_max_summary_chars": self.subagent_max_summary_chars,
         }
         for name, value in positive_ints.items():
             if value < 1:

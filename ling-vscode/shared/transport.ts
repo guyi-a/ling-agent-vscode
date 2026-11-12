@@ -14,6 +14,7 @@ import type {
   RunPhase,
   SessionSnapshot,
   SettingsView,
+  SubagentTraceEntry,
   TimelineEntry,
   ToolAction,
   ToolCall,
@@ -149,6 +150,14 @@ export type WebviewToHostMessage =
     }
   | {
       type: "index.build";
+    }
+  | {
+      type: "plan.open";
+      path: string;
+    }
+  | {
+      type: "plan.build";
+      path: string;
     };
 
 export type HostToWebviewMessage =
@@ -197,6 +206,13 @@ export type HostToWebviewMessage =
   | {
       type: "ling.index-status";
       status: IndexStatus;
+    }
+  | {
+      type: "ling.mode-changed";
+      mode: ApprovalMode;
+    }
+  | {
+      type: "ling.ready";
     };
 
 export function isWebviewToHostMessage(
@@ -293,6 +309,9 @@ export function isWebviewToHostMessage(
       return true;
     case "index.build":
       return true;
+    case "plan.open":
+    case "plan.build":
+      return typeof value.path === "string" && value.path.length > 0;
     case "settings.save":
       return (
         typeof value.apiKey === "string" &&
@@ -401,6 +420,12 @@ export function isHostToWebviewMessage(
   if (value.type === "ling.index-status") {
     return isIndexStatus(value.status);
   }
+  if (value.type === "ling.mode-changed") {
+    return isApprovalMode(value.mode);
+  }
+  if (value.type === "ling.ready") {
+    return true;
+  }
   return (
     value.type === "ling.ui-event" &&
     typeof value.sequence === "number" &&
@@ -435,6 +460,19 @@ export function isUiEvent(value: unknown): value is UiEvent {
       return typeof value.messageId === "string";
     case "tool.updated":
       return isToolCall(value.tool);
+    case "subagent.trace":
+      return (
+        typeof value.callId === "string" &&
+        value.callId.length > 0 &&
+        isSubagentTraceEntry(value.entry)
+      );
+    case "plan.created":
+      return (
+        typeof value.path === "string" &&
+        value.path.length > 0 &&
+        typeof value.sessionId === "string" &&
+        value.sessionId.length > 0
+      );
     case "approval.requested":
       return isApprovalRequest(value.request);
     case "approval.resolved":
@@ -710,7 +748,78 @@ function isToolDetail(value: unknown): value is ToolDetail {
   if (value.kind === "text") {
     return typeof value.text === "string";
   }
+  if (value.kind === "plan") {
+    return (
+      typeof value.path === "string" &&
+      typeof value.text === "string"
+    );
+  }
+  if (value.kind === "todo") {
+    return (
+      Array.isArray(value.todos) &&
+      value.todos.every(isToolTodoItem)
+    );
+  }
+  if (value.kind === "subagent") {
+    return (
+      typeof value.description === "string" &&
+      typeof value.subagentType === "string" &&
+      typeof value.mode === "string" &&
+      (value.summary === undefined || typeof value.summary === "string") &&
+      (value.trace === undefined ||
+        (Array.isArray(value.trace) &&
+          value.trace.every(isSubagentTraceEntry))) &&
+      (value.error === undefined || typeof value.error === "string")
+    );
+  }
   return false;
+}
+
+function isSubagentTraceEntry(
+  value: unknown,
+): value is SubagentTraceEntry {
+  if (!isRecord(value)) {
+    return false;
+  }
+  if (value.kind === "assistant") {
+    return (
+      typeof value.id === "string" &&
+      typeof value.text === "string" &&
+      (value.thinking === undefined ||
+        typeof value.thinking === "string")
+    );
+  }
+  if (value.kind === "tool_call") {
+    return (
+      typeof value.id === "string" &&
+      typeof value.name === "string" &&
+      isRecord(value.arguments)
+    );
+  }
+  if (value.kind === "tool_result") {
+    return (
+      typeof value.id === "string" &&
+      typeof value.name === "string" &&
+      (value.output === undefined || typeof value.output === "string") &&
+      typeof value.isError === "boolean"
+    );
+  }
+  if (value.kind === "error") {
+    return typeof value.message === "string";
+  }
+  return false;
+}
+
+function isToolTodoItem(value: unknown): boolean {
+  return (
+    isRecord(value) &&
+    typeof value.id === "string" &&
+    typeof value.content === "string" &&
+    (value.status === "pending" ||
+      value.status === "in_progress" ||
+      value.status === "completed" ||
+      value.status === "cancelled")
+  );
 }
 
 function isToolDiffRow(value: unknown): value is ToolDiffRow {
@@ -729,7 +838,8 @@ function isApprovalMode(value: unknown): value is ApprovalMode {
   return (
     value === "manual" ||
     value === "accept-write" ||
-    value === "auto"
+    value === "auto" ||
+    value === "plan"
   );
 }
 
@@ -786,7 +896,9 @@ function isToolAction(value: unknown): value is ToolAction {
     value === "Read" ||
     value === "Edit" ||
     value === "Run" ||
-    value === "Skill"
+    value === "Skill" ||
+    value === "Plan" ||
+    value === "Subagent"
   );
 }
 

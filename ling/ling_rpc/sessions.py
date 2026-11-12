@@ -86,6 +86,7 @@ class _QueuedPrompt:
     selections: tuple[UserSelection, ...]
     approval_mode: ApprovalMode
     reasoning: str | None = None
+    display_text: str | None = None
 
 
 MAX_QUEUED_PROMPTS = 20
@@ -158,9 +159,14 @@ class SessionService:
         attachments: Sequence[UserAttachment] = (),
         selections: Sequence[UserSelection] = (),
         reasoning: str | None = None,
+        display_text: str | None = None,
     ) -> dict[str, Any]:
         if self._closed:
             raise RuntimeError("Session service is closed")
+        if display_text is not None and not isinstance(
+            display_text, str
+        ):
+            raise ValueError("displayText must be a string")
         if not prompt.strip() and not attachments and not selections:
             raise ValueError("prompt must not be empty")
         if reasoning == "auto":
@@ -192,6 +198,7 @@ class SessionService:
                 selections=tuple(selections),
                 approval_mode=approval_mode or self._approval_mode,
                 reasoning=reasoning,
+                display_text=display_text,
             )
             self._queue.append(item)
             await self._emit_queue()
@@ -220,6 +227,7 @@ class SessionService:
             selections=tuple(selections),
             approval_mode=self._approval_mode,
             reasoning=reasoning,
+            display_text=display_text,
         )
         self._task = asyncio.create_task(
             self._run_queue(agent, item),
@@ -736,6 +744,7 @@ class SessionService:
             builtin_skills_root=self._builtin_skills_root,
             questions=self._questions,
             embedder=self._embedder,
+            subagent_trace_sink=self._emit_subagent_trace,
         )
         if self._session_id is not None:
             await self._agent.resume(self._session_id)
@@ -745,6 +754,19 @@ class SessionService:
         return resolve_model(
             self._configured_model,
             self._configured_stream,
+        )
+
+    async def _emit_subagent_trace(
+        self,
+        call_id: str,
+        entry: dict[str, Any],
+    ) -> None:
+        await self._emit_event(
+            {
+                "type": "subagent.trace",
+                "callId": call_id,
+                "entry": entry,
+            }
         )
 
     async def build_code_index(self, workspace_root: str) -> dict:
@@ -797,6 +819,7 @@ class SessionService:
                 item.attachments,
                 item.selections,
                 item.reasoning,
+                display_text=item.display_text,
             )
 
             if status != "completed":
@@ -826,6 +849,7 @@ class SessionService:
         reasoning: str | None = None,
         *,
         regenerate: bool = False,
+        display_text: str | None = None,
     ) -> str:
         try:
             if regenerate:
@@ -836,6 +860,7 @@ class SessionService:
                     attachments=attachments,
                     selections=selections,
                     reasoning=reasoning,
+                    display_text=display_text,
                 )
         except asyncio.CancelledError:
             await self._emit_event({"type": "run.cancelled"})
@@ -900,7 +925,7 @@ class SessionService:
         return [
             {
                 "id": item.id,
-                "text": item.prompt,
+                "text": item.display_text or item.prompt,
                 "attachmentCount": len(item.attachments),
             }
             for item in self._queue

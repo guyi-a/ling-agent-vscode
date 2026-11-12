@@ -131,7 +131,7 @@ export function Composer({
 
   return (
     <form
-      className="composer"
+      className={`composer composer--${mode}`}
       onSubmit={handleSubmit}
       onDragOver={handleDragOver}
       onDrop={handleDrop}

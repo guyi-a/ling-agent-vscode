@@ -16,6 +16,8 @@ interface TimelineProps {
   state: TimelineState;
   onOpenAttachment(relativePath: string): void;
   onOpenSelection(selection: UserSelectionSummary): void;
+  onOpenPlan(path: string): void;
+  onBuildPlan(path: string): void;
   onCopyMessage(text: string): void;
   onDeleteMessage(messageId: string): void;
   onRegenerateMessage(messageId: string): void;
@@ -26,6 +28,8 @@ export function Timeline({
   state,
   onOpenAttachment,
   onOpenSelection,
+  onOpenPlan,
+  onBuildPlan,
   onCopyMessage,
   onDeleteMessage,
   onRegenerateMessage,
@@ -96,7 +100,14 @@ export function Timeline({
               key={getBlockKey(block)}
             >
               {block.tools.map((call) => (
-                <ToolCallCard key={call.id} call={call} />
+                <ToolCallCard
+                  key={call.id}
+                  call={call}
+                  subagentTrace={state.subagentTraces[call.id]}
+                  actionsDisabled={actionsDisabled}
+                  onOpenPlan={onOpenPlan}
+                  onBuildPlan={onBuildPlan}
+                />
               ))}
             </div>
           );

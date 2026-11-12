@@ -37,6 +37,32 @@ assert.equal(state.phase, "running");
 assert.equal(state.entries.length, 5);
 assert.equal(state.pendingApprovals.length, 0);
 
+let traceState = apply(createEmptyTimelineState(), {
+  type: "subagent.trace",
+  callId: "call-1",
+  entry: {
+    kind: "assistant",
+    id: "assistant-1",
+    text: "Found it.",
+  },
+});
+traceState = apply(traceState, {
+  type: "subagent.trace",
+  callId: "call-1",
+  entry: {
+    kind: "tool_result",
+    id: "read-1",
+    name: "read_file",
+    output: "content",
+    isError: false,
+  },
+});
+assert.equal(traceState.subagentTraces["call-1"].length, 2);
+assert.equal(
+  traceState.subagentTraces["call-1"][0].kind,
+  "assistant",
+);
+
 let thinkingState = apply(createEmptyTimelineState(), {
   type: "thinking.delta",
   messageId: "message-thinking-1",
@@ -273,6 +299,22 @@ assert.equal(
 );
 assert.equal(
   isWebviewToHostMessage({ type: "index.build" }),
+  true,
+);
+assert.equal(
+  isWebviewToHostMessage({
+    type: "plan.build",
+    path: ".agents/plans/x.md",
+  }),
+  true,
+);
+assert.equal(
+  isWebviewToHostMessage({ type: "plan.open", path: "" }),
+  false,
+);
+assert.equal(isHostToWebviewMessage({ type: "ling.ready" }), true);
+assert.equal(
+  isWebviewToHostMessage({ type: "mode.change", mode: "plan" }),
   true,
 );
 assert.equal(
@@ -520,6 +562,161 @@ assert.equal(
     },
   }),
   true,
+);
+assert.equal(
+  isUiEvent({
+    type: "tool.updated",
+    tool: {
+      id: "tool-detail-plan",
+      action: "Plan",
+      target: "Fix login",
+      status: "Completed",
+      details: [],
+      detail: {
+        kind: "plan",
+        path: ".agents/plans/x.md",
+        text: "# Fix login",
+      },
+    },
+  }),
+  true,
+);
+assert.equal(
+  isUiEvent({
+    type: "tool.updated",
+    tool: {
+      id: "tool-detail-todo",
+      action: "Plan",
+      target: "2 todos",
+      status: "Completed",
+      details: [],
+      detail: {
+        kind: "todo",
+        todos: [
+          { id: "1", content: "Read", status: "completed" },
+          { id: "2", content: "Plan", status: "in_progress" },
+        ],
+      },
+    },
+  }),
+  true,
+);
+assert.equal(
+  isUiEvent({
+    type: "tool.updated",
+    tool: {
+      id: "tool-detail-subagent",
+      action: "Subagent",
+      target: "Find auth",
+      status: "Completed",
+      details: [],
+      detail: {
+        kind: "subagent",
+        description: "Find auth",
+        subagentType: "explore",
+        mode: "foreground",
+        summary: "Auth lives in src/auth.ts.",
+        trace: [
+          {
+            kind: "tool_call",
+            id: "read-1",
+            name: "read_file",
+            arguments: { path: "src/auth.ts" },
+          },
+          {
+            kind: "tool_result",
+            id: "read-1",
+            name: "read_file",
+            output: "export function auth() {}",
+            isError: false,
+          },
+          {
+            kind: "assistant",
+            id: "assistant-1",
+            text: "Auth lives in src/auth.ts.",
+          },
+        ],
+      },
+    },
+  }),
+  true,
+);
+assert.equal(
+  isUiEvent({
+    type: "tool.updated",
+    tool: {
+      id: "tool-detail-subagent-bad",
+      action: "Subagent",
+      target: "Find auth",
+      status: "Completed",
+      details: [],
+      detail: {
+        kind: "subagent",
+        description: "Find auth",
+        subagentType: "explore",
+        mode: "foreground",
+        summary: 42,
+      },
+    },
+  }),
+  false,
+);
+assert.equal(
+  isUiEvent({
+    type: "subagent.trace",
+    callId: "call-1",
+    entry: {
+      kind: "tool_call",
+      id: "read-1",
+      name: "read_file",
+      arguments: { path: "a.py" },
+    },
+  }),
+  true,
+);
+assert.equal(
+  isUiEvent({
+    type: "subagent.trace",
+    callId: "call-1",
+    entry: {
+      kind: "assistant",
+      id: "assistant-1",
+      text: "Done.",
+    },
+  }),
+  true,
+);
+assert.equal(
+  isUiEvent({
+    type: "subagent.trace",
+    callId: "call-1",
+    entry: { kind: "assistant", id: "assistant-1", text: 42 },
+  }),
+  false,
+);
+assert.equal(
+  isUiEvent({
+    type: "subagent.trace",
+    callId: "",
+    entry: { kind: "error", message: "boom" },
+  }),
+  false,
+);
+assert.equal(
+  isUiEvent({
+    type: "plan.created",
+    path: ".agents/plans/x.md",
+    sessionId: "session-1",
+  }),
+  true,
+);
+assert.equal(
+  isUiEvent({
+    type: "plan.created",
+    path: "",
+    sessionId: "session-1",
+  }),
+  false,
 );
 assert.equal(
   isUiEvent({

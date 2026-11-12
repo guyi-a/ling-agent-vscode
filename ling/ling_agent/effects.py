@@ -22,6 +22,7 @@ class ApprovalMode(str, Enum):
     MANUAL = "manual"
     ACCEPT_WRITE = "accept-write"
     AUTO = "auto"
+    PLAN = "plan"
 
 
 @dataclass(slots=True, frozen=True)
@@ -189,11 +190,21 @@ def derive_effect(call: ToolCall, workspace: Workspace) -> Effect:
     if call.name in ("load_skill", "ask_user"):
         return MetaEffect(operation=call.name)
 
+    if call.name in ("create_plan", "update_plan"):
+        return MetaEffect(operation="plan")
+
+    if call.name == "todo_write":
+        return MetaEffect(operation="todo")
+
+    if call.name == "spawn_subagent":
+        return SubagentEffect()
+
     if call.name in (
         "read_file",
         "list_files",
         "grep",
         "glob",
+        "search_codebase",
         "extract_document_text",
     ):
         raw_path = arguments.get("path", ".")
@@ -204,8 +215,10 @@ def derive_effect(call: ToolCall, workspace: Workspace) -> Effect:
             operation = "read"
         elif call.name == "list_files":
             operation = "list"
-        elif call.name == "grep":
+        elif call.name in ("grep", "search_codebase"):
             operation = "grep"
+            if call.name == "search_codebase":
+                raw_path = "."
         else:
             operation = "glob"
             raw_path = "."
@@ -292,6 +305,23 @@ def _sensitive_reason(effect: Effect, call: ToolCall | None) -> str | None:
     return None
 
 
+def plan_mode_denial(effect: Effect) -> str | None:
+    """Return a denial message when plan mode blocks an effect."""
+    if isinstance(
+        effect,
+        (
+            FilesystemWriteEffect,
+            ProcessExecEffect,
+            UnknownEffect,
+        ),
+    ):
+        return (
+            "Plan mode is read-only. Present a plan with create_plan "
+            "and wait for the user to build it."
+        )
+    return None
+
+
 def approval_reason(
     effect: Effect,
     mode: ApprovalMode = ApprovalMode.MANUAL,
@@ -339,6 +369,7 @@ __all__ = [
     "FilesystemWriteEffect",
     "MetaEffect",
     "NetworkEffect",
+    "plan_mode_denial",
     "ProcessExecEffect",
     "SubagentEffect",
     "UnknownEffect",

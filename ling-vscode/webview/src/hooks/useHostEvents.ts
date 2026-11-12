@@ -1,4 +1,4 @@
-import { useEffect, type Dispatch } from "react";
+import { useEffect, useRef, type Dispatch } from "react";
 import type {
   ApprovalMode,
   HistorySession,
@@ -41,30 +41,61 @@ export function useHostEvents(
     error?: string,
   ) => void,
   onIndexStatus: (status: IndexStatus) => void,
+  onReady: () => void,
 ): void {
+  // Keep handlers reachable from one stable subscription. Re-subscribing on
+  // every render can drop events that arrive between cleanup and setup.
+  const handlers = useRef({
+    onHistoryList,
+    onWorkspaceName,
+    onApprovalMode,
+    onSettings,
+    onSettingsSaved,
+    onAttachmentSaved,
+    onSelectionAdded,
+    onIndexResult,
+    onIndexStatus,
+    onReady,
+  });
+  handlers.current = {
+    onHistoryList,
+    onWorkspaceName,
+    onApprovalMode,
+    onSettings,
+    onSettingsSaved,
+    onAttachmentSaved,
+    onSelectionAdded,
+    onIndexResult,
+    onIndexStatus,
+    onReady,
+  };
+
   useEffect(
     () =>
       host.subscribe((message) => {
+        const current = handlers.current;
         if (message.type === "ling.ui-event") {
           if (
             message.event.type === "session.snapshot" &&
             message.event.snapshot.approvalMode
           ) {
-            onApprovalMode(message.event.snapshot.approvalMode);
+            current.onApprovalMode(
+              message.event.snapshot.approvalMode,
+            );
           }
           dispatch(message.event);
           return;
         }
         if (message.type === "ling.history-list") {
-          onHistoryList(message.sessions, message.error);
+          current.onHistoryList(message.sessions, message.error);
           return;
         }
         if (message.type === "ling.settings") {
-          onSettings(message.settings, message.error);
+          current.onSettings(message.settings, message.error);
           return;
         }
         if (message.type === "ling.settings-saved") {
-          onSettingsSaved(
+          current.onSettingsSaved(
             message.settings,
             message.error,
             message.warning,
@@ -72,7 +103,7 @@ export function useHostEvents(
           return;
         }
         if (message.type === "ling.attachment-saved") {
-          onAttachmentSaved(
+          current.onAttachmentSaved(
             message.requestId,
             message.attachment,
             message.error,
@@ -80,31 +111,34 @@ export function useHostEvents(
           return;
         }
         if (message.type === "ling.selection-added") {
-          onSelectionAdded(message.selection, message.error);
+          current.onSelectionAdded(
+            message.selection,
+            message.error,
+          );
           return;
         }
         if (message.type === "ling.index-result") {
-          onIndexResult(message.ok, message.stats, message.error);
+          current.onIndexResult(
+            message.ok,
+            message.stats,
+            message.error,
+          );
           return;
         }
         if (message.type === "ling.index-status") {
-          onIndexStatus(message.status);
+          current.onIndexStatus(message.status);
           return;
         }
-        onWorkspaceName(message.workspaceName);
+        if (message.type === "ling.mode-changed") {
+          current.onApprovalMode(message.mode);
+          return;
+        }
+        if (message.type === "ling.ready") {
+          current.onReady();
+          return;
+        }
+        current.onWorkspaceName(message.workspaceName);
       }),
-    [
-      dispatch,
-      host,
-      onApprovalMode,
-      onHistoryList,
-      onSettings,
-      onSettingsSaved,
-      onAttachmentSaved,
-      onSelectionAdded,
-      onIndexResult,
-      onIndexStatus,
-      onWorkspaceName,
-    ],
+    [dispatch, host],
   );
 }

@@ -1,6 +1,12 @@
-export type ApprovalMode = "manual" | "accept-write" | "auto";
+export type ApprovalMode = "manual" | "accept-write" | "auto" | "plan";
 
-export type ToolAction = "Read" | "Edit" | "Run" | "Skill";
+export type ToolAction =
+  | "Read"
+  | "Edit"
+  | "Run"
+  | "Skill"
+  | "Plan"
+  | "Subagent";
 
 export type ToolStatus =
   | "Running"
@@ -15,6 +21,31 @@ export interface ToolDiffRow {
   newLine?: number;
   text: string;
 }
+
+export type SubagentTraceEntry =
+  | {
+      kind: "assistant";
+      id: string;
+      text: string;
+      thinking?: string;
+    }
+  | {
+      kind: "tool_call";
+      id: string;
+      name: string;
+      arguments: Record<string, unknown>;
+    }
+  | {
+      kind: "tool_result";
+      id: string;
+      name: string;
+      output?: string;
+      isError: boolean;
+    }
+  | {
+      kind: "error";
+      message: string;
+    };
 
 export type ToolDetail =
   | {
@@ -35,7 +66,31 @@ export type ToolDetail =
   | {
       kind: "text";
       text: string;
+    }
+  | {
+      kind: "plan";
+      path: string;
+      text: string;
+    }
+  | {
+      kind: "todo";
+      todos: ToolTodoItem[];
+    }
+  | {
+      kind: "subagent";
+      description: string;
+      subagentType: string;
+      mode: string;
+      summary?: string;
+      trace?: SubagentTraceEntry[];
+      error?: string;
     };
+
+export interface ToolTodoItem {
+  id: string;
+  content: string;
+  status: "pending" | "in_progress" | "completed" | "cancelled";
+}
 
 export interface ToolCall {
   id: string;
@@ -249,4 +304,5 @@ export interface SettingsView {
 
 export interface TimelineState extends SessionSnapshot {
   error: string | null;
+  subagentTraces: Record<string, SubagentTraceEntry[]>;
 }

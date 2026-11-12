@@ -24,6 +24,7 @@ from ling_ai.types import (
     Context,
     Model,
     TextContent,
+    Tool,
     ToolCall,
     Usage,
     UserMessage,
@@ -38,11 +39,12 @@ from ling_agent import (
     SQLiteSessionStore,
     StreamFrameBuffer,
     TimelineProjector,
+    ToolResultCommitted,
     Workspace,
     create_approval_hook,
     create_mutation_tools,
 )
-from ling_core import Agent, HookRegistry, PreToolUse
+from ling_core import Agent, AgentTool, HookRegistry, PreToolUse, ToolExecution
 
 MODEL = Model(
     id="test-model",
@@ -312,8 +314,75 @@ def test_session_persistence_failure_is_fatal() -> None:
         asyncio.run(_persistence_failure(Path(temp)))
 
 
+async def _tool_details_flow(root: Path) -> None:
+    store = SQLiteSessionStore(root / "sessions.db")
+    session = await Session.create(
+        store,
+        workspace_root=root,
+        title="details",
+        context=Context(),
+        sink=CallbackEventSink(
+            on_committed=lambda envelope: None,
+            on_stream_frame=lambda frame: None,
+        ),
+        frames=StreamFrameBuffer(),
+    )
+    await session.start_run(
+        UserMessage(content="plan", timestamp=1)
+    )
+    hooks = HookRegistry()
+    session.register_hooks(hooks)
+    streams = ScriptedStreams(
+        [
+            _assistant(
+                [ToolCall(id="call-1", name="plan", arguments={})],
+                stop_reason="tool_use",
+            ),
+            _assistant([TextContent("done")]),
+        ]
+    )
+    agent = Agent(
+        model=MODEL,
+        stream_fn=streams,
+        context=session.context,
+        hooks=hooks,
+        tools=[
+            AgentTool(
+                definition=Tool(name="plan", description="Plan."),
+                handler=lambda call, context: ToolExecution(
+                    output="ok",
+                    details={"kind": "plan", "path": ".agents/plans/x.md"},
+                ),
+            )
+        ],
+        max_steps=2,
+    )
+
+    result = await agent.run(None, on_event=session.handle_model_event)
+    await session.stop_run("completed", result)
+
+    events = await store.load_committed(session.session_id)
+    committed = [
+        envelope.event.result
+        for envelope in events
+        if isinstance(envelope.event, ToolResultCommitted)
+    ]
+    assert committed
+    assert committed[0].details == {
+        "kind": "plan",
+        "path": ".agents/plans/x.md",
+    }
+    await store.close()
+
+
+def test_tool_details_survive_commit() -> None:
+    with tempfile.TemporaryDirectory() as temp:
+        asyncio.run(_tool_details_flow(Path(temp)))
+
+
 if __name__ == "__main__":
     test_session_commit_boundaries_and_timeline()
     test_denied_approval_is_persisted_before_recovery()
     test_session_persistence_failure_is_fatal()
+    test_tool_details_survive_commit()
     print("all ling_agent session tests passed")

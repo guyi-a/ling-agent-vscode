@@ -375,6 +375,86 @@ class LingRpcSessionTests(unittest.IsolatedAsyncioTestCase):
                 )
             )
 
+    async def test_subagent_trace_events_and_detail(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            workspace = root / "workspace"
+            workspace.mkdir()
+            state = root / "state"
+            events: list[dict[str, Any]] = []
+
+            async def emit(event: dict[str, Any]) -> None:
+                events.append(event)
+
+            streams = ScriptedStreams(
+                [
+                    _assistant(
+                        [
+                            ToolCall(
+                                id="sub-1",
+                                name="spawn_subagent",
+                                arguments={
+                                    "description": "Find auth",
+                                    "prompt": "Find the auth middleware.",
+                                },
+                            )
+                        ],
+                        stop_reason="tool_use",
+                    ),
+                    _assistant(
+                        [TextContent("Auth lives in src/auth.ts.")]
+                    ),
+                    _assistant([TextContent("Done.")]),
+                ]
+            )
+            service = SessionService(
+                emit,
+                model=MODEL,
+                stream_fn=streams,
+                storage_root=state,
+            )
+
+            try:
+                await service.start("Find auth", str(workspace))
+                await asyncio.wait_for(
+                    service.wait_for_idle(),
+                    timeout=3,
+                )
+            finally:
+                await service.close()
+
+            traces = [
+                event
+                for event in events
+                if event.get("type") == "subagent.trace"
+            ]
+            self.assertTrue(traces)
+            self.assertEqual(traces[0]["callId"], "sub-1")
+            self.assertEqual(
+                traces[0]["entry"]["kind"],
+                "assistant",
+            )
+            self.assertEqual(
+                traces[0]["entry"]["text"],
+                "Auth lives in src/auth.ts.",
+            )
+
+            latest = next(
+                event
+                for event in reversed(events)
+                if event.get("type") == "session.snapshot"
+            )
+            tools = [
+                entry["tool"]
+                for entry in latest["snapshot"]["entries"]
+                if entry.get("kind") == "tool"
+            ]
+            self.assertEqual(tools[0]["action"], "Subagent")
+            self.assertEqual(
+                tools[0]["detail"]["trace"][0]["text"],
+                "Auth lives in src/auth.ts.",
+            )
+
     async def test_history_can_resume_same_session(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)

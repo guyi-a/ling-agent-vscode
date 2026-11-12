@@ -4,6 +4,7 @@ import type {
   QuestionRequest,
   RunPhase,
   SessionSnapshot,
+  SubagentTraceEntry,
   TimelineEntry,
   TimelineMessage,
   TimelineState,
@@ -19,6 +20,7 @@ export function createEmptyTimelineState(): TimelineState {
     queuedMessages: [],
     error: null,
     readOnly: false,
+    subagentTraces: {},
   };
 }
 
@@ -31,7 +33,10 @@ export function timelineReducer(
       return createEmptyTimelineState();
 
     case "session.snapshot":
-      return fromSnapshot(action.snapshot);
+      return fromSnapshot(
+        action.snapshot,
+        state.subagentTraces,
+      );
 
     case "message.delta":
       return appendMessageDelta(state, action.messageId, action.delta);
@@ -47,6 +52,17 @@ export function timelineReducer(
 
     case "tool.updated":
       return upsertTool(state, action.tool);
+
+    case "subagent.trace":
+      return appendSubagentTrace(
+        state,
+        action.callId,
+        action.entry,
+      );
+
+    case "plan.created":
+      // The extension handles this event; it is not part of the timeline.
+      return state;
 
     case "approval.requested":
       if (state.phase === "cancelled" || state.phase === "failed") {
@@ -83,10 +99,31 @@ export function timelineReducer(
   }
 }
 
-function fromSnapshot(snapshot: SessionSnapshot): TimelineState {
+function fromSnapshot(
+  snapshot: SessionSnapshot,
+  previousTraces: Record<string, SubagentTraceEntry[]> = {},
+): TimelineState {
+  const subagentTraces: Record<string, SubagentTraceEntry[]> = {};
+  for (const entry of snapshot.entries) {
+    if (entry.kind !== "tool") {
+      continue;
+    }
+    if (
+      entry.tool.detail?.kind === "subagent" &&
+      entry.tool.detail.trace
+    ) {
+      subagentTraces[entry.tool.id] = entry.tool.detail.trace.map(
+        (traceEntry) => ({ ...traceEntry }),
+      );
+    } else if (previousTraces[entry.tool.id]) {
+      subagentTraces[entry.tool.id] =
+        previousTraces[entry.tool.id];
+    }
+  }
   return {
     phase: snapshot.phase,
     entries: snapshot.entries.map(cloneEntry),
+    subagentTraces,
     pendingApprovals: snapshot.pendingApprovals.map((request) => ({
       ...request,
       details: [...request.details],
@@ -324,6 +361,21 @@ function completeMessage(
           }
         : entry,
     ),
+  };
+}
+
+function appendSubagentTrace(
+  state: TimelineState,
+  callId: string,
+  entry: SubagentTraceEntry,
+): TimelineState {
+  const current = state.subagentTraces[callId] ?? [];
+  return {
+    ...state,
+    subagentTraces: {
+      ...state.subagentTraces,
+      [callId]: [...current, { ...entry }],
+    },
   };
 }
 

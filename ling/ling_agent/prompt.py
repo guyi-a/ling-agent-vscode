@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from typing import Iterable
 
 from .config import HarnessConfig
+from .effects import ApprovalMode
 from .skills import Skill, format_skills_index
 from .workspace import Workspace
 
@@ -23,6 +24,7 @@ DEFAULT_TOOL_NAMES = (
     "extract_document_text",
     "load_skill",
     "ask_user",
+    "spawn_subagent",
 )
 
 IDENTITY = (
@@ -48,12 +50,16 @@ TOOL_POLICY = """## Tools
 
 Available tools: {tool_names}.
 
-- Use read_file, list_files, glob, and grep for exploration. Prefer targeted
-  reads and searches; batch independent reads when possible.
-- Use search_codebase to find relevant functions by concept or behavior,
-  especially across files. Use grep for exact strings, error codes, or logs,
-  and read_file when you already know the path. Search results are clues
-  rather than proof; read the target file before editing.
+- Exploration routing:
+  - Unknown path and a conceptual request ("where is X handled", "how does
+    Y work") -> call search_codebase first. If it returns no useful hit,
+    fall back to grep with concrete identifiers from the request.
+  - Exact identifier, error string, config key, or log message -> grep.
+  - Discover files by name or extension -> glob or list_files.
+  - Already know the path -> read_file directly.
+- Prefer targeted reads and searches; batch independent reads when possible.
+- search_codebase results are clues rather than proof; read the target file
+  before editing.
 - Do not scan the entire repository unless the task requires it.
 - read_file output is bounded. If it is truncated, narrow the range or read a
   smaller section; do not assume the unseen content.
@@ -70,6 +76,27 @@ Available tools: {tool_names}.
   explicitly asks.
 - Tools may require user approval. If a call is denied, do not retry it
   unchanged. Explain the blocker or choose a safer alternative."""
+
+SUBAGENT_POLICY = """## Subagents
+
+- Use spawn_subagent for read-only research that would otherwise flood the
+  conversation with many file reads and search results.
+- The subagent has only read_file, list_files, glob, grep, and
+  search_codebase. It cannot edit files, run commands, or ask the user.
+- Write a self-contained prompt: the goal, relevant paths, what to look for,
+  and what the summary must answer.
+- Do not delegate when you already know which file to read, or when the task
+  requires edits, commands, or user decisions.
+- The subagent returns a summary, not raw file contents. Read critical files
+  yourself before editing them."""
+
+PLAN_POLICY = """## Plan mode
+
+- You are in plan mode. Explore with read-only tools; do not modify files or
+  run commands.
+- When ready, call create_plan with a concrete markdown implementation plan.
+  Plans are saved under .agents/plans. Use update_plan to revise the plan.
+- After create_plan, stop and wait for the user to build the plan."""
 
 SKILL_POLICY = """## Skills
 
@@ -140,6 +167,7 @@ def build_system_prompt(
     config: HarnessConfig | None = None,
     tool_names: Iterable[str] | None = None,
     skills: Iterable[Skill] = (),
+    mode: ApprovalMode = ApprovalMode.MANUAL,
 ) -> PromptAssembly:
     resolved_config = config or workspace.config
     names = tuple(sorted(set(tool_names or DEFAULT_TOOL_NAMES)))
@@ -173,6 +201,14 @@ def build_system_prompt(
 
     sections.append(TOOL_POLICY.format(tool_names=", ".join(names)))
     sources.append("tools")
+
+    if "spawn_subagent" in names:
+        sections.append(SUBAGENT_POLICY)
+        sources.append("subagents")
+
+    if mode is ApprovalMode.PLAN:
+        sections.append(PLAN_POLICY)
+        sources.append("plan")
 
     skills_index = format_skills_index(tuple(skills))
     if skills_index:

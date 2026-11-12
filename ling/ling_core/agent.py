@@ -311,6 +311,7 @@ class Agent:
                     output=execution.output,
                     context=context,
                     is_error=execution.is_error,
+                    details=execution.details,
                 )
             )
         except AgentFatalError:

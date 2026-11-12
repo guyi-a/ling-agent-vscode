@@ -4,6 +4,7 @@ import type {
   QueuedMessage,
   QuestionRequest,
   SessionSnapshot,
+  SubagentTraceEntry,
   ToolCall,
 } from "./uiTypes";
 
@@ -34,6 +35,16 @@ export type UiEvent =
   | {
       type: "tool.updated";
       tool: ToolCall;
+    }
+  | {
+      type: "subagent.trace";
+      callId: string;
+      entry: SubagentTraceEntry;
+    }
+  | {
+      type: "plan.created";
+      path: string;
+      sessionId: string;
     }
   | {
       type: "approval.requested";

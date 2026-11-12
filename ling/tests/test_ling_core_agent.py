@@ -765,6 +765,42 @@ def test_post_tool_hook_receives_error_state() -> None:
     assert seen == [True]
 
 
+def test_post_tool_hook_receives_details() -> None:
+    hooks = HookRegistry()
+    seen: list[object] = []
+
+    def post_tool(event: PostToolUse) -> None:
+        seen.append(event.details)
+
+    hooks.register(PostToolUse, post_tool)
+    agent = Agent(
+        model=MODEL,
+        stream_fn=ScriptedStreams(
+            [
+                _assistant(
+                    [ToolCall(id="call_1", name="plan", arguments={})],
+                    stop_reason="tool_use",
+                ),
+                _assistant([TextContent("done")]),
+            ]
+        ),
+        hooks=hooks,
+        tools=[
+            AgentTool(
+                definition=Tool(name="plan", description="Plan."),
+                handler=lambda call, context: ToolExecution(
+                    output="ok",
+                    details={"kind": "plan"},
+                ),
+            )
+        ],
+    )
+
+    asyncio.run(agent.run("tool"))
+
+    assert seen == [{"kind": "plan"}]
+
+
 def test_cancel_before_model_returns_aborted_message() -> None:
     cancel = asyncio.Event()
     cancel.set()

@@ -7,6 +7,7 @@ import {
   useState,
 } from "react";
 import { ApprovalTakeover } from "./components/ApprovalTakeover";
+import { BootScreen } from "./components/BootScreen";
 import { ChatSelectionButton } from "./components/ChatSelectionButton";
 import { Composer } from "./components/Composer";
 import { EmptyState } from "./components/EmptyState";
@@ -49,7 +50,9 @@ export function App() {
   const host = useMemo(createHostBridge, []);
   const announcedReady = useRef(false);
   const copyNoticeTimer = useRef<number | undefined>(undefined);
+  const modeNoticeTimer = useRef<number | undefined>(undefined);
   const buildAfterSave = useRef(false);
+  const [booting, setBooting] = useState(host.kind !== "browser");
   const [state, dispatch] = useReducer(
     timelineReducer,
     createEmptyTimelineState(),
@@ -292,6 +295,10 @@ export function App() {
     setIndexStatus(status);
   }, []);
 
+  const handleReady = useCallback(() => {
+    setBooting(false);
+  }, []);
+
   function buildIndex(
     input: Omit<
       Extract<WebviewToHostMessage, { type: "settings.save" }>,
@@ -321,8 +328,17 @@ export function App() {
     handleSelectionAdded,
     handleIndexResult,
     handleIndexStatus,
+    handleReady,
   );
   useScriptedEvents(dispatch, streamKey, host.kind === "browser");
+
+  useEffect(() => {
+    if (!booting) {
+      return;
+    }
+    const timer = window.setTimeout(() => setBooting(false), 5_000);
+    return () => window.clearTimeout(timer);
+  }, [booting]);
 
   useEffect(
     () => () => window.clearTimeout(copyNoticeTimer.current),
@@ -599,6 +615,46 @@ export function App() {
     host.postMessage({ type: "mode.change", mode: next });
   }
 
+  useEffect(() => {
+    function handleModeShortcut(event: KeyboardEvent) {
+      if (event.key !== "Tab" || !event.shiftKey) {
+        return;
+      }
+      if (event.ctrlKey || event.metaKey || event.altKey) {
+        return;
+      }
+      if (settingsOpen || historyOpen) {
+        return;
+      }
+      event.preventDefault();
+      const order: ApprovalMode[] = [
+        "manual",
+        "accept-write",
+        "auto",
+        "plan",
+      ];
+      const labels: Record<ApprovalMode, string> = {
+        manual: "Manual",
+        "accept-write": "Edit automatically",
+        auto: "Auto",
+        plan: "Plan",
+      };
+      const index = order.indexOf(mode);
+      const next = order[(index + 1) % order.length];
+      changeMode(next);
+      setNotice(`Mode: ${labels[next]}`);
+      window.clearTimeout(modeNoticeTimer.current);
+      modeNoticeTimer.current = window.setTimeout(
+        () => setNotice(""),
+        1_600,
+      );
+    }
+
+    window.addEventListener("keydown", handleModeShortcut, true);
+    return () =>
+      window.removeEventListener("keydown", handleModeShortcut, true);
+  }, [mode, settingsOpen, historyOpen]);
+
   function changeEffort(next: EffortLevel) {
     setEffort(next);
     if (host.kind === "vscode") {
@@ -608,6 +664,22 @@ export function App() {
 
   function openAttachment(relativePath: string) {
     host.postMessage({ type: "attachment.open", relativePath });
+  }
+
+  function openPlan(path: string) {
+    if (host.kind !== "vscode") {
+      setNotice("Plans are only available in VS Code.");
+      return;
+    }
+    host.postMessage({ type: "plan.open", path });
+  }
+
+  function buildPlan(path: string) {
+    if (host.kind !== "vscode") {
+      setNotice("Plans are only available in VS Code.");
+      return;
+    }
+    host.postMessage({ type: "plan.build", path });
   }
 
   function copyToClipboard(text: string, noticeText: string) {
@@ -647,6 +719,14 @@ export function App() {
         ? { endLine: selection.endLine }
         : {}),
     });
+  }
+
+  if (booting) {
+    return (
+      <div className={`app-shell app-shell--${host.kind}`}>
+        <BootScreen />
+      </div>
+    );
   }
 
   return (
@@ -701,6 +781,8 @@ export function App() {
           state={state}
           onOpenAttachment={openAttachment}
           onOpenSelection={openSelection}
+          onOpenPlan={openPlan}
+          onBuildPlan={buildPlan}
           onCopyMessage={copyMessage}
           onDeleteMessage={deleteMessage}
           onRegenerateMessage={regenerateMessage}

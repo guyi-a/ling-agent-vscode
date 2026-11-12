@@ -15,7 +15,9 @@ from ling_agent import (
     ProcessExecEffect,
     SubagentEffect,
     UnknownEffect,
+    Workspace,
     approval_reason,
+    derive_effect,
 )
 
 
@@ -25,6 +27,20 @@ def _write_call(path: str, content: str = "hello") -> ToolCall:
         name="write_file",
         arguments={"path": path, "content": content},
     )
+
+
+def test_search_codebase_is_read_only() -> None:
+    with tempfile.TemporaryDirectory() as temp:
+        effect = derive_effect(
+            ToolCall(
+                id="call-1",
+                name="search_codebase",
+                arguments={"query": "load skill"},
+            ),
+            Workspace(Path(temp)),
+        )
+    assert isinstance(effect, FilesystemReadEffect)
+    assert approval_reason(effect, ApprovalMode.MANUAL) is None
 
 
 def test_approval_policy_matrix() -> None:

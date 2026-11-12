@@ -59,6 +59,7 @@ from .events import (
     ToolResultCommitted,
     UserMessageCommitted,
 )
+from .plans import PlanStore
 from .prompt import build_system_prompt
 from .questions import QuestionHandler
 from .selections import (
@@ -71,6 +72,7 @@ from .skills import (
     load_skills,
     workspace_skills_root,
 )
+from .subagents import SubagentRunner, TraceSink
 from .storage import SQLiteSessionStore, default_database_path
 from .streaming import StreamFrameBuffer
 from .timeline import TimelineProjector, TimelineSnapshot
@@ -79,9 +81,11 @@ from .tools import (
     create_document_tools,
     create_file_tools,
     create_mutation_tools,
+    create_plan_tools,
     create_question_tools,
     create_search_tools,
     create_skill_tools,
+    create_subagent_tools,
 )
 from .tools.spill import create_spill_hook
 from .workspace import Workspace
@@ -139,16 +143,26 @@ class CodingAgent:
         builtin_skills_root: str | Path | None = None,
         questions: QuestionHandler | None = None,
         embedder: "Embedder | None" = None,
+        subagent_trace_sink: TraceSink | None = None,
     ) -> None:
         self.model = model
         self.stream_fn = stream_fn
         self.config = config or HarnessConfig()
         self.workspace = Workspace(workspace_root, self.config)
+        self.plans = PlanStore(self.workspace.root)
         self.approvals = approvals or _DenyAllApprovalHandler()
         self.event_sink = event_sink
         self.summarize_fn = summarize_fn
         self.questions = questions
         self.embedder = embedder
+        self.subagents = SubagentRunner(
+            model=model,
+            stream_fn=stream_fn,
+            workspace=self.workspace,
+            config=self.config,
+            embedder=embedder,
+            trace_sink=subagent_trace_sink,
+        )
         self._builtin_skills_root = (
             Path(builtin_skills_root).expanduser().resolve()
             if builtin_skills_root is not None
@@ -235,12 +249,13 @@ class CodingAgent:
             if record is None:
                 raise ValueError(f"Unknown session: {session_id}")
 
-            tools = self._create_tools()
+            tools = self._create_tools(record.approval_mode)
             prompt = build_system_prompt(
                 self.workspace,
                 config=self.config,
                 tool_names=[tool.definition.name for tool in tools],
                 skills=self.skills,
+                mode=record.approval_mode,
             )
             context = Context(system_prompt=prompt.system_prompt)
             events = await self.store.load_committed(session_id)
@@ -257,8 +272,11 @@ class CodingAgent:
             )
             return self._session
 
-    def _create_tools(self):
-        return [
+    def _create_tools(
+        self,
+        mode: ApprovalMode = ApprovalMode.MANUAL,
+    ):
+        tools = [
             *create_file_tools(
                 self.workspace,
                 extra_read_roots=self._skill_read_roots,
@@ -275,6 +293,33 @@ class CodingAgent:
                 self.skills,
                 max_body_chars=self.config.max_tool_result_chars,
             ),
+            *create_plan_tools(self.plans),
+            *create_subagent_tools(self.subagents),
+        ]
+        if mode is ApprovalMode.PLAN:
+            allowed = {
+                "read_file",
+                "list_files",
+                "glob",
+                "grep",
+                "search_codebase",
+                "extract_document_text",
+                "load_skill",
+                "ask_user",
+                "create_plan",
+                "update_plan",
+                "todo_write",
+                "spawn_subagent",
+            }
+            return [
+                tool
+                for tool in tools
+                if tool.definition.name in allowed
+            ]
+        return [
+            tool
+            for tool in tools
+            if tool.definition.name not in {"create_plan", "update_plan"}
         ]
 
     def _create_hooks(self, session: Session) -> HookRegistry:
@@ -432,6 +477,7 @@ class CodingAgent:
         attachments: Sequence[UserAttachment] = (),
         selections: Sequence[UserSelection] = (),
         reasoning: str | None = None,
+        display_text: str | None = None,
     ) -> AssistantMessage:
         attachment_refs = tuple(attachments)
         selection_refs = tuple(selections)
@@ -523,7 +569,11 @@ class CodingAgent:
                 user_message,
                 attachments=attachment_refs,
                 selections=selection_refs,
-                display_text=text,
+                display_text=(
+                    display_text
+                    if display_text is not None
+                    else text
+                ),
             )
             return await self._run_agent(
                 session,
@@ -562,12 +612,26 @@ class CodingAgent:
         *,
         has_attachments: bool = False,
     ) -> AssistantMessage:
+        mode = session.approval_mode
+        self.plans.bind(
+            session_id=session.session_id,
+            run_id=session.run_id,
+        )
+        tools = self._create_tools(mode)
+        prompt = build_system_prompt(
+            self.workspace,
+            config=self.config,
+            tool_names=[tool.definition.name for tool in tools],
+            skills=self.skills,
+            mode=mode,
+        )
+        session.context.system_prompt = prompt.system_prompt
         hooks = self._create_hooks(session)
         agent = Agent(
             model=self.model,
             stream_fn=self.stream_fn,
             context=session.context,
-            tools=self._create_tools(),
+            tools=tools,
             hooks=hooks,
             options=StreamOptions(
                 cancel_event=self._cancel_event,

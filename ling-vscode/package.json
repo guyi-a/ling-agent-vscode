@@ -2,7 +2,7 @@
   "name": "ling-agent",
   "displayName": "Ling",
   "description": "A focused coding agent for VS Code with skills, diff review, and inline diagrams.",
-  "version": "0.12.0",
+  "version": "0.13.0",
   "publisher": "ling-agent",
   "repository": {
     "type": "git",
@@ -44,6 +44,11 @@
       {
         "command": "ling.buildIndex",
         "title": "Build Code Index",
+        "category": "Ling"
+      },
+      {
+        "command": "ling.buildPlan",
+        "title": "Build Plan",
         "category": "Ling"
       },
       {
@@ -208,7 +213,8 @@
     "preview:webview": "vite preview",
     "watch:extension": "esbuild src/extension.ts --bundle --platform=node --format=cjs --external:vscode --outfile=dist/extension.js --watch",
     "vscode:prepublish": "npm run sync:skills && npm run build",
-    "test:comment": "esbuild scripts/test-comment.ts --bundle --platform=node --format=cjs --outfile=dist/comment.test.cjs && node dist/comment.test.cjs"
+    "test:comment": "esbuild scripts/test-comment.ts --bundle --platform=node --format=cjs --outfile=dist/comment.test.cjs && node dist/comment.test.cjs",
+    "test:bubble-sort": "esbuild scripts/test-bubble-sort.ts --bundle --platform=node --format=cjs --outfile=dist/bubble-sort.test.cjs && node dist/bubble-sort.test.cjs"
   },
   "devDependencies": {
     "@types/node": "^24.5.2",
