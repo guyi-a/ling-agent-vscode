@@ -53,7 +53,7 @@ python -m ling_retrieval.eval `
 
 `ling_agent/tools/search.py` 通过 `CodeIndex` 暴露 `search_codebase` 工具：
 
-- 索引：`<workspace>/.ling/code-index/index.sqlite`
+- 索引：`<workspace>/.agents/code-index/index.sqlite`
 - 首次搜索构建，之后按 mtime/size 增量更新
 - 也可以手动触发：Settings → Code index → Build code index，或命令面板
   `Ling: Build Code Index`（RPC `index.build`）

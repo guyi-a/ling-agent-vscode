@@ -5,7 +5,7 @@ from __future__ import annotations
 import tempfile
 from pathlib import Path
 
-from ling_agent import HarnessConfig, Workspace, build_system_prompt
+from ling_agent import HarnessConfig, Skill, Workspace, build_system_prompt
 
 
 def test_prompt_includes_workspace_and_agents_file() -> None:
@@ -49,7 +49,29 @@ def test_prompt_has_size_limit() -> None:
         assert prompt.system_prompt.endswith("[prompt truncated]")
 
 
+def test_prompt_emphasizes_inline_visualization() -> None:
+    with tempfile.TemporaryDirectory() as temp:
+        workspace = Workspace(Path(temp))
+        skill = Skill(
+            name="inline-visualization",
+            description="Render diagrams.",
+            body="Use an SVG.",
+            dir_path=Path(temp),
+        )
+        prompt = build_system_prompt(
+            workspace,
+            skills=(skill,),
+        )
+
+    assert "## Inline visualization" in prompt.system_prompt
+    assert 'load_skill(name="inline-visualization")' in prompt.system_prompt
+    assert 'type="renderer"' in prompt.system_prompt
+    assert "plain `html` or `svg` fence" in prompt.system_prompt
+    assert "inline-visualization" in prompt.sources
+
+
 if __name__ == "__main__":
     test_prompt_includes_workspace_and_agents_file()
     test_prompt_has_size_limit()
+    test_prompt_emphasizes_inline_visualization()
     print("all ling_agent prompt tests passed")

@@ -17,7 +17,7 @@ from .chunking import SUFFIX_LANGUAGES, chunk_file, iter_source_files
 from .embedding import Embedder, EmbeddingError, embedding_text
 from .vectors import pack_vector, reciprocal_rank_fusion
 
-INDEX_DIRECTORY = ".ling/code-index"
+INDEX_DIRECTORY = ".agents/code-index"
 INDEX_FILENAME = "index.sqlite"
 DEFAULT_TOP_K = 8
 MAX_TOP_K = 20

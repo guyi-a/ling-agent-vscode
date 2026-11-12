@@ -34,7 +34,7 @@ async function main(): Promise<void> {
     });
     assert.equal(
       saved.relativePath,
-      ".ling/attachments/Screenshot-2026-abcd1234.png",
+      ".agents/attachments/Screenshot-2026-abcd1234.png",
     );
     assert.equal(saved.name, "Screenshot-2026-abcd1234.png");
     assert.equal(saved.mediaType, "image/png");
@@ -43,6 +43,16 @@ async function main(): Promise<void> {
     assert.deepEqual(
       new Uint8Array(await readFile(absolute)),
       PNG_BYTES,
+    );
+    assert.equal(
+      resolveAttachmentFile(
+        dir,
+        ".ling/attachments/Screenshot-2026-abcd1234.png",
+      ),
+      resolveAttachmentFile(
+        dir,
+        ".agents/attachments/Screenshot-2026-abcd1234.png",
+      ),
     );
 
     const pasted = await saveAttachmentImage({
@@ -53,7 +63,7 @@ async function main(): Promise<void> {
     });
     assert.equal(
       pasted.relativePath,
-      ".ling/attachments/pasted-efgh5678.png",
+      ".agents/attachments/pasted-efgh5678.png",
     );
 
     assert.equal(mimeForFileName("doc.pdf"), "application/pdf");
@@ -92,10 +102,10 @@ async function main(): Promise<void> {
       resolveAttachmentFile(dir, "C:/escape.png"),
     );
     assert.throws(() =>
-      resolveAttachmentFile(dir, ".ling\\attachments\\a.png"),
+      resolveAttachmentFile(dir, ".agents\\attachments\\a.png"),
     );
     assert.throws(() =>
-      resolveAttachmentFile(dir, ".ling/attachments/../../a.png"),
+      resolveAttachmentFile(dir, ".agents/attachments/../../a.png"),
     );
   } finally {
     await rm(dir, { recursive: true, force: true });

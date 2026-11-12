@@ -1,5 +1,32 @@
 # Changelog
 
+## 0.14.0
+
+- Add direct browser control through the Kro Browser Bridge extension, with
+  approval-aware navigation, page inspection, clicks, typing, and extraction.
+- Add `web_search` and `web_fetch` tools backed by DeepSeek Search & Fetch.
+  Web results use structured tool cards, reject private URLs, and are available
+  in Plan mode as read-only operations.
+- Group repeated completed tools by semantic category across a run. Exploration,
+  edits, commands, browser actions, web calls, subagents, and workflow tools
+  collapse into counted rows while the currently running tool stays visible.
+- Keep a run expanded when it finishes in the current chat; completed tool
+  groups collapse live, while the outer elapsed-time disclosure closes only
+  when the user chooses. Historical runs still start collapsed.
+- Add durable project memory under `.agents/memory/*.md`. Memories with
+  `alwaysApply: true` are reloaded into the system prompt on every user turn;
+  `AGENTS.md` remains the home for stable project facts and conventions.
+- Add Memory tools and Settings management for listing, creating, editing,
+  and deleting workspace or global memories. Conditional memories can use
+  `globs`; duplicate names/content, parser errors, and size limits are surfaced
+  as diagnostics.
+- Consolidate workspace state under `.agents`: attachments, spills, code
+  indexes, notes, plans, skills, and memories now share one directory with
+  runtime-only subdirectories ignored by Git.
+- Emphasize inline visualization in the system prompt, copy complete renderer
+  code blocks, and keep trailing CJK prose outside auto-linked URLs.
+- Add a stable bubble-sort utility and its focused test fixture.
+
 ## 0.13.0
 
 - Add Plan as a fourth approval mode, alongside Manual, Edit automatically, and Auto; cycle modes with Shift+Tab.
@@ -20,7 +47,7 @@
 - Configure any OpenAI-compatible embedding provider in Settings; Alibaba
   Cloud DashScope and SiliconFlow work out of the box. Without a key Ling
   keeps using keyword-only search.
-- Keep a local SQLite index in `.ling/code-index` with incremental updates:
+- Keep a local SQLite index in `.agents/code-index` with incremental updates:
   unchanged files are skipped and only changed chunks are re-embedded.
   Switching embedding models rebuilds the vectors.
 - Add a Code index section in Settings with indexed-file progress, a live

@@ -12,8 +12,10 @@ from ling_agent import (
     MAX_USER_ATTACHMENTS,
     MAX_USER_SELECTIONS,
     ApprovalMode,
+    MemoryStore,
     UserAttachment,
     UserSelection,
+    default_global_memory_root,
 )
 from ling_comment.targets import CommentError, CommentTarget
 
@@ -199,6 +201,102 @@ class JsonRpcServer:
             self.running = False
             return None
 
+        if method == "memory.list":
+            workspace_root = _required_workspace_root(params)
+            store = MemoryStore(
+                workspace_root,
+                global_root=default_global_memory_root(),
+            )
+            result = store.list()
+            return {
+                "memories": [
+                    {
+                        "name": memory.name,
+                        "description": memory.description,
+                        "path": str(memory.path),
+                        "relativePath": memory.relative_path,
+                        "scope": memory.scope,
+                        "alwaysApply": memory.always_apply,
+                        "globs": list(memory.globs),
+                    }
+                    for memory in result.memories
+                ],
+                "diagnostics": list(result.diagnostics),
+            }
+
+        if method == "memory.write":
+            workspace_root = _required_workspace_root(params)
+            name = params.get("name")
+            description = params.get("description")
+            content = params.get("content")
+            scope = params.get("scope", "workspace")
+            always_apply = params.get("alwaysApply", True)
+            globs = params.get("globs", [])
+            if not isinstance(name, str) or not name:
+                raise JsonRpcError(-32602, "name must be a string")
+            if not isinstance(description, str) or not description:
+                raise JsonRpcError(
+                    -32602, "description must be a string"
+                )
+            if not isinstance(content, str) or not content:
+                raise JsonRpcError(-32602, "content must be a string")
+            if scope not in ("workspace", "global"):
+                raise JsonRpcError(
+                    -32602, "scope must be workspace or global"
+                )
+            if not isinstance(always_apply, bool):
+                raise JsonRpcError(
+                    -32602, "alwaysApply must be a boolean"
+                )
+            if not isinstance(globs, list) or not all(
+                isinstance(item, str) and item
+                for item in globs
+            ):
+                raise JsonRpcError(
+                    -32602, "globs must be an array of strings"
+                )
+            store = MemoryStore(
+                workspace_root,
+                global_root=default_global_memory_root(),
+            )
+            try:
+                path = store.write(
+                    name=name,
+                    description=description,
+                    content=content,
+                    scope=scope,
+                    always_apply=always_apply,
+                    globs=tuple(globs),
+                )
+            except ValueError as exc:
+                raise JsonRpcError(-32001, str(exc)) from exc
+            return {"ok": True, "path": str(path)}
+
+        if method == "memory.delete":
+            workspace_root = _required_workspace_root(params)
+            name = params.get("name")
+            scope = params.get("scope", "workspace")
+            confirm = params.get("confirm", False)
+            if not isinstance(name, str) or not name:
+                raise JsonRpcError(-32602, "name must be a string")
+            if scope not in ("workspace", "global"):
+                raise JsonRpcError(
+                    -32602, "scope must be workspace or global"
+                )
+            if confirm is not True:
+                raise JsonRpcError(
+                    -32602, "confirm must be true"
+                )
+            store = MemoryStore(
+                workspace_root,
+                global_root=default_global_memory_root(),
+            )
+            try:
+                store.delete(name=name, scope=scope)
+            except ValueError as exc:
+                raise JsonRpcError(-32001, str(exc)) from exc
+            return {"ok": True}
+
         if method == "comment.generate":
             target = _parse_comment_target(params)
             try:
@@ -221,6 +319,15 @@ class JsonRpcServer:
             )
             attachments = _parse_user_attachments(params.get("attachments"))
             selections = _parse_user_selections(params.get("selections"))
+            active_paths = params.get("activePaths", [])
+            if not isinstance(active_paths, list) or not all(
+                isinstance(item, str) and item
+                for item in active_paths
+            ):
+                raise JsonRpcError(
+                    -32602,
+                    "activePaths must be an array of strings",
+                )
             display_text = params.get("displayText")
             if display_text is not None and not isinstance(
                 display_text, str
@@ -262,6 +369,7 @@ class JsonRpcServer:
                     approval_mode=approval_mode,
                     attachments=attachments,
                     selections=selections,
+                    active_paths=active_paths,
                     reasoning=reasoning,
                     display_text=display_text,
                 )
@@ -790,6 +898,16 @@ def _parse_approval_mode(
             -32602,
             f"Unsupported approval mode: {value}",
         ) from exc
+
+
+def _required_workspace_root(params: dict[str, Any]) -> str:
+    value = params.get("workspaceRoot")
+    if not isinstance(value, str) or not value.strip():
+        raise JsonRpcError(
+            -32602,
+            "workspaceRoot must be a non-empty string",
+        )
+    return value
 
 
 def success_response(request_id: object, result: object) -> dict[str, Any]:

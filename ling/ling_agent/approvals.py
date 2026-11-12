@@ -17,6 +17,7 @@ from ling_core import AgentFatalError, HookCallback, PreToolUse, PreToolUseDecis
 
 from .effects import (
     ApprovalMode,
+    BrowserEffect,
     Effect,
     FilesystemWriteEffect,
     ProcessExecEffect,
@@ -32,6 +33,7 @@ class ApprovalKind(str, Enum):
     WRITE = "write"
     EDIT = "edit"
     COMMAND = "command"
+    BROWSER = "browser"
     UNKNOWN = "unknown"
 
 
@@ -230,6 +232,8 @@ def _kind_for_effect(effect: Effect) -> ApprovalKind:
         return ApprovalKind.WRITE if effect.operation == "write" else ApprovalKind.EDIT
     if isinstance(effect, ProcessExecEffect):
         return ApprovalKind.COMMAND
+    if isinstance(effect, BrowserEffect):
+        return ApprovalKind.BROWSER
     return ApprovalKind.UNKNOWN
 
 

@@ -35,7 +35,7 @@ DEFAULT_IGNORED_DIRECTORIES = frozenset(
         ".next",
         ".nuxt",
         ".turbo",
-        ".ling",
+        ".agents",
     }
 )
 
@@ -94,7 +94,12 @@ class Workspace:
         return self._config
 
     def resolve(self, path: str | Path) -> Path:
-        user_path = Path(path)
+        raw_path = str(path).replace("\\", "/")
+        if raw_path == ".ling":
+            raw_path = ".agents"
+        elif raw_path.startswith(".ling/"):
+            raw_path = ".agents/" + raw_path[len(".ling/") :]
+        user_path = Path(raw_path)
         if user_path.is_absolute():
             raise WorkspacePathError(f"Absolute paths are not allowed: {path}")
 

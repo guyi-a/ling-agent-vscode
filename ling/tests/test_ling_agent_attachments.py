@@ -54,6 +54,18 @@ MODEL = Model(
 PNG_BYTES = b"\x89PNG\r\n\x1a\nfake-image"
 
 
+def test_legacy_attachment_path_upgrades_to_agents() -> None:
+    attachment = UserAttachment(
+        relative_path=".ling/attachments/pasted-ab12.png",
+        name="pasted-ab12.png",
+        media_type="image/png",
+    )
+    assert (
+        attachment.relative_path
+        == ".agents/attachments/pasted-ab12.png"
+    )
+
+
 def _assistant(
     text: str,
     *,
@@ -156,7 +168,7 @@ def test_workspace_read_image() -> None:
 
 def test_user_attachment_validation() -> None:
     UserAttachment(
-        relative_path=".ling/attachments/pasted-ab12.png",
+        relative_path=".agents/attachments/pasted-ab12.png",
         name="pasted-ab12.png",
         media_type="image/png",
     )
@@ -353,7 +365,7 @@ async def _coding_agent_prompt_with_external_file() -> None:
             block = self_message.content[0]
             assert isinstance(block, TextContent)
             assert str(external) in block.text
-            assert not (root / ".ling" / "attachments").exists()
+            assert not (root / ".agents" / "attachments").exists()
 
             snapshot = await agent.timeline_snapshot()
             assert snapshot is not None
@@ -481,7 +493,7 @@ async def _attachment_event_storage_round_trip() -> None:
             context=Context(),
         )
         attachment = UserAttachment(
-            relative_path=".ling/attachments/pasted-ab12.png",
+            relative_path=".agents/attachments/pasted-ab12.png",
             name="pasted-ab12.png",
             media_type="image/png",
         )
@@ -519,7 +531,7 @@ async def _attachment_event_storage_round_trip() -> None:
 
 def test_snapshot_to_ui_includes_attachments() -> None:
     attachment = UserAttachment(
-        relative_path=".ling/attachments/pasted-ab12.png",
+        relative_path=".agents/attachments/pasted-ab12.png",
         name="pasted-ab12.png",
         media_type="image/png",
     )
@@ -569,7 +581,7 @@ def test_snapshot_to_ui_includes_attachments() -> None:
 
     assert user_entry["message"]["attachments"] == [
         {
-            "relativePath": ".ling/attachments/pasted-ab12.png",
+            "relativePath": ".agents/attachments/pasted-ab12.png",
             "name": "pasted-ab12.png",
             "mediaType": "image/png",
             "kind": "image",

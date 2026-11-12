@@ -5,7 +5,7 @@ import path from "node:path";
 export const MAX_ATTACHMENT_IMAGE_BYTES = 4 * 1024 * 1024;
 export const MAX_ATTACHMENT_FILE_BYTES = 25 * 1024 * 1024;
 
-const ATTACHMENTS_SUBDIR = path.join(".ling", "attachments");
+const ATTACHMENTS_SUBDIR = path.join(".agents", "attachments");
 
 const IMAGE_MIME_EXTENSIONS: Record<string, string> = {
   "image/png": ".png",
@@ -92,9 +92,14 @@ export function resolveAttachmentFile(
   workspaceRoot: string,
   relativePath: string,
 ): string {
-  assertSafeRelativePath(relativePath);
+  const normalizedPath = relativePath.startsWith(".ling/attachments/")
+    ? `.agents/attachments/${relativePath.slice(
+        ".ling/attachments/".length,
+      )}`
+    : relativePath;
+  assertSafeRelativePath(normalizedPath);
   const root = path.resolve(workspaceRoot);
-  const resolved = path.resolve(root, ...relativePath.split("/"));
+  const resolved = path.resolve(root, ...normalizedPath.split("/"));
   const relative = path.relative(root, resolved);
   if (
     !relative ||

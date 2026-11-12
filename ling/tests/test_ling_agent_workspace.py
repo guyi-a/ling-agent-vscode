@@ -75,6 +75,17 @@ def test_workspace_read_list_glob_and_grep() -> None:
             raise AssertionError("Expected missing file error")
 
 
+def test_workspace_maps_legacy_ling_paths_to_agents() -> None:
+    with tempfile.TemporaryDirectory() as temp:
+        root = Path(temp)
+        _write(root, ".agents/spills/session/tool.txt", "kept\n")
+        workspace = Workspace(root)
+
+        assert workspace.resolve(".ling/spills/session/tool.txt") == (
+            root / ".agents" / "spills" / "session" / "tool.txt"
+        ).resolve()
+
+
 def test_workspace_search_skips_ignored_directories() -> None:
     with tempfile.TemporaryDirectory() as temp:
         root = Path(temp)

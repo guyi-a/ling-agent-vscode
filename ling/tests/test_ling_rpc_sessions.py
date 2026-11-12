@@ -12,6 +12,8 @@ from pathlib import Path
 from typing import Any, Callable
 from unittest.mock import patch
 
+from websockets.asyncio.client import connect
+
 from ling_ai.events import (
     DoneEvent,
     StartEvent,
@@ -372,6 +374,88 @@ class LingRpcSessionTests(unittest.IsolatedAsyncioTestCase):
                     and entry["message"]["role"] == "assistant"
                     and entry["message"]["content"] == "File created."
                     for entry in latest["snapshot"]["entries"]
+                )
+            )
+
+    async def test_browser_bridge_tool_round_trip(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            workspace = root / "workspace"
+            workspace.mkdir()
+            state = root / "state"
+            events: list[dict[str, Any]] = []
+
+            async def emit(event: dict[str, Any]) -> None:
+                events.append(event)
+
+            streams = ScriptedStreams(
+                [
+                    _assistant(
+                        [
+                            ToolCall(
+                                id="browser-1",
+                                name="browser_bridge",
+                                arguments={"action": "extension_status"},
+                            )
+                        ],
+                        stop_reason="tool_use",
+                    ),
+                    _assistant([TextContent("Browser is ready.")]),
+                ]
+            )
+            service = SessionService(
+                emit,
+                model=MODEL,
+                stream_fn=streams,
+                config=HarnessConfig(browser_bridge_port=0),
+                storage_root=state,
+            )
+
+            try:
+                await service._browser_bridge.ensure_started()
+                port = service._browser_bridge.bound_port
+                token = service._browser_bridge.registry.discovery_token
+                async with connect(
+                    f"ws://127.0.0.1:{port}/chrome-bridge/ws?token={token}"
+                ) as ws:
+                    await ws.send(
+                        json.dumps(
+                            {
+                                "type": "hello",
+                                "id": "hello-1",
+                                "payload": {
+                                    "browser_id": "browser-1",
+                                    "browser_label": "Edge",
+                                },
+                            }
+                        )
+                    )
+                    await ws.recv()
+                    await service.start("Check the browser", str(workspace))
+                    await asyncio.wait_for(
+                        service.wait_for_idle(),
+                        timeout=5,
+                    )
+            finally:
+                await service.close()
+
+            latest = next(
+                event
+                for event in reversed(events)
+                if event.get("type") == "session.snapshot"
+            )
+            tools = [
+                entry["tool"]
+                for entry in latest["snapshot"]["entries"]
+                if entry.get("kind") == "tool"
+            ]
+            self.assertEqual(tools[0]["action"], "Browser")
+            self.assertIn('"ready":true', tools[0]["details"][-1])
+            self.assertTrue(
+                any(
+                    event.get("type") == "message.delta"
+                    and event.get("delta") == "Browser is ready."
+                    for event in events
                 )
             )
 

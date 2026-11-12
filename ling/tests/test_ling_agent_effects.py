@@ -4,11 +4,14 @@ from __future__ import annotations
 
 import tempfile
 from pathlib import Path
+from unittest.mock import patch
 
 from ling_ai.types import ToolCall
 from ling_agent import (
     FilesystemReadEffect,
     FilesystemWriteEffect,
+    MetaEffect,
+    NetworkEffect,
     ProcessExecEffect,
     UnknownEffect,
     Workspace,
@@ -73,6 +76,64 @@ def test_derive_effect_for_current_tools() -> None:
         assert isinstance(command, ProcessExecEffect)
         assert command.classification == "harmless"
         assert command.cwd == root.resolve()
+
+        search = derive_effect(
+            _call("web_search", {"query": "DeepSeek docs"}),
+            workspace,
+        )
+        assert isinstance(search, NetworkEffect)
+        assert search.operation == "search"
+        assert search.target == "DeepSeek docs"
+        assert search.private_host is False
+
+        fetch = derive_effect(
+            _call("web_fetch", {"url": "http://127.0.0.1/private"}),
+            workspace,
+        )
+        assert isinstance(fetch, NetworkEffect)
+        assert fetch.operation == "fetch"
+        assert fetch.private_host is True
+
+        memory_list = derive_effect(
+            _call("memory_list", {}),
+            workspace,
+        )
+        assert isinstance(memory_list, MetaEffect)
+
+        memory_write = derive_effect(
+            _call(
+                "memory_write",
+                {
+                    "name": "testing",
+                    "scope": "workspace",
+                },
+            ),
+            workspace,
+        )
+        assert isinstance(memory_write, FilesystemWriteEffect)
+        assert memory_write.path == (
+            root / ".agents" / "memory" / "testing.md"
+        ).resolve()
+
+        with patch.dict(
+            "os.environ",
+            {"LING_GLOBAL_MEMORY_ROOT": str(root / "global-memory")},
+        ):
+            global_memory = derive_effect(
+                _call(
+                    "memory_write",
+                    {
+                        "name": "style",
+                        "scope": "global",
+                    },
+                ),
+                workspace,
+            )
+        assert isinstance(global_memory, FilesystemWriteEffect)
+        assert global_memory.scope == "global"
+        assert global_memory.path == (
+            root / "global-memory" / "style.md"
+        ).resolve()
 
         unknown = derive_effect(_call("unknown_tool", {}), workspace)
         assert isinstance(unknown, UnknownEffect)

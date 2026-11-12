@@ -2,7 +2,7 @@
   "name": "ling-agent",
   "displayName": "Ling",
   "description": "A focused coding agent for VS Code with skills, diff review, and inline diagrams.",
-  "version": "0.13.0",
+  "version": "0.14.0",
   "publisher": "ling-agent",
   "repository": {
     "type": "git",

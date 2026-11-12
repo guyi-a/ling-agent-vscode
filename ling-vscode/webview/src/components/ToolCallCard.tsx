@@ -99,6 +99,8 @@ export function ToolCallCard({
                 trace={subagentTrace}
                 status={call.status}
               />
+            ) : call.detail.kind === "memory" ? (
+              <ToolMemory detail={call.detail} />
             ) : (
               <pre className="tool-text">{call.detail.text}</pre>
             )
@@ -110,6 +112,102 @@ export function ToolCallCard({
         </div>
       ) : null}
     </article>
+  );
+}
+
+function ToolMemory({
+  detail,
+}: {
+  detail: Extract<ToolDetail, { kind: "memory" }>;
+}) {
+  if (!detail.ok && detail.error) {
+    return (
+      <div className="tool-memory-error" role="alert">
+        {detail.error}
+      </div>
+    );
+  }
+
+  if (detail.operation === "list") {
+    const memories = detail.memories ?? [];
+    return (
+      <div className="tool-memory-list">
+        <div className="tool-memory-list__title">
+          {memories.length}{" "}
+          {memories.length === 1 ? "memory" : "memories"}
+        </div>
+        {memories.length === 0 ? (
+          <p className="tool-memory-empty">No memories found.</p>
+        ) : (
+          <ul className="tool-memory-items">
+            {memories.map((memory) => (
+              <li
+                className="tool-memory-item"
+                key={`${memory.scope}:${memory.name}`}
+              >
+                <div className="tool-memory-item__heading">
+                  <span className="tool-memory-item__name">
+                    {memory.name}
+                  </span>
+                  <span className="tool-memory-item__scope">
+                    {memory.scope}
+                  </span>
+                  <span className="tool-memory-item__mode">
+                    {memory.alwaysApply
+                      ? "Always"
+                      : memory.globs.length > 0
+                        ? "Conditional"
+                        : "Off"}
+                  </span>
+                </div>
+                <p className="tool-memory-item__description">
+                  {memory.description}
+                </p>
+                {memory.globs.length > 0 ? (
+                  <code className="tool-memory-item__globs">
+                    {memory.globs.join(", ")}
+                  </code>
+                ) : null}
+              </li>
+            ))}
+          </ul>
+        )}
+        {detail.diagnostics?.length ? (
+          <div className="tool-memory-diagnostics">
+            {detail.diagnostics.map((item) => (
+              <p key={item}>{item}</p>
+            ))}
+          </div>
+        ) : null}
+      </div>
+    );
+  }
+
+  const title =
+    detail.operation === "delete"
+      ? "Memory deleted"
+      : "Memory saved";
+  return (
+    <div className="tool-memory-result">
+      <div className="tool-memory-result__heading">
+        <span>{title}</span>
+        {detail.scope ? (
+          <span className="tool-memory-item__scope">
+            {detail.scope}
+          </span>
+        ) : null}
+        {detail.name ? (
+          <code className="tool-memory-result__name">
+            {detail.name}
+          </code>
+        ) : null}
+      </div>
+      {detail.path ? (
+        <code className="tool-memory-result__path">
+          {detail.path}
+        </code>
+      ) : null}
+    </div>
   );
 }
 

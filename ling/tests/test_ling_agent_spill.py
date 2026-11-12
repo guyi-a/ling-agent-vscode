@@ -42,7 +42,7 @@ def test_spill_writes_large_output() -> None:
         )
 
         assert result.spilled
-        assert result.path == ".ling/spills/session-1/call-1.txt"
+        assert result.path == ".agents/spills/session-1/call-1.txt"
         assert "Output spilled to" in result.text
         assert "read_file" in result.text
         spilled = Path(temp) / result.path
@@ -63,14 +63,14 @@ def test_small_output_is_not_spilled() -> None:
 
         assert not result.spilled
         assert result.text == "small"
-        assert not (Path(temp) / ".ling").exists()
+        assert not (Path(temp) / ".agents").exists()
 
 
 def test_spill_truncates_when_write_fails() -> None:
     with tempfile.TemporaryDirectory() as temp:
         config = _config(max_tool_result_chars=60)
         workspace = Workspace(temp, config)
-        (Path(temp) / ".ling").write_text("blocked", encoding="utf-8")
+        (Path(temp) / ".agents").write_text("blocked", encoding="utf-8")
 
         result = maybe_spill_output(
             workspace,

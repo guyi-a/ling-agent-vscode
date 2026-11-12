@@ -9,7 +9,10 @@ import {
   createEmptyTimelineState,
   timelineReducer,
 } from "../webview/src/state/timelineReducer";
-import { groupTimelineEntries } from "../webview/src/state/timelineBlocks";
+import {
+  formatRunDuration,
+  groupTimelineEntries,
+} from "../webview/src/state/timelineBlocks";
 import type {
   TimelineEntry,
   TimelineState,
@@ -309,6 +312,36 @@ assert.equal(
   true,
 );
 assert.equal(
+  isWebviewToHostMessage({
+    type: "memory.create",
+    scope: "workspace",
+  }),
+  true,
+);
+assert.equal(
+  isWebviewToHostMessage({
+    type: "memory.open",
+    path: "E:/workspace/.agents/memory/testing.md",
+  }),
+  true,
+);
+assert.equal(
+  isWebviewToHostMessage({
+    type: "memory.delete",
+    name: "testing",
+    scope: "global",
+  }),
+  true,
+);
+assert.equal(
+  isWebviewToHostMessage({
+    type: "memory.delete",
+    name: "",
+    scope: "workspace",
+  }),
+  false,
+);
+assert.equal(
   isWebviewToHostMessage({ type: "plan.open", path: "" }),
   false,
 );
@@ -484,7 +517,7 @@ assert.equal(
 );
 
 const imageAttachment = {
-  relativePath: ".ling/attachments/pasted-ab12.png",
+  relativePath: ".agents/attachments/pasted-ab12.png",
   name: "pasted-ab12.png",
   mediaType: "image/png",
   uri: "https://example.test/pasted-ab12.png",
@@ -540,6 +573,45 @@ assert.equal(
         ],
         added: 1,
         removed: 1,
+      },
+    },
+  }),
+  true,
+);
+assert.equal(
+  isUiEvent({
+    type: "tool.updated",
+    tool: {
+      id: "tool-memory",
+      action: "Memory",
+      target: "workspace:testing",
+      status: "Completed",
+      details: [],
+      detail: {
+        kind: "memory",
+        operation: "write",
+        scope: "workspace",
+        name: "testing",
+        path: ".agents/memory/testing.md",
+        ok: true,
+      },
+    },
+  }),
+  true,
+);
+assert.equal(
+  isUiEvent({
+    type: "tool.updated",
+    tool: {
+      id: "tool-web-search",
+      action: "Web",
+      target: "DeepSeek search API",
+      status: "Completed",
+      details: [],
+      detail: {
+        kind: "io",
+        input: "DeepSeek search API",
+        output: "Search result",
       },
     },
   }),
@@ -663,6 +735,24 @@ assert.equal(
 );
 assert.equal(
   isUiEvent({
+    type: "tool.updated",
+    tool: {
+      id: "tool-browser",
+      action: "Browser",
+      target: "open_tab https://example.com",
+      status: "Completed",
+      details: [],
+      detail: {
+        kind: "io",
+        input: '{"action":"open_tab"}',
+        output: '{"ok":true}',
+      },
+    },
+  }),
+  true,
+);
+assert.equal(
+  isUiEvent({
     type: "subagent.trace",
     callId: "call-1",
     entry: {
@@ -777,6 +867,48 @@ assert.equal(
     },
   }),
   true,
+);
+assert.equal(
+  isUiEvent({
+    type: "session.snapshot",
+    snapshot: {
+      phase: "idle",
+      entries: [
+        {
+          kind: "message",
+          runId: "run-with-metadata",
+          message: {
+            id: "message-with-metadata",
+            role: "assistant",
+            content: "Done.",
+            streaming: false,
+          },
+        },
+      ],
+      runs: [
+        {
+          id: "run-with-metadata",
+          status: "completed",
+          startedAt: 100,
+          completedAt: 200,
+        },
+      ],
+      pendingApprovals: [],
+    },
+  }),
+  true,
+);
+assert.equal(
+  isUiEvent({
+    type: "session.snapshot",
+    snapshot: {
+      phase: "idle",
+      entries: [],
+      runs: [{ id: "bad-run", status: "stopped" }],
+      pendingApprovals: [],
+    },
+  }),
+  false,
 );
 
 assert.equal(
@@ -932,13 +1064,13 @@ assert.equal(
 assert.deepEqual(
   toAttachmentRefs([
     {
-      relativePath: ".ling/attachments/doc-ab12.pdf",
+      relativePath: ".agents/attachments/doc-ab12.pdf",
       name: "doc.pdf",
       mediaType: "application/pdf",
       kind: "file",
     },
     {
-      relativePath: ".ling/attachments/pasted-ab12.png",
+      relativePath: ".agents/attachments/pasted-ab12.png",
       name: "pasted-ab12.png",
       mediaType: "image/png",
       kind: "image",
@@ -946,13 +1078,13 @@ assert.deepEqual(
   ]),
   [
     {
-      relativePath: ".ling/attachments/doc-ab12.pdf",
+      relativePath: ".agents/attachments/doc-ab12.pdf",
       name: "doc.pdf",
       mediaType: "application/pdf",
       kind: "file",
     },
     {
-      relativePath: ".ling/attachments/pasted-ab12.png",
+      relativePath: ".agents/attachments/pasted-ab12.png",
       name: "pasted-ab12.png",
       mediaType: "image/png",
       kind: "image",
@@ -966,7 +1098,7 @@ assert.equal(
     approvalMode: "manual",
     attachments: [
       {
-        relativePath: ".ling/attachments/doc-ab12.pdf",
+        relativePath: ".agents/attachments/doc-ab12.pdf",
         name: "doc.pdf",
         mediaType: "application/pdf",
         kind: "file",
@@ -982,7 +1114,7 @@ assert.equal(
     approvalMode: "manual",
     attachments: [
       {
-        relativePath: ".ling/attachments/doc-ab12.pdf",
+        relativePath: ".agents/attachments/doc-ab12.pdf",
         name: "doc.pdf",
         mediaType: "application/pdf",
         kind: "other",
@@ -1004,7 +1136,7 @@ assert.equal(
 assert.equal(
   isWebviewToHostMessage({
     type: "attachment.open",
-    relativePath: ".ling/attachments/pasted-ab12.png",
+    relativePath: ".agents/attachments/pasted-ab12.png",
   }),
   true,
 );
@@ -1341,6 +1473,404 @@ assert.deepEqual(
     "entry",
     "run-thinking",
   ],
+);
+
+const categorizedTools = groupTimelineEntries([
+  {
+    kind: "message",
+    message: {
+      id: "category-user",
+      role: "user",
+      content: "inspect and update",
+      streaming: false,
+    },
+  },
+  {
+    kind: "tool",
+    tool: {
+      id: "read-a",
+      name: "read_file",
+      action: "Read",
+      target: "src/a.ts",
+      status: "Completed",
+      details: [],
+    },
+  },
+  {
+    kind: "message",
+    message: {
+      id: "category-mid",
+      role: "assistant",
+      content: "I found the relevant code.",
+      streaming: false,
+    },
+  },
+  {
+    kind: "tool",
+    tool: {
+      id: "search",
+      name: "grep",
+      action: "Read",
+      target: "auth",
+      status: "Completed",
+      details: [],
+    },
+  },
+  {
+    kind: "tool",
+    tool: {
+      id: "read-a-again",
+      name: "read_file",
+      action: "Read",
+      target: "src/a.ts",
+      status: "Completed",
+      details: [],
+    },
+  },
+  {
+    kind: "tool",
+    tool: {
+      id: "read-b",
+      name: "read_file",
+      action: "Read",
+      target: "src/b.ts",
+      status: "Completed",
+      details: [],
+    },
+  },
+  {
+    kind: "tool",
+    tool: {
+      id: "browser-failed",
+      name: "browser_bridge",
+      action: "Browser",
+      target: "click 2",
+      status: "Failed",
+      details: [],
+    },
+  },
+  {
+    kind: "tool",
+    tool: {
+      id: "browser-complete",
+      name: "browser_bridge",
+      action: "Browser",
+      target: "read_state page_1",
+      status: "Completed",
+      details: [],
+    },
+  },
+  {
+    kind: "tool",
+    tool: {
+      id: "active-read",
+      name: "read_file",
+      action: "Read",
+      target: "src/c.ts",
+      status: "Running",
+      details: [],
+    },
+  },
+] as TimelineEntry[]);
+
+const exploreGroup = categorizedTools.find(
+  (block) => block.kind === "tool-group" &&
+    block.category === "explore",
+);
+assert.deepEqual(
+  categorizedTools.map((block) => block.kind),
+  ["entry", "tool-group", "entry", "tool-group", "tools"],
+);
+assert.equal(
+  exploreGroup?.kind === "tool-group"
+    ? exploreGroup.summary
+    : undefined,
+  "读取 2 个文件 · 检索 1 次",
+);
+assert.equal(
+  exploreGroup?.kind === "tool-group"
+    ? exploreGroup.tools.length
+    : undefined,
+  4,
+);
+const browserGroup = categorizedTools.find(
+  (block) => block.kind === "tool-group" &&
+    block.category === "browser",
+);
+assert.equal(
+  browserGroup?.kind === "tool-group"
+    ? browserGroup.failedCount
+    : undefined,
+  1,
+);
+const activeTools = categorizedTools.find(
+  (block) => block.kind === "tools",
+);
+assert.deepEqual(
+  activeTools?.kind === "tools"
+    ? activeTools.tools.map((tool) => tool.id)
+    : undefined,
+  ["active-read"],
+);
+
+const editGroupBlocks = groupTimelineEntries([
+  {
+    kind: "tool",
+    tool: {
+      id: "edit-a",
+      name: "edit_file",
+      action: "Edit",
+      target: "src/a.ts",
+      status: "Completed",
+      details: [],
+      detail: {
+        kind: "diff",
+        path: "src/a.ts",
+        rows: [],
+        added: 3,
+        removed: 1,
+      },
+    },
+  },
+  {
+    kind: "tool",
+    tool: {
+      id: "edit-b",
+      name: "write_file",
+      action: "Edit",
+      target: "src/b.ts",
+      status: "Completed",
+      details: [],
+      detail: {
+        kind: "diff",
+        path: "src/b.ts",
+        rows: [],
+        added: 2,
+        removed: 1,
+      },
+    },
+  },
+] as TimelineEntry[]);
+assert.equal(
+  editGroupBlocks[0]?.kind === "tool-group"
+    ? editGroupBlocks[0].summary
+    : undefined,
+  "修改 2 个文件 · +5 −2",
+);
+
+const webGroupBlocks = groupTimelineEntries([
+  {
+    kind: "tool",
+    tool: {
+      id: "web-search",
+      name: "web_search",
+      action: "Web",
+      target: "DeepSeek docs",
+      status: "Completed",
+      details: [],
+    },
+  },
+  {
+    kind: "tool",
+    tool: {
+      id: "web-fetch",
+      name: "web_fetch",
+      action: "Web",
+      target: "https://api-docs.deepseek.com/",
+      status: "Completed",
+      details: [],
+    },
+  },
+] as TimelineEntry[]);
+assert.equal(
+  webGroupBlocks[0]?.kind === "tool-group"
+    ? webGroupBlocks[0].summary
+    : undefined,
+  "搜索 1 次 · 抓取 1 页",
+);
+
+const memoryGroupBlocks = groupTimelineEntries([
+  {
+    kind: "tool",
+    tool: {
+      id: "memory-list",
+      name: "memory_list",
+      action: "Memory",
+      target: "memory inventory",
+      status: "Completed",
+      details: [],
+    },
+  },
+  {
+    kind: "tool",
+    tool: {
+      id: "memory-write",
+      name: "memory_write",
+      action: "Memory",
+      target: "workspace:testing",
+      status: "Completed",
+      details: [],
+    },
+  },
+] as TimelineEntry[]);
+assert.equal(
+  memoryGroupBlocks[0]?.kind === "tool-group"
+    ? memoryGroupBlocks[0].category
+    : undefined,
+  "memory",
+);
+assert.equal(
+  memoryGroupBlocks[0]?.kind === "tool-group"
+    ? memoryGroupBlocks[0].summary
+    : undefined,
+  "查看 1 次 · 更新 1 次",
+);
+
+const questionBlocks = groupTimelineEntries([
+  {
+    kind: "tool",
+    tool: {
+      id: "question-a",
+      name: "ask_user",
+      action: "Run",
+      target: "Choose A",
+      status: "Completed",
+      details: [],
+    },
+  },
+  {
+    kind: "tool",
+    tool: {
+      id: "question-b",
+      name: "ask_user",
+      action: "Run",
+      target: "Choose B",
+      status: "Completed",
+      details: [],
+    },
+  },
+] as TimelineEntry[]);
+assert.deepEqual(
+  questionBlocks.map((block) => block.kind),
+  ["tools"],
+);
+
+const completedRunBlocks = groupTimelineEntries(
+  [
+    {
+      kind: "message",
+      runId: "run-complete",
+      message: {
+        id: "user-complete",
+        role: "user",
+        content: "update it",
+        streaming: false,
+      },
+    },
+    {
+      kind: "message",
+      runId: "run-complete",
+      message: {
+        id: "assistant-complete",
+        role: "assistant",
+        content: "",
+        thinking: "inspect the code",
+        thinkingDone: true,
+        thinkingDurationMs: 1200,
+        streaming: false,
+      },
+    },
+    {
+      kind: "tool",
+      runId: "run-complete",
+      tool: {
+        id: "tool-complete",
+        action: "Edit",
+        target: "a.py",
+        status: "Completed",
+        details: [],
+      },
+    },
+    {
+      kind: "message",
+      runId: "run-complete",
+      message: {
+        id: "answer-complete",
+        role: "assistant",
+        content: "Updated the file.",
+        streaming: false,
+      },
+    },
+  ] as TimelineEntry[],
+  [
+    {
+      id: "run-complete",
+      status: "completed",
+      startedAt: 1_000,
+      completedAt: 3_400,
+    },
+  ],
+);
+assert.deepEqual(
+  completedRunBlocks.map((block) => block.kind),
+  ["entry", "run-activity", "entry"],
+);
+assert.equal(
+  completedRunBlocks[1]?.kind === "run-activity"
+    ? completedRunBlocks[1].durationMs
+    : undefined,
+  2_400,
+);
+assert.equal(
+  completedRunBlocks[2]?.kind === "entry"
+    ? completedRunBlocks[2].entry.message.content
+    : undefined,
+  "Updated the file.",
+);
+assert.equal(formatRunDuration(13_400), "13秒");
+assert.equal(formatRunDuration(62_000), "1分钟 2秒");
+assert.equal(formatRunDuration(60_000), "1分钟");
+
+const runningRunBlocks = groupTimelineEntries(
+  [
+    {
+      kind: "message",
+      runId: "run-running",
+      message: {
+        id: "user-running",
+        role: "user",
+        content: "update it",
+        streaming: false,
+      },
+    },
+    {
+      kind: "tool",
+      runId: "run-running",
+      tool: {
+        id: "tool-running",
+        action: "Read",
+        target: "a.py",
+        status: "Running",
+        details: [],
+      },
+    },
+    {
+      kind: "message",
+      runId: "run-running",
+      message: {
+        id: "answer-running",
+        role: "assistant",
+        content: "Still working.",
+        streaming: true,
+      },
+    },
+  ] as TimelineEntry[],
+  [{ id: "run-running", status: "running", startedAt: 1_000 }],
+);
+assert.ok(
+  runningRunBlocks.every(
+    (block) => block.kind !== "run-activity",
+  ),
 );
 
 console.log("timelineReducer and transport tests passed");

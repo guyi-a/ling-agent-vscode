@@ -204,6 +204,36 @@ export function ToolIcon({
     return <PlanIcon {...props} />;
   }
 
+  if (action === "Browser") {
+    return (
+      <IconBase {...props}>
+        <circle cx="12" cy="12" r="8" />
+        <path d="M4 12h16" />
+        <path d="M12 4a12 12 0 0 1 0 16a12 12 0 0 1 0-16Z" />
+      </IconBase>
+    );
+  }
+
+  if (action === "Web") {
+    return (
+      <IconBase {...props}>
+        <circle cx="10" cy="10" r="6" />
+        <path d="M4 10h12" />
+        <path d="M10 4a9 9 0 0 1 0 12a9 9 0 0 1 0-12Z" />
+        <path d="m14.5 14.5 4 4" />
+      </IconBase>
+    );
+  }
+
+  if (action === "Memory") {
+    return (
+      <IconBase {...props}>
+        <path d="M7 4h10v16l-5-3-5 3V4Z" />
+        <path d="M10 9h4M10 12h4" />
+      </IconBase>
+    );
+  }
+
   if (action === "Subagent") {
     return (
       <IconBase {...props}>

@@ -13,6 +13,9 @@ from typing import Literal, TypeAlias
 
 from ling_ai.types import ToolCall
 
+from .browser_bridge import classify_browser_action
+from .memory import default_global_memory_root
+from .web import is_private_web_target
 from .workspace import Workspace, WorkspacePathError
 
 CommandClassification: TypeAlias = Literal["harmless", "normal", "destructive"]
@@ -37,7 +40,7 @@ class FilesystemReadEffect:
 class FilesystemWriteEffect:
     operation: Literal["write", "edit"]
     path: Path
-    scope: Literal["workspace"] = "workspace"
+    scope: Literal["workspace", "global"] = "workspace"
     kind: Literal["filesystem_write"] = "filesystem_write"
 
 
@@ -70,6 +73,14 @@ class SubagentEffect:
 
 
 @dataclass(slots=True, frozen=True)
+class BrowserEffect:
+    action: str
+    classification: Literal["readonly", "mutating", "script"]
+    target: str = ""
+    kind: Literal["browser"] = "browser"
+
+
+@dataclass(slots=True, frozen=True)
 class UnknownEffect:
     note: str
     kind: Literal["unknown"] = "unknown"
@@ -82,6 +93,7 @@ Effect: TypeAlias = (
     | NetworkEffect
     | MetaEffect
     | SubagentEffect
+    | BrowserEffect
     | UnknownEffect
 )
 
@@ -190,6 +202,27 @@ def derive_effect(call: ToolCall, workspace: Workspace) -> Effect:
     if call.name in ("load_skill", "ask_user"):
         return MetaEffect(operation=call.name)
 
+    if call.name == "memory_list":
+        return MetaEffect(operation="memory_list")
+
+    if call.name in ("memory_write", "memory_delete"):
+        name = arguments.get("name")
+        scope = arguments.get("scope", "workspace")
+        if not isinstance(name, str) or not name:
+            return UnknownEffect(note="memory name is missing or invalid")
+        if scope not in ("workspace", "global"):
+            return UnknownEffect(note="memory scope is missing or invalid")
+        root = (
+            workspace.root / ".agents" / "memory"
+            if scope == "workspace"
+            else default_global_memory_root()
+        )
+        return FilesystemWriteEffect(
+            operation="write",
+            path=root / f"{name}.md",
+            scope=scope,
+        )
+
     if call.name in ("create_plan", "update_plan"):
         return MetaEffect(operation="plan")
 
@@ -198,6 +231,37 @@ def derive_effect(call: ToolCall, workspace: Workspace) -> Effect:
 
     if call.name == "spawn_subagent":
         return SubagentEffect()
+
+    if call.name == "browser_bridge":
+        action = arguments.get("action")
+        if not isinstance(action, str) or not action:
+            return UnknownEffect(note="browser action is missing or invalid")
+        target = arguments.get("url") or arguments.get("page_id") or ""
+        return BrowserEffect(
+            action=action,
+            classification=classify_browser_action(action),
+            target=target if isinstance(target, str) else "",
+        )
+
+    if call.name == "web_search":
+        query = arguments.get("query")
+        if not isinstance(query, str) or not query.strip():
+            return UnknownEffect(note="web query is missing or invalid")
+        return NetworkEffect(
+            operation="search",
+            target=query.strip(),
+            private_host=False,
+        )
+
+    if call.name == "web_fetch":
+        url = arguments.get("url")
+        if not isinstance(url, str) or not url.strip():
+            return UnknownEffect(note="web URL is missing or invalid")
+        return NetworkEffect(
+            operation="fetch",
+            target=url.strip(),
+            private_host=is_private_web_target(url.strip()),
+        )
 
     if call.name in (
         "read_file",
@@ -291,6 +355,8 @@ def effect_digest(effect: Effect, call: ToolCall) -> str:
 def _sensitive_reason(effect: Effect, call: ToolCall | None) -> str | None:
     if not isinstance(effect, FilesystemWriteEffect):
         return None
+    if effect.scope == "global":
+        return "global memory"
     if _SENSITIVE_PATH.search(str(effect.path)):
         return "sensitive file"
     if call is None:
@@ -307,6 +373,12 @@ def _sensitive_reason(effect: Effect, call: ToolCall | None) -> str | None:
 
 def plan_mode_denial(effect: Effect) -> str | None:
     """Return a denial message when plan mode blocks an effect."""
+    if isinstance(effect, BrowserEffect) and effect.classification != "readonly":
+        return (
+            "Plan mode is read-only. Browser actions that change the page "
+            "are blocked; use extension_status, list_pages, read_state, "
+            "extract, describe_element, wait_for, or scroll."
+        )
     if isinstance(
         effect,
         (
@@ -329,6 +401,16 @@ def approval_reason(
 ) -> str | None:
     if isinstance(effect, (MetaEffect, SubagentEffect)):
         return None
+    if isinstance(effect, BrowserEffect):
+        if effect.classification == "readonly":
+            return None
+        if effect.classification == "script":
+            return "browser execute_script"
+        return (
+            None
+            if mode is ApprovalMode.AUTO
+            else f"browser {effect.action}"
+        )
     if isinstance(effect, UnknownEffect):
         return effect.note
     if isinstance(effect, NetworkEffect):
@@ -364,6 +446,7 @@ def approval_reason(
 __all__ = [
     "CommandClassification",
     "ApprovalMode",
+    "BrowserEffect",
     "Effect",
     "FilesystemReadEffect",
     "FilesystemWriteEffect",

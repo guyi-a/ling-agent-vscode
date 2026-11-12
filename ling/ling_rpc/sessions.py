@@ -23,13 +23,15 @@ from ling_agent import (
     UserAttachment,
     UserMessageCommitted,
     UserSelection,
+    default_global_memory_root,
     default_database_path,
 )
+from ling_agent.browser_bridge import BrowserBridge
 from ling_agent.compaction import CompactionConfig, SummarizeFn
 from ling_ai.stream import StreamFunction
 from ling_ai.types import Model, TextContent
 
-from .provider import resolve_embedder, resolve_model
+from .provider import resolve_embedder, resolve_model, resolve_web_client
 from .questions import RpcQuestionHandler
 from .ui_events import EmitUiEvent, RpcEventSink, UiEvent, snapshot_to_ui
 
@@ -84,6 +86,7 @@ class _QueuedPrompt:
     prompt: str
     attachments: tuple[UserAttachment, ...]
     selections: tuple[UserSelection, ...]
+    active_paths: tuple[str, ...]
     approval_mode: ApprovalMode
     reasoning: str | None = None
     display_text: str | None = None
@@ -115,6 +118,12 @@ class SessionService:
         self._config = config or _config_from_env()
         self._summarize_fn = summarize_fn
         self._embedder = resolve_embedder()
+        self._browser_bridge = BrowserBridge(
+            port=self._config.browser_bridge_port,
+            command_timeout=(
+                self._config.browser_bridge_command_timeout_seconds
+            ),
+        )
         resolved_storage_root = (
             storage_root
             or os.environ.get("LING_STORAGE_ROOT")
@@ -158,6 +167,7 @@ class SessionService:
         approval_mode: ApprovalMode | None = None,
         attachments: Sequence[UserAttachment] = (),
         selections: Sequence[UserSelection] = (),
+        active_paths: Sequence[str] = (),
         reasoning: str | None = None,
         display_text: str | None = None,
     ) -> dict[str, Any]:
@@ -196,6 +206,7 @@ class SessionService:
                 prompt=prompt,
                 attachments=tuple(attachments),
                 selections=tuple(selections),
+                active_paths=tuple(active_paths),
                 approval_mode=approval_mode or self._approval_mode,
                 reasoning=reasoning,
                 display_text=display_text,
@@ -225,6 +236,7 @@ class SessionService:
             prompt=prompt,
             attachments=tuple(attachments),
             selections=tuple(selections),
+            active_paths=tuple(active_paths),
             approval_mode=self._approval_mode,
             reasoning=reasoning,
             display_text=display_text,
@@ -702,6 +714,7 @@ class SessionService:
         if self._closed:
             return
         await self._dispose_agent()
+        await self._browser_bridge.stop()
         self._closed = True
         await self._history_store.close()
 
@@ -745,6 +758,9 @@ class SessionService:
             questions=self._questions,
             embedder=self._embedder,
             subagent_trace_sink=self._emit_subagent_trace,
+            browser_bridge=self._browser_bridge,
+            web_client=resolve_web_client(model),
+            global_memory_root=default_global_memory_root(),
         )
         if self._session_id is not None:
             await self._agent.resume(self._session_id)
@@ -818,6 +834,7 @@ class SessionService:
                 item.prompt,
                 item.attachments,
                 item.selections,
+                item.active_paths,
                 item.reasoning,
                 display_text=item.display_text,
             )
@@ -846,6 +863,7 @@ class SessionService:
         prompt: str,
         attachments: Sequence[UserAttachment] = (),
         selections: Sequence[UserSelection] = (),
+        active_paths: Sequence[str] = (),
         reasoning: str | None = None,
         *,
         regenerate: bool = False,
@@ -859,6 +877,7 @@ class SessionService:
                     prompt,
                     attachments=attachments,
                     selections=selections,
+                    active_paths=active_paths,
                     reasoning=reasoning,
                     display_text=display_text,
                 )
@@ -1061,6 +1080,15 @@ def _config_from_env() -> HarnessConfig:
         ),
         approval_timeout_seconds=float_env(
             "LING_APPROVAL_TIMEOUT_SECONDS", 120.0, 1.0, 3600.0
+        ),
+        browser_bridge_port=int_env(
+            "LING_BROWSER_BRIDGE_PORT", 17_323, 0, 65_535
+        ),
+        browser_bridge_connect_wait_seconds=float_env(
+            "LING_BROWSER_BRIDGE_WAIT_SECONDS", 3.0, 0.0, 60.0
+        ),
+        browser_bridge_command_timeout_seconds=float_env(
+            "LING_BROWSER_BRIDGE_COMMAND_TIMEOUT_SECONDS", 30.0, 1.0, 300.0
         ),
         compaction=CompactionConfig(
             window_nominal_tokens=int_env(

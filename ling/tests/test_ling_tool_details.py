@@ -116,6 +116,95 @@ def test_run_tool_entry_has_io_detail() -> None:
     }
 
 
+def test_web_tool_entries_use_web_action() -> None:
+    search = _item(
+        "web_search",
+        {"query": "DeepSeek docs"},
+        output='{"ok":true,"results":[]}',
+    )
+    fetch = _item(
+        "web_fetch",
+        {"url": "https://api-docs.deepseek.com/"},
+        output='{"ok":true,"title":"Docs"}',
+    )
+
+    search_entry = _tool_entry(
+        search,
+        waiting_for_approval=False,
+    )
+    fetch_entry = _tool_entry(
+        fetch,
+        waiting_for_approval=False,
+    )
+
+    assert search_entry["tool"]["action"] == "Web"
+    assert search_entry["tool"]["target"] == "DeepSeek docs"
+    assert search_entry["tool"]["detail"]["input"] == "DeepSeek docs"
+    assert fetch_entry["tool"]["action"] == "Web"
+    assert fetch_entry["tool"]["target"].startswith(
+        "https://api-docs.deepseek.com/"
+    )
+    assert (
+        fetch_entry["tool"]["detail"]["input"]
+        == "https://api-docs.deepseek.com/"
+    )
+
+
+def test_memory_tool_entries_use_memory_action() -> None:
+    item = _item(
+        "memory_write",
+        {
+            "name": "testing",
+            "scope": "workspace",
+        },
+        output=(
+            '{"ok":true,"scope":"workspace","name":"testing",'
+            '"path":"E:/workspace/.agents/memory/testing.md"}'
+        ),
+    )
+    entry = _tool_entry(item, waiting_for_approval=False)
+
+    assert entry["tool"]["action"] == "Memory"
+    assert entry["tool"]["target"] == "workspace:testing"
+    assert entry["tool"]["detail"]["kind"] == "memory"
+    assert entry["tool"]["detail"]["operation"] == "write"
+    assert entry["tool"]["detail"]["scope"] == "workspace"
+    assert entry["tool"]["detail"]["name"] == "testing"
+
+
+def test_memory_list_has_structured_detail() -> None:
+    item = _item(
+        "memory_list",
+        {},
+        output=(
+            '{"ok":true,"memories":[{"name":"style",'
+            '"description":"Use concise output.",'
+            '"scope":"workspace","alwaysApply":true,'
+            '"globs":[],"path":".agents/memory/style.md"}],'
+            '"diagnostics":[]}'
+        ),
+    )
+
+    detail = _tool_entry(
+        item,
+        waiting_for_approval=False,
+    )["tool"]["detail"]
+
+    assert detail["kind"] == "memory"
+    assert detail["operation"] == "list"
+    assert detail["ok"] is True
+    assert detail["memories"] == [
+        {
+            "name": "style",
+            "description": "Use concise output.",
+            "scope": "workspace",
+            "alwaysApply": True,
+            "globs": [],
+            "path": ".agents/memory/style.md",
+        }
+    ]
+
+
 def test_mutation_tools_attach_ui_details() -> None:
     with tempfile.TemporaryDirectory() as temp:
         root = Path(temp)

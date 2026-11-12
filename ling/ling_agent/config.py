@@ -31,6 +31,9 @@ class HarnessConfig:
     agent_max_parallel_tools: int = 4
     subagent_max_steps: int = 30
     subagent_max_summary_chars: int = 8_000
+    browser_bridge_port: int = 17_323
+    browser_bridge_connect_wait_seconds: float = 3.0
+    browser_bridge_command_timeout_seconds: float = 30.0
     compaction: CompactionConfig = field(
         default_factory=CompactionConfig
     )
@@ -64,6 +67,18 @@ class HarnessConfig:
             raise ValueError("command_timeout_seconds must be positive")
         if self.approval_timeout_seconds <= 0:
             raise ValueError("approval_timeout_seconds must be positive")
+        if not 0 <= self.browser_bridge_port <= 65_535:
+            raise ValueError(
+                "browser_bridge_port must be between 0 and 65535"
+            )
+        if self.browser_bridge_connect_wait_seconds < 0:
+            raise ValueError(
+                "browser_bridge_connect_wait_seconds must not be negative"
+            )
+        if self.browser_bridge_command_timeout_seconds <= 0:
+            raise ValueError(
+                "browser_bridge_command_timeout_seconds must be positive"
+            )
 
 
 __all__ = ["HarnessConfig"]

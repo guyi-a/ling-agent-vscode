@@ -56,6 +56,13 @@ class UserAttachment:
     kind: AttachmentKind = "image"
 
     def __post_init__(self) -> None:
+        if self.relative_path.startswith(".ling/attachments/"):
+            object.__setattr__(
+                self,
+                "relative_path",
+                ".agents/attachments/"
+                + self.relative_path[len(".ling/attachments/") :],
+            )
         if self.kind not in ("image", "file"):
             raise ValueError("attachment kind must be 'image' or 'file'")
         if not self.relative_path:

@@ -37,6 +37,7 @@ export interface SidecarSettings {
   approvalTimeoutSeconds?: number;
   contextWindowTokens?: number;
   keepLastUserTurns?: number;
+  browserBridgePort?: number;
   embeddingModel?: string;
   embeddingBaseUrl?: string;
   embeddingApiKey?: string;
@@ -44,6 +45,7 @@ export interface SidecarSettings {
 
 export interface SidecarClientOptions extends SidecarSettings {
   extensionPath: string;
+  developmentMode?: boolean;
   output?: (line: string) => void;
   onExit?: (info: SidecarExitInfo) => void;
   requestTimeoutMs?: number;
@@ -115,6 +117,7 @@ export function buildSidecarEnv(
   delete env.LING_APPROVAL_TIMEOUT_SECONDS;
   delete env.LING_CONTEXT_WINDOW_TOKENS;
   delete env.LING_KEEP_LAST_USER_TURNS;
+  delete env.LING_BROWSER_BRIDGE_PORT;
   delete env.LING_EMBEDDING_MODEL;
   delete env.LING_EMBEDDING_BASE_URL;
   delete env.LING_EMBEDDING_API_KEY;
@@ -168,6 +171,11 @@ export function buildSidecarEnv(
     "LING_KEEP_LAST_USER_TURNS",
     settings.keepLastUserTurns,
   );
+  setNumberEnv(
+    env,
+    "LING_BROWSER_BRIDGE_PORT",
+    settings.browserBridgePort,
+  );
   return env;
 }
 
@@ -219,6 +227,7 @@ export class SidecarClient {
       approvalTimeoutSeconds: options.approvalTimeoutSeconds,
       contextWindowTokens: options.contextWindowTokens,
       keepLastUserTurns: options.keepLastUserTurns,
+      browserBridgePort: options.browserBridgePort,
       embeddingModel: options.embeddingModel,
       embeddingBaseUrl: options.embeddingBaseUrl,
       embeddingApiKey: options.embeddingApiKey,
@@ -559,6 +568,23 @@ export class SidecarClient {
       };
     }
 
+    const pythonRoot = resolve(this.options.extensionPath, "..", "ling");
+    const python =
+      process.env.LING_PYTHON_PATH?.trim() ||
+      (process.platform === "win32" ? "python" : "python3");
+    const sourceLaunch: SidecarLaunch = {
+      command: python,
+      args: ["-m", "ling_rpc"],
+      cwd: pythonRoot,
+      mode: "python",
+    };
+    if (
+      this.options.developmentMode &&
+      existsSync(join(pythonRoot, "ling_rpc"))
+    ) {
+      return sourceLaunch;
+    }
+
     const bundledNames =
       process.platform === "win32"
         ? ["ling-sidecar.exe", "ling-sidecar"]
@@ -580,22 +606,12 @@ export class SidecarClient {
       }
     }
 
-    const pythonRoot = resolve(this.options.extensionPath, "..", "ling");
-    if (!existsSync(join(pythonRoot, "ling_rpc"))) {
-      throw new Error(
-        `Ling sidecar was not found. Expected ${pythonRoot} or resources/sidecar.`,
-      );
+    if (existsSync(join(pythonRoot, "ling_rpc"))) {
+      return sourceLaunch;
     }
-
-    const python =
-      process.env.LING_PYTHON_PATH?.trim() ||
-      (process.platform === "win32" ? "python" : "python3");
-    return {
-      command: python,
-      args: ["-m", "ling_rpc"],
-      cwd: pythonRoot,
-      mode: "python",
-    };
+    throw new Error(
+      `Ling sidecar was not found. Expected ${pythonRoot} or resources/sidecar.`,
+    );
   }
 
   private log(line: string): void {

@@ -3,6 +3,7 @@ import type {
   DiffView,
   EffortLevel,
   IndexStatus,
+  MemoryScope,
   SettingsView,
 } from "../types";
 import {
@@ -39,6 +40,9 @@ interface SettingsPanelProps {
   indexError: string;
   onBuildIndex(input: SettingsInput): void;
   onSave(input: SettingsInput): void;
+  onOpenMemory(path: string): void;
+  onCreateMemory(scope: MemoryScope): void;
+  onDeleteMemory(scope: MemoryScope, name: string): void;
   onClose(): void;
 }
 
@@ -53,6 +57,9 @@ export function SettingsPanel({
   indexError,
   onBuildIndex,
   onSave,
+  onOpenMemory,
+  onCreateMemory,
+  onDeleteMemory,
   onClose,
 }: SettingsPanelProps) {
   const [apiKey, setApiKey] = useState("");
@@ -568,6 +575,101 @@ export function SettingsPanel({
                     </span>
                   </li>
                 ))}
+              </ul>
+            )}
+
+            <p className="settings-section">Memory</p>
+            <p className="settings-hint">
+              Durable project and global guidance. Files are reloaded
+              into the system prompt on the next user turn.
+            </p>
+            <div className="settings-memory-actions">
+              <button
+                className="settings-memory-button"
+                type="button"
+                onClick={() => onCreateMemory("workspace")}
+              >
+                New project memory
+              </button>
+              <button
+                className="settings-memory-button"
+                type="button"
+                onClick={() => onCreateMemory("global")}
+              >
+                New global memory
+              </button>
+            </div>
+            {settings.memoryDiagnostics.length > 0 ? (
+              <div className="settings-memory-diagnostics" role="alert">
+                {settings.memoryDiagnostics.map((item) => (
+                  <p key={item}>{item}</p>
+                ))}
+              </div>
+            ) : null}
+            {settings.memories.length === 0 ? (
+              <p className="settings-hint">No memories found.</p>
+            ) : (
+              <ul className="settings-memories">
+                {settings.memories.map((memory) => {
+                  const mode =
+                    memory.alwaysApply
+                      ? "Always"
+                      : memory.globs.length > 0
+                        ? "Conditional"
+                        : "Off";
+                  return (
+                    <li
+                      className="settings-memory"
+                      key={`${memory.scope}:${memory.name}`}
+                    >
+                      <div className="settings-memory-heading">
+                        <span className="settings-memory-name">
+                          {memory.name}
+                        </span>
+                        <span className="settings-memory-badge">
+                          {memory.scope}
+                        </span>
+                        <span
+                          className={`settings-memory-mode settings-memory-mode--${mode.toLowerCase()}`}
+                        >
+                          {mode}
+                        </span>
+                      </div>
+                      <p className="settings-memory-description">
+                        {memory.description}
+                      </p>
+                      {memory.globs.length > 0 ? (
+                        <span className="settings-memory-globs">
+                          {memory.globs.join(", ")}
+                        </span>
+                      ) : null}
+                      <span
+                        className="settings-memory-path"
+                        title={memory.path}
+                      >
+                        {memory.relativePath}
+                      </span>
+                      <div className="settings-memory-item-actions">
+                        <button
+                          className="settings-memory-action"
+                          type="button"
+                          onClick={() => onOpenMemory(memory.path)}
+                        >
+                          Edit
+                        </button>
+                        <button
+                          className="settings-memory-action settings-memory-action--danger"
+                          type="button"
+                          onClick={() =>
+                            onDeleteMemory(memory.scope, memory.name)
+                          }
+                        >
+                          Delete
+                        </button>
+                      </div>
+                    </li>
+                  );
+                })}
               </ul>
             )}
 

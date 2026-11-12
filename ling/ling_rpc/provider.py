@@ -3,7 +3,13 @@
 from __future__ import annotations
 
 import os
+from urllib.parse import urlsplit
 
+from ling_agent.web import (
+    DEFAULT_WEB_BASE_URL,
+    DEFAULT_WEB_TIMEOUT_SECONDS,
+    WebClient,
+)
 from ling_ai.adapters.openai_completions import (
     create_openai_completions_stream,
 )
@@ -84,10 +90,51 @@ def resolve_embedder() -> OpenAIEmbedder | None:
     )
 
 
+def resolve_web_client(model: Model) -> WebClient | None:
+    """Build the DeepSeek web client without affecting other providers."""
+    api_key = (
+        os.environ.get("LING_API_KEY")
+        or os.environ.get("DEEPSEEK_API_KEY")
+        or os.environ.get("OPENAI_API_KEY")
+    )
+    if not api_key:
+        return None
+
+    configured = os.environ.get("LING_WEB_BASE_URL", "").strip()
+    base_url = configured or model.base_url or ""
+    if not configured and not _is_deepseek_endpoint(base_url):
+        return None
+    timeout = _positive_float_env(
+        "LING_WEB_TIMEOUT_SECONDS",
+        DEFAULT_WEB_TIMEOUT_SECONDS,
+    )
+    return WebClient(
+        api_key=api_key,
+        base_url=base_url or DEFAULT_WEB_BASE_URL,
+        timeout_seconds=timeout,
+    )
+
+
 def _same_endpoint(left: str, right: str) -> bool:
     return bool(left) and bool(right) and (
         left.rstrip("/").lower() == right.rstrip("/").lower()
     )
 
 
-__all__ = ["resolve_embedder", "resolve_model"]
+def _is_deepseek_endpoint(value: str) -> bool:
+    try:
+        host = (urlsplit(value).hostname or "").lower()
+    except ValueError:
+        return False
+    return host == "deepseek.com" or host.endswith(".deepseek.com")
+
+
+def _positive_float_env(name: str, default: float) -> float:
+    try:
+        value = float(os.environ.get(name, str(default)))
+    except ValueError:
+        return default
+    return value if value > 0 else default
+
+
+__all__ = ["resolve_embedder", "resolve_model", "resolve_web_client"]

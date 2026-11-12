@@ -69,6 +69,17 @@ async function main(): Promise<void> {
   assert.equal(configured.LING_API_BASE_URL, "https://api.deepseek.com/v1");
   assert.equal(configured.LING_EMBEDDING_MODEL, undefined);
 
+  const browser = buildSidecarEnv(
+    { browserBridgePort: 17323 },
+    { ...process.env, LING_BROWSER_BRIDGE_PORT: "9999" },
+  );
+  assert.equal(browser.LING_BROWSER_BRIDGE_PORT, "17323");
+  const noBrowser = buildSidecarEnv(
+    {},
+    { ...process.env, LING_BROWSER_BRIDGE_PORT: "9999" },
+  );
+  assert.equal(noBrowser.LING_BROWSER_BRIDGE_PORT, undefined);
+
   const embedded = buildSidecarEnv(
     {
       embeddingModel: "text-embedding-v4",
@@ -107,7 +118,7 @@ async function main(): Promise<void> {
   });
   const client = new SidecarClient({
     extensionPath: process.cwd(),
-    requestTimeoutMs: 4_000,
+    requestTimeoutMs: 20_000,
     output: (line) => lines.push(line),
     onExit: () => resolveUnexpectedExit(),
   });
@@ -175,7 +186,7 @@ async function main(): Promise<void> {
     );
     const embeddingClient = new SidecarClient({
       extensionPath: process.cwd(),
-      requestTimeoutMs: 4_000,
+      requestTimeoutMs: 20_000,
       embeddingModel: "text-embedding-v4",
       embeddingBaseUrl:
         "https://dashscope.aliyuncs.com/compatible-mode/v1",

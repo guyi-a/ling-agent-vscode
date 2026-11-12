@@ -5,8 +5,6 @@ ling-vscode/media/webview/
 ling-vscode/*.vsix
 ling-vscode/resources/skills/
 ling-vscode/resources/sidecar/
-ling-vscode/.ling/
-
 # Python
 **/__pycache__/
 *.py[cod]
@@ -14,8 +12,11 @@ ling/build/
 .venv/
 venv/
 
-# Ling state
-.ling/
+# Ling runtime state
+**/.agents/attachments/
+**/.agents/spills/
+**/.agents/code-index/
+**/.agents/notes/
 ling/ling_retrieval/report*.json
 
 # Local-only material

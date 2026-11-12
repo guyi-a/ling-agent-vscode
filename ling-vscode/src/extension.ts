@@ -4,6 +4,7 @@ import {
   readdirSync,
   type Dirent,
 } from "node:fs";
+import { homedir } from "node:os";
 import path from "node:path";
 import * as vscode from "vscode";
 import { resolveScratchWorkspaceRoot } from "./scratchWorkspace";
@@ -23,6 +24,8 @@ import type {
   HistorySession,
   IndexBuildStats,
   IndexStatus,
+  MemoryScope,
+  MemoryStatus,
   SessionSnapshot,
   SettingsView,
   SkillStatus,
@@ -66,6 +69,17 @@ const CHAT_VIEW_ID = "ling.chat";
 const WEBVIEW_ROOT = ["media", "webview"] as const;
 let activeSidecar: SidecarClient | undefined;
 
+function browserBridgePortFromEnv(): number | undefined {
+  const raw = process.env.LING_BROWSER_BRIDGE_PORT?.trim();
+  if (!raw) {
+    return undefined;
+  }
+  const port = Number(raw);
+  return Number.isInteger(port) && port >= 0 && port <= 65_535
+    ? port
+    : undefined;
+}
+
 function sidecarSettings(settings: LingSettings): SidecarSettings {
   return {
     apiKey: settings.apiKey || undefined,
@@ -77,6 +91,7 @@ function sidecarSettings(settings: LingSettings): SidecarSettings {
     approvalTimeoutSeconds: settings.approvalTimeoutSeconds,
     contextWindowTokens: settings.contextWindowTokens,
     keepLastUserTurns: settings.keepLastUserTurns,
+    browserBridgePort: browserBridgePortFromEnv(),
     embeddingModel: settings.embeddingModel || undefined,
     embeddingBaseUrl: settings.embeddingBaseUrl || undefined,
     embeddingApiKey: settings.embeddingApiKey || undefined,
@@ -123,6 +138,8 @@ export async function activate(
 
   const sidecar = new SidecarClient({
     extensionPath: context.extensionUri.fsPath,
+    developmentMode:
+      context.extensionMode === vscode.ExtensionMode.Development,
     output: (line) => output.appendLine(line),
     ...sidecarSettings(settings),
   });
@@ -255,6 +272,8 @@ class ChatViewProvider implements vscode.WebviewViewProvider {
   private readonly openedPlans = new Set<string>();
   private readonly openedPlanSessions = new Set<string>();
   private restoredLastSession = false;
+  private memories: MemoryStatus[] = [];
+  private memoryDiagnostics: string[] = [];
 
   constructor(
     private readonly extensionUri: vscode.Uri,
@@ -428,7 +447,7 @@ class ChatViewProvider implements vscode.WebviewViewProvider {
         break;
 
       case "settings.get":
-        this.postSettings();
+        void this.postSettings();
         void this.refreshIndexStatus();
         break;
 
@@ -500,6 +519,18 @@ class ChatViewProvider implements vscode.WebviewViewProvider {
         void this.enqueueSessionCommand(() =>
           this.handlePlanBuild(value.path),
         );
+        break;
+
+      case "memory.open":
+        void this.handleMemoryOpen(value.path);
+        break;
+
+      case "memory.create":
+        void this.handleMemoryCreate(value.scope);
+        break;
+
+      case "memory.delete":
+        void this.handleMemoryDelete(value.scope, value.name);
         break;
     }
   }
@@ -777,6 +808,10 @@ class ChatViewProvider implements vscode.WebviewViewProvider {
 
     try {
       const workspaceRoot = this.sessionWorkspaceRoot();
+      const activePath =
+        vscode.window.activeTextEditor?.document.uri.scheme === "file"
+          ? vscode.window.activeTextEditor.document.uri.fsPath
+          : undefined;
       await this.sidecar.start();
       await this.sidecar.call("session.start", {
         prompt: text,
@@ -785,6 +820,7 @@ class ChatViewProvider implements vscode.WebviewViewProvider {
         reasoning: effort,
         ...(attachments.length > 0 ? { attachments } : {}),
         ...(selections.length > 0 ? { selections } : {}),
+        ...(activePath ? { activePaths: [activePath] } : {}),
         ...(displayText ? { displayText } : {}),
       });
       this.output.appendLine("Session run accepted by sidecar");
@@ -1040,6 +1076,8 @@ class ChatViewProvider implements vscode.WebviewViewProvider {
       embeddingBaseUrl: this.settings.embeddingBaseUrl,
       embeddingApiKey: this.settings.embeddingApiKey,
       skills: this.skillStatuses(),
+      memories: this.memories,
+      memoryDiagnostics: this.memoryDiagnostics,
     };
   }
 
@@ -1190,12 +1228,165 @@ class ChatViewProvider implements vscode.WebviewViewProvider {
     return stats;
   }
 
-  private postSettings(error?: string): void {
+  private async postSettings(error?: string): Promise<void> {
+    try {
+      await this.refreshMemoryStatuses();
+    } catch (cause) {
+      this.memoryDiagnostics = [formatError(cause)];
+    }
     this.postToWebview({
       type: "ling.settings",
       settings: this.settingsView(),
       ...(error ? { error } : {}),
     });
+  }
+
+  private async refreshMemoryStatuses(): Promise<void> {
+    await this.sidecar.start();
+    const result = await this.sidecar.call<{
+      memories: MemoryStatus[];
+      diagnostics: string[];
+    }>("memory.list", {
+      workspaceRoot: this.sessionWorkspaceRoot(),
+    });
+    this.memories = result.memories.map((memory) => ({
+      ...memory,
+      globs: [...memory.globs],
+    }));
+    this.memoryDiagnostics = [...result.diagnostics];
+  }
+
+  private memoryRoot(scope: MemoryScope): string {
+    if (scope === "workspace") {
+      return path.join(
+        this.sessionWorkspaceRoot(),
+        ".agents",
+        "memory",
+      );
+    }
+    const override = process.env.LING_GLOBAL_MEMORY_ROOT?.trim();
+    if (override) {
+      return path.resolve(override);
+    }
+    const appData = process.env.APPDATA?.trim();
+    return appData
+      ? path.join(appData, "Ling", "memory")
+      : path.join(homedir(), ".agents", "memory");
+  }
+
+  private async handleMemoryOpen(rawPath: string): Promise<void> {
+    const file = path.resolve(rawPath);
+    const allowed = (
+      ["workspace", "global"] as MemoryScope[]
+    ).some((scope) =>
+      isPathInside(this.memoryRoot(scope), file),
+    );
+    if (!allowed || !existsSync(file)) {
+      await vscode.window.showErrorMessage(
+        "Unable to open memory: the file is outside the Memory folders.",
+      );
+      return;
+    }
+    await vscode.window.showTextDocument(vscode.Uri.file(file), {
+      preview: true,
+    });
+  }
+
+  private async handleMemoryCreate(scope: MemoryScope): Promise<void> {
+    const scopeLabel = scope === "workspace" ? "project" : "global";
+    const rawName = await vscode.window.showInputBox({
+      title: `New ${scopeLabel} memory`,
+      prompt: "Memory name",
+      placeHolder: "e.g. testing-workflow",
+      validateInput: (value) =>
+        /^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(value.trim())
+          ? undefined
+          : "Use lowercase letters, numbers, and hyphens.",
+    });
+    if (rawName === undefined) {
+      return;
+    }
+    const name = rawName.trim();
+    if (
+      this.memories.some(
+        (memory) =>
+          memory.scope === scope && memory.name === name,
+      )
+    ) {
+      await vscode.window.showErrorMessage(
+        `A ${scopeLabel} memory named ${name} already exists.`,
+      );
+      return;
+    }
+    const description = await vscode.window.showInputBox({
+      title: `New ${scopeLabel} memory`,
+      prompt: "Short description",
+      placeHolder: "What should Ling remember?",
+      validateInput: (value) =>
+        value.trim() ? undefined : "Description is required.",
+    });
+    if (description === undefined) {
+      return;
+    }
+
+    try {
+      await this.sidecar.start();
+      const result = await this.sidecar.call<{ path: string }>(
+        "memory.write",
+        {
+          workspaceRoot: this.sessionWorkspaceRoot(),
+          name,
+          description: description.trim(),
+          content: `# ${description.trim()}\n\n- `,
+          scope,
+          alwaysApply: true,
+          globs: [],
+        },
+        15_000,
+      );
+      await this.refreshMemoryStatuses();
+      this.postToWebview({
+        type: "ling.settings",
+        settings: this.settingsView(),
+      });
+      await this.handleMemoryOpen(result.path);
+    } catch (error) {
+      await vscode.window.showErrorMessage(
+        `Unable to create memory: ${formatError(error)}`,
+      );
+    }
+  }
+
+  private async handleMemoryDelete(
+    scope: MemoryScope,
+    name: string,
+  ): Promise<void> {
+    const answer = await vscode.window.showWarningMessage(
+      `Delete ${scope} memory "${name}"?`,
+      { modal: true },
+      "Delete",
+    );
+    if (answer !== "Delete") {
+      return;
+    }
+    try {
+      await this.sidecar.start();
+      await this.sidecar.call(
+        "memory.delete",
+        {
+          workspaceRoot: this.sessionWorkspaceRoot(),
+          name,
+          scope,
+          confirm: true,
+        },
+        15_000,
+      );
+      await this.postSettings();
+    } catch (error) {
+      await vscode.window.showErrorMessage(
+        `Unable to delete memory: ${formatError(error)}`,
+      );
+    }
   }
 
   private async handleSettingsSave(
@@ -1722,6 +1913,17 @@ function stripPlanFrontmatter(text: string): string {
     return normalized;
   }
   return normalized.slice(closing + 4).replace(/^\s+/, "");
+}
+
+function isPathInside(root: string, candidate: string): boolean {
+  const relative = path.relative(
+    path.resolve(root),
+    path.resolve(candidate),
+  );
+  return (
+    relative === "" ||
+    (!relative.startsWith("..") && !path.isAbsolute(relative))
+  );
 }
 
 function formatError(error: unknown): string {

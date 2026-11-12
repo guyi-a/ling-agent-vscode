@@ -3,3 +3,7 @@ dist/
 media/webview/
 resources/skills/
 *.vsix
+.agents/attachments/
+.agents/spills/
+.agents/code-index/
+.agents/notes/

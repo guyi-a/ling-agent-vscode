@@ -51,6 +51,7 @@ def snapshot_to_ui(
             entries.append(
                 _message_entry(
                     item_id=item.id,
+                    run_id=item.run_id,
                     role="user",
                     content=item.text,
                     streaming=False,
@@ -94,6 +95,7 @@ def snapshot_to_ui(
             entries.append(
                 _message_entry(
                     item_id=item.id,
+                    run_id=item.run_id,
                     role="assistant",
                     content=item.text,
                     streaming=item.status == "streaming",
@@ -120,6 +122,7 @@ def snapshot_to_ui(
                 entries.append(
                     {
                         "kind": "approval",
+                        "runId": item.run_id,
                         "approval": {
                             "id": f"result-{item.id}",
                             "approvalId": item.id,
@@ -135,6 +138,7 @@ def snapshot_to_ui(
             entries.append(
                 {
                     "kind": "compaction",
+                    "runId": item.run_id,
                     "compaction": {
                         "id": item.id,
                         "compactionId": item.compaction_id,
@@ -155,6 +159,23 @@ def snapshot_to_ui(
         "queuedMessages": list(queued_messages or ()),
         "error": _run_error(snapshot) if phase == "failed" else None,
         "sessionId": snapshot.session_id,
+        "runs": [
+            {
+                "id": run.id,
+                "status": run.status,
+                **(
+                    {"startedAt": run.started_at}
+                    if run.started_at is not None
+                    else {}
+                ),
+                **(
+                    {"completedAt": run.completed_at}
+                    if run.completed_at is not None
+                    else {}
+                ),
+            }
+            for run in snapshot.runs.values()
+        ],
         "readOnly": False,
     }
     if approval_mode is not None:
@@ -264,6 +285,7 @@ class RpcEventSink:
 def _message_entry(
     *,
     item_id: str,
+    run_id: str,
     role: Literal["user", "assistant"],
     content: str,
     streaming: bool,
@@ -287,6 +309,7 @@ def _message_entry(
         message["selections"] = selections
     return {
         "kind": "message",
+        "runId": run_id,
         "message": message,
     }
 
@@ -301,6 +324,12 @@ _IO_TOOLS = frozenset(
         "extract_document_text",
         "load_skill",
         "ask_user",
+        "browser_bridge",
+        "web_search",
+        "web_fetch",
+        "memory_list",
+        "memory_write",
+        "memory_delete",
     }
 )
 
@@ -324,6 +353,7 @@ def _tool_entry(
 
     tool: dict[str, Any] = {
         "id": item.id,
+        "name": item.name,
         "action": _tool_action(item.name),
         "target": _tool_target(item.name, item.arguments),
         "status": (
@@ -336,12 +366,23 @@ def _tool_entry(
     detail = _tool_detail(item)
     if detail is not None:
         tool["detail"] = detail
-    return {"kind": "tool", "tool": tool}
+    return {
+        "kind": "tool",
+        "runId": item.run_id,
+        "tool": tool,
+    }
 
 
 def _tool_detail(item: ToolTimelineItem) -> dict[str, Any] | None:
     arguments = item.arguments if isinstance(item.arguments, dict) else {}
     metadata = item.details if isinstance(item.details, dict) else {}
+
+    if item.name in (
+        "memory_list",
+        "memory_write",
+        "memory_delete",
+    ):
+        return _memory_tool_detail(item)
 
     if item.name == "edit_file":
         path = arguments.get("path")
@@ -431,6 +472,81 @@ def _tool_detail(item: ToolTimelineItem) -> dict[str, Any] | None:
     return None
 
 
+def _memory_tool_detail(
+    item: ToolTimelineItem,
+) -> dict[str, Any] | None:
+    try:
+        payload = json.loads(item.output)
+    except (TypeError, ValueError):
+        return None
+    if not isinstance(payload, dict):
+        return None
+
+    operation = {
+        "memory_list": "list",
+        "memory_write": "write",
+        "memory_delete": "delete",
+    }[item.name]
+    detail: dict[str, Any] = {
+        "kind": "memory",
+        "operation": operation,
+        "ok": payload.get("ok") is not False,
+    }
+    message = payload.get("message")
+    if isinstance(message, str) and message:
+        detail["error"] = message
+    scope = payload.get("scope")
+    if scope in ("workspace", "global"):
+        detail["scope"] = scope
+    name = payload.get("name")
+    if isinstance(name, str) and name:
+        detail["name"] = name
+    path = payload.get("path")
+    if isinstance(path, str) and path:
+        detail["path"] = path
+
+    if operation == "list":
+        memories: list[dict[str, Any]] = []
+        raw_memories = payload.get("memories")
+        if isinstance(raw_memories, list):
+            for memory in raw_memories:
+                if not isinstance(memory, dict):
+                    continue
+                memory_name = memory.get("name")
+                description = memory.get("description")
+                memory_scope = memory.get("scope")
+                always_apply = memory.get("alwaysApply")
+                globs = memory.get("globs")
+                memory_path = memory.get("path")
+                if (
+                    not isinstance(memory_name, str)
+                    or not isinstance(description, str)
+                    or memory_scope not in ("workspace", "global")
+                    or not isinstance(always_apply, bool)
+                    or not isinstance(globs, list)
+                    or not all(isinstance(value, str) for value in globs)
+                    or not isinstance(memory_path, str)
+                ):
+                    continue
+                memories.append(
+                    {
+                        "name": memory_name,
+                        "description": description,
+                        "scope": memory_scope,
+                        "alwaysApply": always_apply,
+                        "globs": globs,
+                        "path": memory_path,
+                    }
+                )
+        detail["memories"] = memories
+        diagnostics = payload.get("diagnostics")
+        if isinstance(diagnostics, list):
+            detail["diagnostics"] = [
+                value for value in diagnostics if isinstance(value, str)
+            ]
+    return detail
+
+
 def _subagent_detail(
     item: ToolTimelineItem,
     arguments: dict[str, Any],
@@ -491,6 +607,22 @@ def _format_tool_input(
     if name == "load_skill":
         value = arguments.get("name")
         return value if isinstance(value, str) else ""
+    if name == "web_search":
+        value = arguments.get("query")
+        return value if isinstance(value, str) else ""
+    if name == "web_fetch":
+        value = arguments.get("url")
+        return value if isinstance(value, str) else ""
+    if name == "memory_list":
+        return "memory inventory"
+    if name in ("memory_write", "memory_delete"):
+        value = arguments.get("name")
+        scope = arguments.get("scope", "workspace")
+        return (
+            f"{scope}:{value}"
+            if isinstance(value, str)
+            else "memory"
+        )
     return json.dumps(arguments, ensure_ascii=False, indent=2)
 
 
@@ -577,11 +709,31 @@ def _approval_request(item: ApprovalTimelineItem) -> dict[str, Any]:
 
 def _tool_action(
     name: str,
-) -> Literal["Read", "Edit", "Run", "Skill", "Plan", "Subagent"]:
+) -> Literal[
+    "Read",
+    "Edit",
+    "Run",
+    "Skill",
+    "Plan",
+    "Subagent",
+    "Browser",
+    "Web",
+    "Memory",
+]:
     if name in ("create_plan", "update_plan", "todo_write"):
         return "Plan"
     if name == "spawn_subagent":
         return "Subagent"
+    if name == "browser_bridge":
+        return "Browser"
+    if name in ("web_search", "web_fetch"):
+        return "Web"
+    if name in (
+        "memory_list",
+        "memory_write",
+        "memory_delete",
+    ):
+        return "Memory"
     if name == "load_skill":
         return "Skill"
     if name in (
@@ -598,6 +750,38 @@ def _tool_action(
 
 
 def _tool_target(name: str, arguments: dict[str, object]) -> str:
+    if name == "memory_list":
+        return "memory inventory"
+    if name in ("memory_write", "memory_delete"):
+        memory_name = arguments.get("name")
+        scope = arguments.get("scope")
+        if isinstance(memory_name, str) and memory_name:
+            return (
+                f"{scope}:{memory_name}"
+                if isinstance(scope, str) and scope
+                else memory_name
+            )
+        return "memory"
+    if name == "web_search":
+        query = arguments.get("query")
+        return query[:80] if isinstance(query, str) else "search"
+    if name == "web_fetch":
+        url = arguments.get("url")
+        return url[:80] if isinstance(url, str) else "fetch"
+    if name == "browser_bridge":
+        action = arguments.get("action")
+        target = (
+            arguments.get("url")
+            or arguments.get("page_id")
+            or arguments.get("browser_id")
+            or ""
+        )
+        label = action if isinstance(action, str) and action else "browser"
+        return (
+            f"{label} {target}".strip()
+            if isinstance(target, str)
+            else label
+        )
     if name == "spawn_subagent":
         value = arguments.get("description")
         if isinstance(value, str) and value:

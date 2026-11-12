@@ -9,6 +9,8 @@ import type {
   HistorySession,
   IndexBuildStats,
   IndexStatus,
+  MemoryScope,
+  MemoryStatus,
   QueuedMessage,
   QuestionRequest,
   RunPhase,
@@ -16,6 +18,7 @@ import type {
   SettingsView,
   SubagentTraceEntry,
   TimelineEntry,
+  TimelineRunView,
   ToolAction,
   ToolCall,
   ToolDetail,
@@ -158,6 +161,19 @@ export type WebviewToHostMessage =
   | {
       type: "plan.build";
       path: string;
+    }
+  | {
+      type: "memory.open";
+      path: string;
+    }
+  | {
+      type: "memory.create";
+      scope: MemoryScope;
+    }
+  | {
+      type: "memory.delete";
+      name: string;
+      scope: MemoryScope;
     };
 
 export type HostToWebviewMessage =
@@ -312,6 +328,16 @@ export function isWebviewToHostMessage(
     case "plan.open":
     case "plan.build":
       return typeof value.path === "string" && value.path.length > 0;
+    case "memory.open":
+      return typeof value.path === "string" && value.path.length > 0;
+    case "memory.create":
+      return value.scope === "workspace" || value.scope === "global";
+    case "memory.delete":
+      return (
+        typeof value.name === "string" &&
+        value.name.length > 0 &&
+        (value.scope === "workspace" || value.scope === "global")
+      );
     case "settings.save":
       return (
         typeof value.apiKey === "string" &&
@@ -549,7 +575,30 @@ function isSettingsView(value: unknown): value is SettingsView {
     typeof value.embeddingBaseUrl === "string" &&
     typeof value.embeddingApiKey === "string" &&
     Array.isArray(value.skills) &&
-    value.skills.every(isSkillStatus)
+    value.skills.every(isSkillStatus) &&
+    Array.isArray(value.memories) &&
+    value.memories.every(isMemoryStatus) &&
+    Array.isArray(value.memoryDiagnostics) &&
+    value.memoryDiagnostics.every(
+      (item) => typeof item === "string",
+    )
+  );
+}
+
+function isMemoryStatus(value: unknown): value is MemoryStatus {
+  return (
+    isRecord(value) &&
+    typeof value.name === "string" &&
+    value.name.length > 0 &&
+    typeof value.description === "string" &&
+    typeof value.path === "string" &&
+    value.path.length > 0 &&
+    typeof value.relativePath === "string" &&
+    (value.scope === "workspace" || value.scope === "global") &&
+    typeof value.alwaysApply === "boolean" &&
+    Array.isArray(value.globs) &&
+    value.globs.every((item) => typeof item === "string") &&
+    (value.error === undefined || typeof value.error === "string")
   );
 }
 
@@ -570,6 +619,9 @@ function isSessionSnapshot(value: unknown): value is SessionSnapshot {
     isRunPhase(value.phase) &&
     Array.isArray(value.entries) &&
     value.entries.every(isTimelineEntry) &&
+    (value.runs === undefined ||
+      (Array.isArray(value.runs) &&
+        value.runs.every(isTimelineRun))) &&
     Array.isArray(value.pendingApprovals) &&
     value.pendingApprovals.every(isApprovalRequest) &&
     (value.pendingQuestions === undefined ||
@@ -580,6 +632,32 @@ function isSessionSnapshot(value: unknown): value is SessionSnapshot {
         value.queuedMessages.every(isQueuedMessage))) &&
     (value.approvalMode === undefined ||
       isApprovalMode(value.approvalMode))
+  );
+}
+
+function isTimelineRun(value: unknown): value is TimelineRunView {
+  return (
+    isRecord(value) &&
+    typeof value.id === "string" &&
+    value.id.length > 0 &&
+    isTimelineRunStatus(value.status) &&
+    (value.startedAt === undefined ||
+      (typeof value.startedAt === "number" &&
+        Number.isFinite(value.startedAt))) &&
+    (value.completedAt === undefined ||
+      (typeof value.completedAt === "number" &&
+        Number.isFinite(value.completedAt)))
+  );
+}
+
+function isTimelineRunStatus(
+  value: unknown,
+): value is TimelineRunView["status"] {
+  return (
+    value === "running" ||
+    value === "completed" ||
+    value === "cancelled" ||
+    value === "error"
   );
 }
 
@@ -644,6 +722,12 @@ function isAskUserAnswer(value: unknown): value is AskUserAnswer {
 
 function isTimelineEntry(value: unknown): value is TimelineEntry {
   if (!isRecord(value)) {
+    return false;
+  }
+  if (
+    value.runId !== undefined &&
+    (typeof value.runId !== "string" || value.runId.length === 0)
+  ) {
     return false;
   }
 
@@ -713,6 +797,8 @@ function isToolCall(value: unknown): value is ToolCall {
   return (
     isRecord(value) &&
     typeof value.id === "string" &&
+    (value.name === undefined ||
+      (typeof value.name === "string" && value.name.length > 0)) &&
     isToolAction(value.action) &&
     typeof value.target === "string" &&
     isToolStatus(value.status) &&
@@ -772,7 +858,42 @@ function isToolDetail(value: unknown): value is ToolDetail {
       (value.error === undefined || typeof value.error === "string")
     );
   }
+  if (value.kind === "memory") {
+    return (
+      (value.operation === "list" ||
+        value.operation === "write" ||
+        value.operation === "delete") &&
+      typeof value.ok === "boolean" &&
+      (value.scope === undefined ||
+        value.scope === "workspace" ||
+        value.scope === "global") &&
+      (value.name === undefined || typeof value.name === "string") &&
+      (value.path === undefined || typeof value.path === "string") &&
+      (value.memories === undefined ||
+        (Array.isArray(value.memories) &&
+          value.memories.every(isMemoryDetailItem))) &&
+      (value.diagnostics === undefined ||
+        (Array.isArray(value.diagnostics) &&
+          value.diagnostics.every(
+            (item) => typeof item === "string",
+          ))) &&
+      (value.error === undefined || typeof value.error === "string")
+    );
+  }
   return false;
+}
+
+function isMemoryDetailItem(value: unknown): boolean {
+  return (
+    isRecord(value) &&
+    typeof value.name === "string" &&
+    typeof value.description === "string" &&
+    (value.scope === "workspace" || value.scope === "global") &&
+    typeof value.alwaysApply === "boolean" &&
+    Array.isArray(value.globs) &&
+    value.globs.every((item) => typeof item === "string") &&
+    typeof value.path === "string"
+  );
 }
 
 function isSubagentTraceEntry(
@@ -898,7 +1019,10 @@ function isToolAction(value: unknown): value is ToolAction {
     value === "Run" ||
     value === "Skill" ||
     value === "Plan" ||
-    value === "Subagent"
+    value === "Subagent" ||
+    value === "Browser" ||
+    value === "Web" ||
+    value === "Memory"
   );
 }
 

@@ -27,6 +27,7 @@ import type {
   ApprovalMode,
   AskUserAnswer,
   EffortLevel,
+  MemoryScope,
   UserAttachmentView,
   UserSelectionRef,
   UserSelectionSummary,
@@ -682,6 +683,32 @@ export function App() {
     host.postMessage({ type: "plan.build", path });
   }
 
+  function openMemory(path: string) {
+    if (host.kind !== "vscode") {
+      setNotice("Memory is only available in VS Code.");
+      return;
+    }
+    host.postMessage({ type: "memory.open", path });
+    setSettingsOpen(false);
+  }
+
+  function createMemory(scope: MemoryScope) {
+    if (host.kind !== "vscode") {
+      setNotice("Memory is only available in VS Code.");
+      return;
+    }
+    host.postMessage({ type: "memory.create", scope });
+    setSettingsOpen(false);
+  }
+
+  function deleteMemory(scope: MemoryScope, name: string) {
+    if (host.kind !== "vscode") {
+      setNotice("Memory is only available in VS Code.");
+      return;
+    }
+    host.postMessage({ type: "memory.delete", scope, name });
+  }
+
   function copyToClipboard(text: string, noticeText: string) {
     if (host.kind === "vscode") {
       host.postMessage({ type: "selection.copy", text });
@@ -770,6 +797,9 @@ export function App() {
           indexError={indexError}
           onBuildIndex={buildIndex}
           onSave={saveSettings}
+          onOpenMemory={openMemory}
+          onCreateMemory={createMemory}
+          onDeleteMemory={deleteMemory}
           onClose={closeSettings}
         />
       ) : null}

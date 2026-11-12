@@ -32,7 +32,7 @@ def maybe_spill_output(
         return SpillResult(text=_truncate(text, config.max_tool_result_chars))
 
     relative_path = (
-        Path(".ling")
+        Path(".agents")
         / "spills"
         / _safe_component(session_id)
         / f"{_safe_component(call_id)}.txt"

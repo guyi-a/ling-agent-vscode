@@ -6,7 +6,10 @@ export type ToolAction =
   | "Run"
   | "Skill"
   | "Plan"
-  | "Subagent";
+  | "Subagent"
+  | "Browser"
+  | "Web"
+  | "Memory";
 
 export type ToolStatus =
   | "Running"
@@ -84,7 +87,27 @@ export type ToolDetail =
       summary?: string;
       trace?: SubagentTraceEntry[];
       error?: string;
+    }
+  | {
+      kind: "memory";
+      operation: "list" | "write" | "delete";
+      scope?: MemoryScope;
+      name?: string;
+      path?: string;
+      memories?: MemoryDetailItem[];
+      diagnostics?: string[];
+      ok: boolean;
+      error?: string;
     };
+
+export interface MemoryDetailItem {
+  name: string;
+  description: string;
+  scope: MemoryScope;
+  alwaysApply: boolean;
+  globs: string[];
+  path: string;
+}
 
 export interface ToolTodoItem {
   id: string;
@@ -94,6 +117,7 @@ export interface ToolTodoItem {
 
 export interface ToolCall {
   id: string;
+  name?: string;
   action: ToolAction;
   target: string;
   status: ToolStatus;
@@ -181,6 +205,19 @@ export interface CompactionItem {
   replacedCount: number;
 }
 
+export type TimelineRunStatus =
+  | "running"
+  | "completed"
+  | "cancelled"
+  | "error";
+
+export interface TimelineRunView {
+  id: string;
+  status: TimelineRunStatus;
+  startedAt?: number;
+  completedAt?: number;
+}
+
 export type UserAttachmentKind = "image" | "file";
 
 export interface UserAttachmentRef {
@@ -211,18 +248,22 @@ export type TimelineEntry =
   | {
       kind: "message";
       message: TimelineMessage;
+      runId?: string;
     }
   | {
       kind: "tool";
       tool: ToolCall;
+      runId?: string;
     }
   | {
       kind: "approval";
       approval: ApprovalResult;
+      runId?: string;
     }
   | {
       kind: "compaction";
       compaction: CompactionItem;
+      runId?: string;
     };
 
 export type RunPhase =
@@ -235,6 +276,7 @@ export type RunPhase =
 export interface SessionSnapshot {
   phase: RunPhase;
   entries: TimelineEntry[];
+  runs?: TimelineRunView[];
   pendingApprovals: ApprovalRequest[];
   pendingQuestions?: QuestionRequest[];
   queuedMessages?: QueuedMessage[];
@@ -269,6 +311,19 @@ export interface SkillStatus {
   overridesBuiltin?: boolean;
 }
 
+export type MemoryScope = "workspace" | "global";
+
+export interface MemoryStatus {
+  name: string;
+  description: string;
+  path: string;
+  relativePath: string;
+  scope: MemoryScope;
+  alwaysApply: boolean;
+  globs: string[];
+  error?: string;
+}
+
 export interface IndexStatus {
   files: number;
   totalFiles: number;
@@ -300,6 +355,8 @@ export interface SettingsView {
   embeddingBaseUrl: string;
   embeddingApiKey: string;
   skills: SkillStatus[];
+  memories: MemoryStatus[];
+  memoryDiagnostics: string[];
 }
 
 export interface TimelineState extends SessionSnapshot {

@@ -3,6 +3,7 @@ import Markdown, { type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { InlineRenderer } from "./InlineRenderer";
 import {
+  remarkCjkAutolink,
   remarkRendererFence,
   rendererContentFromPre,
 } from "./markdownRenderer";
@@ -54,7 +55,11 @@ export function MarkdownMessage({
       className={`markdown-body${streaming ? " markdown-body--streaming" : ""}`}
     >
       <Markdown
-        remarkPlugins={[remarkGfm, remarkRendererFence]}
+        remarkPlugins={[
+          remarkGfm,
+          remarkCjkAutolink,
+          remarkRendererFence,
+        ]}
         components={components}
       >
         {content}

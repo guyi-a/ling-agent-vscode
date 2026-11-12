@@ -5,6 +5,7 @@ import {
   useRef,
   useState,
 } from "react";
+import { rendererCodeBlock } from "./markdownRenderer";
 
 interface InlineRendererProps {
   html: string;
@@ -122,11 +123,12 @@ export function InlineRenderer({
   }, [measure]);
 
   async function copySource(): Promise<void> {
+    const codeBlock = rendererCodeBlock(html);
     try {
-      await navigator.clipboard.writeText(html);
+      await navigator.clipboard.writeText(codeBlock);
     } catch {
       const area = document.createElement("textarea");
-      area.value = html;
+      area.value = codeBlock;
       area.style.position = "fixed";
       area.style.opacity = "0";
       document.body.appendChild(area);

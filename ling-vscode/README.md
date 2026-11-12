@@ -88,6 +88,17 @@ API Key 以明文保存在该文件中，不会写入项目文件、历史数据
 
 子 agent 完成后主对话才会继续，因此适合需要立即拿到调研结果的场景。
 
+### 浏览器（Kro Bridge）
+
+Ling 可以直接驱动你正在使用的 Edge 浏览器。需要先在 Edge 安装 **Kro Browser Bridge** 扩展；Ling 的 sidecar 会自己启动本机 bridge，不经过 MCP。
+
+- 第一次调用 `browser_bridge` 时才监听 `127.0.0.1:17323`；
+- 打开扩展，Port 选 Auto detect 或填 `17323`，点 Reconnect 直到 Connected；
+- 同一时间只能有一个 bridge 占用 17323。如果 Claude Code 的 `kro-bridge` MCP 也在运行，需要先移除或停止它；
+- 模型会先检查 `extension_status`；扩展未连接时会停下来让你处理，不会自动降级到其它浏览器；
+- 点击、输入、打开/关闭标签页等操作需要审批；`execute_script` 始终需要审批；
+- Plan 模式只允许 `extension_status`、`list_pages`、`read_state`、`extract` 等只读动作。
+
 ### 审批模式
 
 输入框右下角的模式按钮里可以切换，也可以直接按 **Shift+Tab** 循环切换四种模式：
@@ -143,11 +154,11 @@ Low · Medium · High · Extra high · Max
 
 - 每条消息最多 4 个附件（图片和文件合计）。
 - 图片：PNG、JPEG、WebP、GIF、BMP，单张最大 4 MB。
-- 图片会复制到工作区的 `.ling/attachments/`，消息里只保存引用。
+- 图片会复制到工作区的 `.agents/attachments/`，消息里只保存引用。
 - 其他文件：不复制，单文件最大 25 MB；Ling 在需要时通过工具读取。
 - 纯图片消息也可以发送。
 
-建议把 `.ling/` 加入项目的 `.gitignore`。
+建议将 `.agents/attachments/`、`.agents/spills/`、`.agents/code-index/`、`.agents/notes/` 加入项目的 `.gitignore`；`.agents/memory/` 和 `.agents/skills/` 可以纳入版本控制。
 
 ### 文档读取
 
@@ -211,7 +222,7 @@ PDF/PPTX/DOCX 的生成和转换脚本依赖外部工具（如 `uv`、pandoc、L
 
 长会话不会把完整的工具输出一直塞进模型窗口：
 
-- 超过 12,000 字符的工具结果会写入 `.ling/spills/<session>/<call>.txt`，模型只看到约 2,000 字符预览和文件路径；单条工具结果上限 50,000 字符。
+- 超过 12,000 字符的工具结果会写入 `.agents/spills/<session>/<call>.txt`，模型只看到约 2,000 字符预览和文件路径；单条工具结果上限 50,000 字符。
 - 接近上下文窗口时，较早的历史会被折叠成摘要，模型看到“摘要 + 最近完整消息”；默认保留最近 5 个用户轮。
 - 完整历史仍然保留在本地数据库和界面里，对话界面只增加一条 `Context compacted · N messages folded` 标记。
 - 上下文窗口和保留轮数可以在 Settings 里调整。
@@ -281,7 +292,7 @@ Settings 底部的 **Code index** 也可以手动触发（命令面板里是 `Li
 - Ling 不提供云端代理，也没有遥测。
 - 写入工作区外的文件默认会被阻止；`write_file` / `edit_file` 只能修改工作区内的路径。
 - `run_command` 可以执行任意 PowerShell 命令，但受审批模式约束；危险命令和敏感操作始终需要审批。
-- 图片附件会复制到项目的 `.ling/attachments/`；对话历史保存在 `%LOCALAPPDATA%\ling-agent\sessions.db`。
+- 图片附件会复制到项目的 `.agents/attachments/`；对话历史保存在 `%LOCALAPPDATA%\ling-agent\sessions.db`。
 
 ## 已知限制
 

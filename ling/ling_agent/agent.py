@@ -34,6 +34,7 @@ from .approvals import (
     ApprovalRequest,
     create_approval_hook,
 )
+from .browser_bridge import BrowserBridge
 from .attachments import (
     MAX_ATTACHMENT_FILE_BYTES,
     MAX_USER_ATTACHMENTS,
@@ -59,6 +60,7 @@ from .events import (
     ToolResultCommitted,
     UserMessageCommitted,
 )
+from .memory import MemoryStore
 from .plans import PlanStore
 from .prompt import build_system_prompt
 from .questions import QuestionHandler
@@ -76,7 +78,9 @@ from .subagents import SubagentRunner, TraceSink
 from .storage import SQLiteSessionStore, default_database_path
 from .streaming import StreamFrameBuffer
 from .timeline import TimelineProjector, TimelineSnapshot
+from .web import WebClient
 from .tools import (
+    create_browser_tools,
     create_command_tools,
     create_document_tools,
     create_file_tools,
@@ -86,6 +90,8 @@ from .tools import (
     create_search_tools,
     create_skill_tools,
     create_subagent_tools,
+    create_memory_tools,
+    create_web_tools,
 )
 from .tools.spill import create_spill_hook
 from .workspace import Workspace
@@ -144,6 +150,9 @@ class CodingAgent:
         questions: QuestionHandler | None = None,
         embedder: "Embedder | None" = None,
         subagent_trace_sink: TraceSink | None = None,
+        browser_bridge: BrowserBridge | None = None,
+        web_client: WebClient | None = None,
+        global_memory_root: str | Path | None = None,
     ) -> None:
         self.model = model
         self.stream_fn = stream_fn
@@ -155,6 +164,17 @@ class CodingAgent:
         self.summarize_fn = summarize_fn
         self.questions = questions
         self.embedder = embedder
+        self.browser_bridge = browser_bridge
+        self.web_client = web_client
+        self.global_memory_root = (
+            Path(global_memory_root).expanduser().resolve()
+            if global_memory_root is not None
+            else None
+        )
+        self.memory_store = MemoryStore(
+            self.workspace.root,
+            global_root=self.global_memory_root,
+        )
         self.subagents = SubagentRunner(
             model=model,
             stream_fn=stream_fn,
@@ -216,6 +236,7 @@ class CodingAgent:
                 config=self.config,
                 tool_names=[tool.definition.name for tool in tools],
                 skills=self.skills,
+                global_memory_root=self.global_memory_root,
             )
             context = Context(system_prompt=prompt.system_prompt)
             self._session = await Session.create(
@@ -256,6 +277,7 @@ class CodingAgent:
                 tool_names=[tool.definition.name for tool in tools],
                 skills=self.skills,
                 mode=record.approval_mode,
+                global_memory_root=self.global_memory_root,
             )
             context = Context(system_prompt=prompt.system_prompt)
             events = await self.store.load_committed(session_id)
@@ -295,7 +317,22 @@ class CodingAgent:
             ),
             *create_plan_tools(self.plans),
             *create_subagent_tools(self.subagents),
+            *create_memory_tools(self.memory_store),
         ]
+        if self.browser_bridge is not None:
+            tools.extend(
+                create_browser_tools(
+                    self.browser_bridge,
+                    self.config,
+                )
+            )
+        if self.web_client is not None:
+            tools.extend(
+                create_web_tools(
+                    self.web_client,
+                    self.config,
+                )
+            )
         if mode is ApprovalMode.PLAN:
             allowed = {
                 "read_file",
@@ -310,6 +347,10 @@ class CodingAgent:
                 "update_plan",
                 "todo_write",
                 "spawn_subagent",
+                "browser_bridge",
+                "web_search",
+                "web_fetch",
+                "memory_list",
             }
             return [
                 tool
@@ -476,6 +517,7 @@ class CodingAgent:
         *,
         attachments: Sequence[UserAttachment] = (),
         selections: Sequence[UserSelection] = (),
+        active_paths: Sequence[str] = (),
         reasoning: str | None = None,
         display_text: str | None = None,
     ) -> AssistantMessage:
@@ -579,6 +621,22 @@ class CodingAgent:
                 session,
                 reasoning,
                 has_attachments=bool(attachment_refs),
+                active_paths=tuple(
+                    dict.fromkeys(
+                        [
+                            *active_paths,
+                            *(
+                                selection.path
+                                for selection in selection_refs
+                                if selection.path
+                            ),
+                            *(
+                                ref.relative_path
+                                for ref in attachment_refs
+                            ),
+                        ]
+                    )
+                ),
             )
 
     async def regenerate(
@@ -611,6 +669,7 @@ class CodingAgent:
         reasoning: str | None,
         *,
         has_attachments: bool = False,
+        active_paths: tuple[str, ...] = (),
     ) -> AssistantMessage:
         mode = session.approval_mode
         self.plans.bind(
@@ -624,6 +683,8 @@ class CodingAgent:
             tool_names=[tool.definition.name for tool in tools],
             skills=self.skills,
             mode=mode,
+            global_memory_root=self.global_memory_root,
+            active_paths=active_paths,
         )
         session.context.system_prompt = prompt.system_prompt
         hooks = self._create_hooks(session)

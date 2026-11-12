@@ -18,6 +18,7 @@ export function createEmptyTimelineState(): TimelineState {
     pendingApprovals: [],
     pendingQuestions: [],
     queuedMessages: [],
+    runs: [],
     error: null,
     readOnly: false,
     subagentTraces: {},
@@ -134,6 +135,7 @@ function fromSnapshot(
     queuedMessages: (snapshot.queuedMessages ?? []).map((message) => ({
       ...message,
     })),
+    runs: (snapshot.runs ?? []).map((run) => ({ ...run })),
     error: snapshot.error ?? null,
     sessionId: snapshot.sessionId,
     readOnly: snapshot.readOnly ?? false,
@@ -143,6 +145,7 @@ function fromSnapshot(
 function cloneEntry(entry: TimelineEntry): TimelineEntry {
   if (entry.kind === "message") {
     return {
+      ...entry,
       kind: "message",
       message: {
         ...entry.message,
@@ -166,6 +169,7 @@ function cloneEntry(entry: TimelineEntry): TimelineEntry {
 
   if (entry.kind === "tool") {
     return {
+      ...entry,
       kind: "tool",
       tool: {
         ...entry.tool,
@@ -176,12 +180,14 @@ function cloneEntry(entry: TimelineEntry): TimelineEntry {
 
   if (entry.kind === "compaction") {
     return {
+      ...entry,
       kind: "compaction",
       compaction: { ...entry.compaction },
     };
   }
 
   return {
+    ...entry,
     kind: "approval",
     approval: { ...entry.approval },
   };
@@ -216,6 +222,7 @@ function appendMessageDelta(
         }
       : {};
     return {
+      ...entry,
       kind: "message" as const,
       message: {
         ...entry.message,
@@ -229,6 +236,9 @@ function appendMessageDelta(
   if (!found) {
     entries.push({
       kind: "message",
+      ...(activeRunId(state)
+        ? { runId: activeRunId(state) }
+        : {}),
       message: {
         id: messageId,
         role: "assistant",
@@ -267,6 +277,7 @@ function appendThinkingDelta(
       !entry.message.thinkingDone &&
       entry.message.thinkingDurationMs === undefined;
     return {
+      ...entry,
       kind: "message" as const,
       message: {
         ...entry.message,
@@ -284,6 +295,9 @@ function appendThinkingDelta(
   if (!found) {
     entries.push({
       kind: "message",
+      ...(activeRunId(state)
+        ? { runId: activeRunId(state) }
+        : {}),
       message: {
         id: messageId,
         role: "assistant",
@@ -324,6 +338,7 @@ function completeThinking(
           ? Date.now() - entry.message.thinkingStartedAt
           : undefined);
       return {
+        ...entry,
         kind: "message",
         message: {
           ...entry.message,
@@ -350,6 +365,7 @@ function completeMessage(
     entries: state.entries.map((entry) =>
       entry.kind === "message" && entry.message.id === messageId
         ? {
+            ...entry,
             kind: "message",
             message: {
               ...entry.message,
@@ -388,6 +404,7 @@ function upsertTool(state: TimelineState, tool: ToolCall): TimelineState {
 
     found = true;
     return {
+      ...entry,
       kind: "tool" as const,
       tool: {
         ...tool,
@@ -399,6 +416,9 @@ function upsertTool(state: TimelineState, tool: ToolCall): TimelineState {
   if (!found) {
     entries.push({
       kind: "tool",
+      ...(activeRunId(state)
+        ? { runId: activeRunId(state) }
+        : {}),
       tool: {
         ...tool,
         details: [...tool.details],
@@ -529,6 +549,7 @@ function cancelRun(state: TimelineState): TimelineState {
       entry.kind === "tool" &&
       (entry.tool.status === "Running" || entry.tool.status === "Waiting")
         ? {
+            ...entry,
             kind: "tool",
             tool: {
               ...entry.tool,
@@ -540,6 +561,7 @@ function cancelRun(state: TimelineState): TimelineState {
     pendingApprovals: [],
     pendingQuestions: [],
     queuedMessages: [],
+    runs: finishRunningRuns(state.runs, "cancelled"),
     error: null,
   };
 }
@@ -552,6 +574,7 @@ function failRun(state: TimelineState, message: string): TimelineState {
       entry.kind === "tool" &&
       (entry.tool.status === "Running" || entry.tool.status === "Waiting")
         ? {
+            ...entry,
             kind: "tool",
             tool: {
               ...entry.tool,
@@ -563,8 +586,27 @@ function failRun(state: TimelineState, message: string): TimelineState {
     pendingApprovals: [],
     pendingQuestions: [],
     queuedMessages: [],
+    runs: finishRunningRuns(state.runs, "error"),
     error: message,
   };
+}
+
+function finishRunningRuns(
+  runs: TimelineState["runs"],
+  status: "cancelled" | "error",
+): TimelineState["runs"] {
+  const completedAt = Date.now();
+  return (runs ?? []).map((run) =>
+    run.status === "running"
+      ? { ...run, status, completedAt }
+      : { ...run },
+  );
+}
+
+function activeRunId(state: TimelineState): string | undefined {
+  return [...(state.runs ?? [])]
+    .reverse()
+    .find((run) => run.status === "running")?.id;
 }
 
 function nextPhaseAfterActivity(entries: TimelineEntry[]): RunPhase {

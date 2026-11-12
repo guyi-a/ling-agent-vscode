@@ -108,6 +108,8 @@ class CompactionTimelineItem:
 class TimelineRun:
     id: str
     status: Literal["running", "completed", "cancelled", "error"] = "running"
+    started_at: int | None = None
+    completed_at: int | None = None
 
 
 TimelineItem: TypeAlias = (
@@ -172,7 +174,10 @@ class TimelineProjector:
         event = envelope.event
 
         if isinstance(event, RunStarted):
-            self._runs[envelope.run_id] = TimelineRun(id=envelope.run_id)
+            self._runs[envelope.run_id] = TimelineRun(
+                id=envelope.run_id,
+                started_at=envelope.emitted_at,
+            )
             return
 
         if isinstance(event, UserMessageCommitted):
@@ -306,11 +311,9 @@ class TimelineProjector:
             return
 
         if isinstance(event, RunStopped):
-            run = self._runs.get(envelope.run_id)
-            if run is None:
-                run = TimelineRun(id=envelope.run_id)
-                self._runs[envelope.run_id] = run
+            run = self._run_for(envelope)
             run.status = _run_status(event.status)
+            run.completed_at = envelope.emitted_at
             self._finish_streaming_items(envelope.run_id, run.status)
 
     def push_frame(self, envelope: StreamFrameEnvelope) -> None:
@@ -395,6 +398,16 @@ class TimelineProjector:
 
     def _find(self, item_id: str) -> TimelineItem | None:
         return next((item for item in self._items if item.id == item_id), None)
+
+    def _run_for(self, envelope: CommittedEventEnvelope) -> TimelineRun:
+        run = self._runs.get(envelope.run_id)
+        if run is None:
+            run = TimelineRun(
+                id=envelope.run_id,
+                started_at=envelope.emitted_at,
+            )
+            self._runs[envelope.run_id] = run
+        return run
 
     def _upsert(self, item: TimelineItem) -> None:
         existing = self._find(item.id)

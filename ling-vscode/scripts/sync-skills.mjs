@@ -2,7 +2,14 @@ import { cpSync, existsSync, mkdirSync, rmSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
-const SKILLS = ["pdf", "pptx", "docx", "inline-visualization"];
+const SKILLS = [
+  "pdf",
+  "pptx",
+  "docx",
+  "inline-visualization",
+  "browser-bridge",
+  "frontend-design",
+];
 
 const scriptDir = dirname(fileURLToPath(import.meta.url));
 const extensionRoot = resolve(scriptDir, "..");

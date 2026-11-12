@@ -38,6 +38,8 @@ const result = spawnSync(
     lingRoot,
     "--collect-all",
     "pypdf",
+    "--collect-all",
+    "websockets",
     "--distpath",
     outputDir,
     "--workpath",

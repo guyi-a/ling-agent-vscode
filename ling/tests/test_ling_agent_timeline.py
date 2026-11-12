@@ -254,6 +254,21 @@ def test_timeline_projector_reconciles_stream_and_commit() -> None:
     ]
     assert approval_items[0].status == "approved"
     assert snapshot.runs["run-1"].status == "completed"
+    assert snapshot.runs["run-1"].started_at == 1
+    assert snapshot.runs["run-1"].completed_at == 8
+
+    from ling_rpc.ui_events import snapshot_to_ui
+
+    ui = snapshot_to_ui(snapshot)
+    assert ui["runs"] == [
+        {
+            "id": "run-1",
+            "status": "completed",
+            "startedAt": 1,
+            "completedAt": 8,
+        }
+    ]
+    assert all(entry.get("runId") == "run-1" for entry in ui["entries"])
 
 
 def test_timeline_projector_ignores_duplicate_sequences() -> None:
