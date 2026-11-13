@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.1.1
+
+- Add a single Copy action to the final answer's action row for each completed
+  assistant response. It copies intermediate text, compact tool summaries, and
+  the final answer in original order.
+
 ## 1.1.0
 
 - Add a repository README and reposition Ling as a local agent harness for

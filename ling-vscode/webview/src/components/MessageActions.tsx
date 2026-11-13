@@ -7,6 +7,7 @@ interface MessageActionsProps {
   onCopy(text: string): void;
   onDelete?: () => void;
   onRegenerate?: () => void;
+  showCopy?: boolean;
 }
 
 export function MessageActions({
@@ -15,6 +16,7 @@ export function MessageActions({
   onCopy,
   onDelete,
   onRegenerate,
+  showCopy = true,
 }: MessageActionsProps) {
   const [copied, setCopied] = useState(false);
   const [confirming, setConfirming] = useState(false);
@@ -40,7 +42,11 @@ export function MessageActions({
     }, 1400);
   }
 
-  if (!text && !onRegenerate && !onDelete) {
+  if (
+    (!showCopy || !text) &&
+    !onRegenerate &&
+    !onDelete
+  ) {
     return null;
   }
 
@@ -73,7 +79,7 @@ export function MessageActions({
 
   return (
     <div className="message-actions">
-      {text ? (
+      {showCopy && text ? (
         <button
           className="message-action"
           type="button"

@@ -2012,6 +2012,12 @@ assert.deepEqual(
   ["entry", "run-activity", "entry"],
 );
 assert.equal(
+  completedRunBlocks[2]?.kind === "entry"
+    ? completedRunBlocks[2].copyText
+    : undefined,
+  "[Edit] a.py — Completed\n\nUpdated the file.",
+);
+assert.equal(
   completedRunBlocks[1]?.kind === "run-activity"
     ? completedRunBlocks[1].durationMs
     : undefined,

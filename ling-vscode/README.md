@@ -171,7 +171,8 @@ When `write_file` or `edit_file` waits for approval, VS Code opens a native diff
 
 ### Message actions
 
-- Hover over user messages and model replies to copy or delete them; deletion requires confirmation.
+- Each completed assistant response has one Copy button at the bottom. It copies the intermediate text, compact tool lines, and the final answer in original order.
+- User messages can be copied or deleted from their hover actions; deletion requires confirmation.
 - The latest model reply can be regenerated.
 - Messages cannot be deleted or regenerated while a run is active.
 

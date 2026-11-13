@@ -11,6 +11,7 @@ export type TimelineContentBlock =
   | {
       kind: "entry";
       entry: Extract<TimelineEntry, { kind: "message" }>;
+      copyText?: string;
     }
   | { kind: "tools"; tools: ToolCall[]; runId?: string }
   | {
@@ -498,11 +499,14 @@ function groupCompletedRun(
     >,
   };
 
+  const copyText = formatRunCopy(activityBlocks, answer);
+  const answerBlock: TimelineContentBlock = {
+    kind: "entry",
+    entry: answer,
+    ...(copyText ? { copyText } : {}),
+  };
   if (activityBlocks.length === 0) {
-    return [
-      userBlock,
-      { kind: "entry", entry: answer },
-    ];
+    return [userBlock, answerBlock];
   }
 
   const startedAt = run.startedAt;
@@ -523,7 +527,7 @@ function groupCompletedRun(
       ...(durationMs !== undefined ? { durationMs } : {}),
       blocks: activityBlocks,
     },
-    { kind: "entry", entry: answer },
+    answerBlock,
     ...(run.changes?.length
       ? [
           {
@@ -535,6 +539,41 @@ function groupCompletedRun(
         ]
       : []),
   ];
+}
+
+function formatRunCopy(
+  blocks: TimelineContentBlock[],
+  answer: Extract<TimelineEntry, { kind: "message" }>,
+): string {
+  const parts: string[] = [];
+  for (const block of blocks) {
+    if (block.kind === "entry") {
+      if (block.entry.message.role !== "assistant") {
+        continue;
+      }
+      const text = block.entry.message.content.trim();
+      if (text) {
+        parts.push(text);
+      }
+      continue;
+    }
+    if (block.kind === "tools" || block.kind === "tool-group") {
+      const lines = block.tools
+        .map((tool) => {
+          const label = tool.target || tool.name || tool.action;
+          return `[${tool.action}] ${label} — ${tool.status}`;
+        })
+        .filter(Boolean);
+      if (lines.length > 0) {
+        parts.push(lines.join("\n"));
+      }
+    }
+  }
+  const answerText = answer.message.content.trim();
+  if (answerText) {
+    parts.push(answerText);
+  }
+  return parts.join("\n\n");
 }
 
 function findFinalAnswerIndex(entries: TimelineEntry[]): number {
