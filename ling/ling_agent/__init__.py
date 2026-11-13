@@ -152,6 +152,7 @@ from .streaming import (
 from .timeline import (
     ApprovalTimelineItem,
     AssistantTimelineItem,
+    BackgroundTaskNoticeItem,
     CompactionTimelineItem,
     TimelineItem,
     TimelineProjector,
@@ -206,6 +207,7 @@ __all__ = [
     "ApprovalTimelineItem",
     "AssistantMessageCommitted",
     "AssistantTimelineItem",
+    "BackgroundTaskNoticeItem",
     "AssistantTextDelta",
     "CompactionTimelineItem",
     "AssistantThinkingDelta",

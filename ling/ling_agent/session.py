@@ -55,11 +55,14 @@ from .changes import (
 from .selections import UserSelection
 from .compaction import CompactionRecord, rows_from_messages
 from .effects import ApprovalMode
+from .background_tasks import background_notification_message
 from .events import (
     ApprovalRequested,
     ApprovalResolved,
     AssistantMessageCommitted,
     AssistantTextDelta,
+    BackgroundTaskNotice,
+    BackgroundTasksCompleted,
     AssistantThinkingDelta,
     AssistantThinkingDone,
     CompactionApplied,
@@ -322,6 +325,36 @@ class Session:
             RunStarted(continuation=True),
             step=0,
             turn_id=run_id,
+        )
+        return run_id
+
+    async def start_background_continuation(
+        self,
+        tasks: tuple[BackgroundTaskNotice, ...],
+    ) -> str:
+        if self._run_id is not None:
+            raise SessionStateError("A run is already active")
+        if not tasks:
+            raise ValueError("Background continuation needs at least one task")
+        run_id = _new_id("run")
+        self._run_id = run_id
+        self._turn_counter = 0
+        self._current_turn = None
+        self._last_completed_turn = None
+        self._run_has_images = False
+        self._pending_changes = {}
+        await self._commit(
+            RunStarted(continuation=True),
+            step=0,
+            turn_id=run_id,
+        )
+        await self._commit(
+            BackgroundTasksCompleted(tasks=tuple(tasks)),
+            step=0,
+            turn_id=run_id,
+        )
+        self.context.messages.append(
+            background_notification_message(tuple(tasks))
         )
         return run_id
 

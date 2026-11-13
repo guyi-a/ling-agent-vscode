@@ -240,6 +240,34 @@ def test_run_tool_entry_has_io_detail() -> None:
     }
 
 
+def test_run_tool_entry_has_background_detail() -> None:
+    item = _item(
+        "run_command",
+        {"command": "npm run build"},
+        output="mode: background\n",
+        details={
+            "kind": "command",
+            "mode": "background",
+            "taskId": "task-1",
+            "logPath": "/ws/.agents/background/task-1.log",
+            "status": "running",
+            "exitCode": None,
+        },
+    )
+
+    detail = _tool_entry(
+        item,
+        waiting_for_approval=False,
+    )["tool"]["detail"]
+
+    assert detail["kind"] == "io"
+    assert detail["mode"] == "background"
+    assert detail["taskId"] == "task-1"
+    assert detail["logPath"] == "/ws/.agents/background/task-1.log"
+    assert detail["status"] == "running"
+    assert "exitCode" not in detail
+
+
 def test_web_tool_entries_use_web_action() -> None:
     search = _item(
         "web_search",

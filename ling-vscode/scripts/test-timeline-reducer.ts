@@ -707,6 +707,45 @@ assert.equal(
   isUiEvent({
     type: "tool.updated",
     tool: {
+      id: "tool-detail-3",
+      action: "Run",
+      target: "npm run build",
+      status: "Completed",
+      details: [],
+      detail: {
+        kind: "io",
+        input: "npm run build",
+        output: "mode: background",
+        mode: "background",
+        taskId: "task-1",
+        logPath: ".agents/background/task-1.log",
+        status: "running",
+      },
+    },
+  }),
+  true,
+);
+assert.equal(
+  isUiEvent({
+    type: "tool.updated",
+    tool: {
+      id: "tool-detail-4",
+      action: "Run",
+      target: "npm run build",
+      status: "Completed",
+      details: [],
+      detail: {
+        kind: "io",
+        mode: "sideways",
+      },
+    },
+  }),
+  false,
+);
+assert.equal(
+  isUiEvent({
+    type: "tool.updated",
+    tool: {
       id: "tool-detail-plan",
       action: "Plan",
       target: "Fix login",
@@ -2029,6 +2068,53 @@ assert.equal(
     : undefined,
   "Updated the file.",
 );
+
+const continuationRunBlocks = groupTimelineEntries(
+  [
+    {
+      kind: "task-notification",
+      runId: "run-continuation",
+      id: "notice-continuation",
+      tasks: [
+        {
+          id: "task-continuation",
+          description: "npm run build",
+          status: "completed",
+          kind: "command",
+          exitCode: 0,
+        },
+      ],
+    },
+    {
+      kind: "message",
+      runId: "run-continuation",
+      message: {
+        id: "answer-continuation",
+        role: "assistant",
+        content: "Build finished successfully.",
+        streaming: false,
+      },
+    },
+  ] as TimelineEntry[],
+  [
+    {
+      id: "run-continuation",
+      status: "completed",
+      startedAt: 4_000,
+      completedAt: 4_500,
+    },
+  ],
+);
+assert.deepEqual(
+  continuationRunBlocks.map((block) => block.kind),
+  ["task-notification", "entry"],
+);
+assert.equal(
+  continuationRunBlocks[1]?.kind === "entry"
+    ? continuationRunBlocks[1].copyText
+    : undefined,
+  "Build finished successfully.",
+);
 assert.equal(formatRunDuration(13_400), "13秒");
 assert.equal(formatRunDuration(62_000), "1分钟 2秒");
 assert.equal(formatRunDuration(60_000), "1分钟");
@@ -2133,6 +2219,138 @@ assert.deepEqual(
     { path: "a.py", added: 2, removed: 1 },
     { path: "b.py", added: 3, removed: 0 },
   ],
+);
+
+const backgroundTask = {
+  id: "task-1",
+  sessionId: "session-1",
+  toolCallId: "call-1",
+  description: "inspect auth",
+  status: "running",
+  summary: null,
+  error: null,
+  createdAt: 1,
+  startedAt: 2,
+  completedAt: null,
+};
+const backgroundEvent = {
+  type: "background.updated",
+  task: backgroundTask,
+} as UiEvent;
+assert.equal(isUiEvent(backgroundEvent), true);
+let backgroundState = apply(
+  createEmptyTimelineState(),
+  backgroundEvent,
+);
+assert.deepEqual(backgroundState.backgroundTasks, [backgroundTask]);
+backgroundState = apply(backgroundState, {
+  type: "background.updated",
+  task: { ...backgroundTask, status: "completed", summary: "done" },
+} as UiEvent);
+assert.equal(backgroundState.backgroundTasks.length, 1);
+assert.equal(backgroundState.backgroundTasks[0].status, "completed");
+
+const commandTask = {
+  ...backgroundTask,
+  id: "task-command",
+  toolCallId: "call-command",
+  description: "npm run build",
+  status: "completed",
+  kind: "command",
+  exitCode: 0,
+  outputPath: "/ws/.agents/background/task-command.log",
+  summary: "built ok",
+};
+assert.equal(
+  isUiEvent({
+    type: "background.updated",
+    task: commandTask,
+  } as UiEvent),
+  true,
+);
+const commandState = apply(
+  createEmptyTimelineState(),
+  { type: "background.updated", task: commandTask } as UiEvent,
+);
+assert.equal(commandState.backgroundTasks[0].kind, "command");
+assert.equal(commandState.backgroundTasks[0].exitCode, 0);
+assert.equal(
+  commandState.backgroundTasks[0].outputPath,
+  "/ws/.agents/background/task-command.log",
+);
+assert.equal(
+  isUiEvent({
+    type: "background.updated",
+    task: { ...commandTask, kind: "other" },
+  } as UiEvent),
+  false,
+);
+
+assert.equal(
+  isWebviewToHostMessage({
+    type: "tool.background",
+    callId: "call-command",
+  }),
+  true,
+);
+assert.equal(
+  isWebviewToHostMessage({ type: "tool.background", callId: "" }),
+  false,
+);
+assert.equal(
+  isWebviewToHostMessage({
+    type: "background.openLog",
+    taskId: "task-command",
+    sessionId: "session-1",
+  }),
+  true,
+);
+assert.equal(
+  isHostToWebviewMessage({
+    type: "ling.background-result",
+    callId: "call-command",
+    accepted: true,
+    task: commandTask,
+  }),
+  true,
+);
+assert.equal(
+  isHostToWebviewMessage({
+    type: "ling.background-result",
+    callId: "call-command",
+    accepted: false,
+    error: "not running",
+  }),
+  true,
+);
+
+const taskNoticeBlocks = groupTimelineEntries([
+  {
+    kind: "task-notification",
+    id: "notice-1",
+    tasks: [
+      {
+        id: "task-1",
+        description: "npm run build",
+        status: "completed",
+        kind: "command",
+        exitCode: 0,
+        logPath: ".agents/background/task-1.log",
+        summary: "done",
+      },
+    ],
+  },
+] as TimelineEntry[]);
+assert.deepEqual(
+  taskNoticeBlocks.map((block) => block.kind),
+  ["task-notification"],
+);
+const commandNotice = taskNoticeBlocks[0];
+assert.equal(
+  commandNotice?.kind === "task-notification"
+    ? commandNotice.tasks[0]?.kind
+    : undefined,
+  "command",
 );
 
 console.log("timelineReducer and transport tests passed");

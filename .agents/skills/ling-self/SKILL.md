@@ -47,7 +47,8 @@ Ling 由两部分组成：
 - 执行命令，按风险分级审批。
 - 原生 diff 审批，支持逐次允许或拒绝。
 - 四种审批模式和计划模式。
-- 前台 explore 子 agent，用于只读代码调研。
+- 前台和后台 explore 子 agent，用于只读代码调研；后台任务完成后会合并通知并自动续接主会话。
+- 运行中的前台命令可在工具卡上手动转入后台，命令任务带退出码、日志和停止能力。
 - 通过 Kro Browser Bridge 驱动用户真实的 Edge 浏览器。
 - MCP 客户端：stdio、Streamable HTTP、SSE、OAuth。
 - 内置技能、全局技能和工作区技能。
@@ -60,7 +61,7 @@ Ling 由两部分组成：
 
 - Marketplace 目前只发布 Windows x64。
 - 文档读取支持 PDF、DOCX、PPTX，不支持 `.doc`、`.ppt`、`.xlsx` 和 OCR。
-- 目前只有前台子 agent，没有后台 subagent。
+- 后台任务支持 explore 子 agent 和运行中命令手动转后台；不支持命令直接以 `run_in_background` 启动、后台浏览器/媒体，也不会在 sidecar 重启后恢复执行。
 - 浏览器能力依赖 Kro Browser Bridge 扩展；同一时间只有一实例能占用 bridge 端口。
 - MCP 服务器由用户配置，Ling 不提供 MCP 市场或自动发现。
 - 不提供云端代理，也没有遥测。

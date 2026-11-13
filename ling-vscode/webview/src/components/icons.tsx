@@ -46,6 +46,15 @@ export function HistoryIcon(props: IconProps) {
   );
 }
 
+export function TasksIcon(props: IconProps) {
+  return (
+    <IconBase {...props}>
+      <path d="M5 6.5h14M5 12h14M5 17.5h8" />
+      <path d="M2.8 6.5h.01M2.8 12h.01M2.8 17.5h.01" />
+    </IconBase>
+  );
+}
+
 export function SettingsIcon(props: IconProps) {
   return (
     <IconBase {...props}>

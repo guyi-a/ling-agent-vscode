@@ -12,6 +12,7 @@ const child = spawn(
     "unittest",
     "tests.test_ling_rpc",
     "tests.test_ling_rpc_sessions",
+    "tests.test_ling_rpc_background_tasks",
     "tests.test_ling_comment",
     "-v",
   ],

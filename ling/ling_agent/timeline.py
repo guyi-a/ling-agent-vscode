@@ -17,6 +17,8 @@ from .events import (
     ApprovalResolved,
     AssistantMessageCommitted,
     AssistantTextDelta,
+    BackgroundTaskNotice,
+    BackgroundTasksCompleted,
     AssistantThinkingDelta,
     AssistantThinkingDone,
     CompactionApplied,
@@ -108,6 +110,15 @@ class CompactionTimelineItem:
 
 
 @dataclass(slots=True)
+class BackgroundTaskNoticeItem:
+    id: str
+    run_id: str
+    created_seq: int
+    tasks: tuple[BackgroundTaskNotice, ...]
+    kind: Literal["background_tasks"] = "background_tasks"
+
+
+@dataclass(slots=True)
 class TimelineRun:
     id: str
     status: Literal["running", "completed", "cancelled", "error"] = "running"
@@ -123,6 +134,7 @@ TimelineItem: TypeAlias = (
     | ToolTimelineItem
     | ApprovalTimelineItem
     | CompactionTimelineItem
+    | BackgroundTaskNoticeItem
 )
 
 
@@ -305,6 +317,17 @@ class TimelineProjector:
                     compaction_id=event.compaction_id,
                     through_message_id=event.through_message_id,
                     replaced_count=event.replaced_count,
+                )
+            )
+            return
+
+        if isinstance(event, BackgroundTasksCompleted):
+            self._upsert(
+                BackgroundTaskNoticeItem(
+                    id=envelope.event_id,
+                    run_id=envelope.run_id,
+                    created_seq=envelope.seq,
+                    tasks=event.tasks,
                 )
             )
             return
@@ -524,6 +547,7 @@ def _run_status(
 __all__ = [
     "ApprovalTimelineItem",
     "AssistantTimelineItem",
+    "BackgroundTaskNoticeItem",
     "CompactionTimelineItem",
     "TimelineItem",
     "TimelineProjector",

@@ -1,6 +1,7 @@
 import { useEffect, useRef, type Dispatch } from "react";
 import type {
   ApprovalMode,
+  BackgroundTaskView,
   HistorySession,
   IndexBuildStats,
   IndexStatus,
@@ -41,6 +42,12 @@ export function useHostEvents(
     error?: string,
   ) => void,
   onIndexStatus: (status: IndexStatus) => void,
+  onBackgroundResult: (
+    callId: string,
+    accepted: boolean,
+    task?: BackgroundTaskView,
+    error?: string,
+  ) => void,
   onReady: () => void,
 ): void {
   // Keep handlers reachable from one stable subscription. Re-subscribing on
@@ -55,6 +62,7 @@ export function useHostEvents(
     onSelectionAdded,
     onIndexResult,
     onIndexStatus,
+    onBackgroundResult,
     onReady,
   });
   handlers.current = {
@@ -67,6 +75,7 @@ export function useHostEvents(
     onSelectionAdded,
     onIndexResult,
     onIndexStatus,
+    onBackgroundResult,
     onReady,
   };
 
@@ -131,6 +140,15 @@ export function useHostEvents(
         }
         if (message.type === "ling.mode-changed") {
           current.onApprovalMode(message.mode);
+          return;
+        }
+        if (message.type === "ling.background-result") {
+          current.onBackgroundResult(
+            message.callId,
+            message.accepted,
+            message.task,
+            message.error,
+          );
           return;
         }
         if (message.type === "ling.ready") {

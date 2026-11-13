@@ -1,6 +1,7 @@
 import type {
   ApprovalRequest,
   AskUserAnswer,
+  BackgroundTaskView,
   QueuedMessage,
   QuestionRequest,
   SessionSnapshot,
@@ -68,6 +69,10 @@ export type UiEvent =
   | {
       type: "session.queue";
       queuedMessages: QueuedMessage[];
+    }
+  | {
+      type: "background.updated";
+      task: BackgroundTaskView;
     }
   | {
       type: "run.cancelled";

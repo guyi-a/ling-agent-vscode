@@ -53,6 +53,25 @@ def test_compound_commands_split_and_build_rules() -> None:
     ) is None
 
 
+def test_quoted_command_token_matches_stored_rule() -> None:
+    with tempfile.TemporaryDirectory() as temp:
+        root = Path(temp)
+        store = LocalSettingsStore(root)
+        command = (
+            'Start-Sleep -Seconds 20; "slept 20s, now " '
+            '+ (Get-Date -Format "HH:mm:ss")'
+        )
+        patterns = command_allow_patterns(command)
+        assert patterns == ["Start-Sleep:*", "slept 20s, now:*"]
+
+        store.allow_commands(patterns)
+        assert store.allows_command(command)
+
+        quoted = '"C:\\Program Files\\nodejs\\npm.cmd" install'
+        store.allow_commands(command_allow_patterns(quoted) or [])
+        assert store.allows_command(quoted)
+
+
 def test_allow_rules_match_exact_and_prefix() -> None:
     with tempfile.TemporaryDirectory() as temp:
         root = Path(temp)

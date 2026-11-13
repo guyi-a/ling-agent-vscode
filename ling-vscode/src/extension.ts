@@ -20,6 +20,7 @@ import {
 import type { UiEvent } from "../shared/uiProtocol";
 import type {
   ApprovalMode,
+  BackgroundTaskView,
   EffortLevel,
   HistorySession,
   IndexBuildStats,
@@ -534,6 +535,21 @@ class ChatViewProvider implements vscode.WebviewViewProvider {
 
       case "question.answer":
         void this.handleQuestionAnswer(value);
+        break;
+
+      case "background.stop":
+        void this.handleBackgroundStop(value.taskId);
+        break;
+
+      case "tool.background":
+        void this.handleToolBackground(value.callId);
+        break;
+
+      case "background.openLog":
+        void this.handleBackgroundOpenLog(
+          value.taskId,
+          value.sessionId,
+        );
         break;
 
       case "session.queued.sendNow":
@@ -1860,6 +1876,95 @@ class ChatViewProvider implements vscode.WebviewViewProvider {
         type: "run.failed",
         message: `Unable to resolve approval: ${formatError(error)}`,
       });
+    }
+  }
+
+  private async handleBackgroundStop(taskId: string): Promise<void> {
+    try {
+      await this.sidecar.start();
+      await this.sidecar.call("background.stop", { taskId });
+    } catch (error) {
+      this.output.appendLine(
+        `Background task stop failed: ${formatError(error)}`,
+      );
+    }
+  }
+
+  private async handleToolBackground(callId: string): Promise<void> {
+    try {
+      await this.sidecar.start();
+      const result = await this.sidecar.call<{
+        task: BackgroundTaskView;
+      }>("tool.background", { callId });
+      this.postToWebview({
+        type: "ling.background-result",
+        callId,
+        accepted: true,
+        task: result.task,
+      });
+    } catch (error) {
+      const message = formatError(error);
+      this.output.appendLine(
+        `Moving tool call to the background failed: ${message}`,
+      );
+      this.postToWebview({
+        type: "ling.background-result",
+        callId,
+        accepted: false,
+        error: message,
+      });
+    }
+  }
+
+  private async handleBackgroundOpenLog(
+    taskId: string,
+    sessionId?: string,
+  ): Promise<void> {
+    try {
+      await this.sidecar.start();
+      const result = await this.sidecar.call<{
+        tasks: BackgroundTaskView[];
+      }>(
+        "background.list",
+        sessionId ? { sessionId } : {},
+      );
+      const task = result.tasks.find((item) => item.id === taskId);
+      if (!task) {
+        throw new Error("Background task not found");
+      }
+      const outputPath = task.outputPath;
+      if (!outputPath) {
+        throw new Error("This task has no log file");
+      }
+      const workspaceRoot = this.sessionWorkspaceRoot();
+      const logRoot = path.join(
+        workspaceRoot,
+        ".agents",
+        "background",
+      );
+      const resolved = path.isAbsolute(outputPath)
+        ? path.resolve(outputPath)
+        : path.resolve(workspaceRoot, outputPath);
+      const relative = path.relative(logRoot, resolved);
+      if (
+        relative.startsWith("..") ||
+        path.isAbsolute(relative)
+      ) {
+        throw new Error("The log path is outside the workspace");
+      }
+      if (!existsSync(resolved)) {
+        throw new Error("The log file no longer exists");
+      }
+      await vscode.window.showTextDocument(
+        vscode.Uri.file(resolved),
+        { preview: true },
+      );
+    } catch (error) {
+      const message = formatError(error);
+      this.output.appendLine(
+        `Opening the background task log failed: ${message}`,
+      );
+      void vscode.window.showErrorMessage(message);
     }
   }
 

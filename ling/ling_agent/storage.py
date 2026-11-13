@@ -8,10 +8,10 @@ import os
 import sqlite3
 import time
 import uuid
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
 from enum import Enum
 from pathlib import Path
-from typing import Any, TypeVar
+from typing import Any, Literal, Sequence, TypeVar
 
 from ling_ai.types import (
     AssistantMessage,
@@ -45,6 +45,8 @@ from .events import (
     ApprovalRequested,
     ApprovalResolved,
     AssistantMessageCommitted,
+    BackgroundTaskNotice,
+    BackgroundTasksCompleted,
     CompactionApplied,
     CommittedEvent,
     CommittedEventEnvelope,
@@ -58,7 +60,7 @@ from .events import (
     UserMessageCommitted,
 )
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 4
 _T = TypeVar("_T")
 
 
@@ -90,6 +92,45 @@ class SessionRecord:
     approval_mode: ApprovalMode = ApprovalMode.MANUAL
 
 
+BackgroundTaskStatus = Literal[
+    "pending",
+    "running",
+    "completed",
+    "failed",
+    "cancelled",
+    "interrupted",
+]
+
+TERMINAL_BACKGROUND_TASK_STATUSES = frozenset(
+    {"completed", "failed", "cancelled", "interrupted"}
+)
+
+
+BackgroundTaskKind = Literal["subagent", "command"]
+
+
+@dataclass(slots=True, frozen=True)
+class BackgroundTaskRecord:
+    id: str
+    session_id: str
+    run_id: str
+    tool_call_id: str
+    description: str
+    prompt: str
+    status: BackgroundTaskStatus
+    summary: str | None
+    error: str | None
+    trace: tuple[dict[str, Any], ...]
+    created_at: int
+    started_at: int | None = None
+    completed_at: int | None = None
+    continued_at: int | None = None
+    kind: BackgroundTaskKind = "subagent"
+    exit_code: int | None = None
+    output_path: str | None = None
+    pid: int | None = None
+
+
 def default_storage_root() -> Path:
     return default_state_root()
 
@@ -113,6 +154,7 @@ def _event_kind(event: CommittedEvent) -> str:
         RunChangesReverted: "run.changes.reverted",
         UsageUpdated: "usage.updated",
         RunStopped: "run.stopped",
+        BackgroundTasksCompleted: "background.tasks.completed",
     }
     try:
         return kinds[type(event)]
@@ -462,6 +504,26 @@ def _event_from_dict(kind: str, data: dict[str, Any]) -> CommittedEvent:
                 else None
             ),
         )
+    if kind == "background.tasks.completed":
+        return BackgroundTasksCompleted(
+            tasks=tuple(
+                BackgroundTaskNotice(
+                    id=str(item["id"]),
+                    description=str(item["description"]),
+                    status=item["status"],
+                    summary=item.get("summary"),
+                    error=item.get("error"),
+                    kind=(
+                        item.get("kind")
+                        if item.get("kind") in ("subagent", "command")
+                        else "subagent"
+                    ),
+                    exit_code=item.get("exit_code"),
+                    log_path=item.get("log_path"),
+                )
+                for item in data.get("tasks") or ()
+            )
+        )
     raise StorageError(f"Unknown committed event kind: {kind!r}")
 
 
@@ -538,6 +600,33 @@ class SQLiteSessionStore:
             );
             CREATE INDEX IF NOT EXISTS events_session_seq
                 ON events(session_id, seq);
+            CREATE TABLE IF NOT EXISTS background_tasks (
+                id TEXT PRIMARY KEY,
+                session_id TEXT NOT NULL,
+                run_id TEXT NOT NULL DEFAULT '',
+                tool_call_id TEXT NOT NULL DEFAULT '',
+                description TEXT NOT NULL,
+                prompt TEXT NOT NULL,
+                status TEXT NOT NULL,
+                summary TEXT,
+                error TEXT,
+                trace_json TEXT NOT NULL DEFAULT '[]',
+                created_at INTEGER NOT NULL,
+                started_at INTEGER,
+                completed_at INTEGER,
+                continued_at INTEGER,
+                kind TEXT NOT NULL DEFAULT 'subagent',
+                exit_code INTEGER,
+                output_path TEXT,
+                pid INTEGER,
+                FOREIGN KEY (session_id)
+                    REFERENCES sessions(session_id)
+                    ON DELETE CASCADE
+            );
+            CREATE INDEX IF NOT EXISTS background_tasks_session_status
+                ON background_tasks(session_id, status);
+            CREATE INDEX IF NOT EXISTS background_tasks_session_continued
+                ON background_tasks(session_id, continued_at);
             """
         )
         row = self._connection.execute(
@@ -562,11 +651,42 @@ class SQLiteSessionStore:
                         "ALTER TABLE sessions ADD COLUMN "
                         "approval_mode TEXT NOT NULL DEFAULT 'manual'"
                     )
+                version = 2
                 self._connection.execute(
                     "UPDATE schema_version SET version = ?",
-                    (SCHEMA_VERSION,),
+                    (version,),
                 )
-            elif version != SCHEMA_VERSION:
+            if version == 2:
+                version = 3
+                self._connection.execute(
+                    "UPDATE schema_version SET version = ?",
+                    (version,),
+                )
+            if version == 3:
+                columns = {
+                    str(column["name"])
+                    for column in self._connection.execute(
+                        "PRAGMA table_info(background_tasks)"
+                    )
+                }
+                additions = {
+                    "kind": "TEXT NOT NULL DEFAULT 'subagent'",
+                    "exit_code": "INTEGER",
+                    "output_path": "TEXT",
+                    "pid": "INTEGER",
+                }
+                for name, definition in additions.items():
+                    if name not in columns:
+                        self._connection.execute(
+                            f"ALTER TABLE background_tasks ADD COLUMN "
+                            f"{name} {definition}"
+                        )
+                version = 4
+                self._connection.execute(
+                    "UPDATE schema_version SET version = ?",
+                    (version,),
+                )
+            if version != SCHEMA_VERSION:
                 raise StorageError(
                     f"Unsupported schema version: {row['version']}"
                 )
@@ -822,6 +942,353 @@ class SQLiteSessionStore:
                 row["approval_mode"] if "approval_mode" in row.keys() else "manual"
             ),
         )
+
+    @staticmethod
+    def _background_task_from_row(row: sqlite3.Row) -> BackgroundTaskRecord:
+        try:
+            raw_trace = json.loads(row["trace_json"] or "[]")
+        except (TypeError, ValueError):
+            raw_trace = []
+        trace = tuple(
+            item
+            for item in raw_trace
+            if isinstance(item, dict)
+        ) if isinstance(raw_trace, list) else ()
+        return BackgroundTaskRecord(
+            id=row["id"],
+            session_id=row["session_id"],
+            run_id=row["run_id"],
+            tool_call_id=row["tool_call_id"],
+            description=row["description"],
+            prompt=row["prompt"],
+            status=row["status"],
+            summary=row["summary"],
+            error=row["error"],
+            trace=trace,
+            created_at=int(row["created_at"]),
+            started_at=(
+                int(row["started_at"])
+                if row["started_at"] is not None
+                else None
+            ),
+            completed_at=(
+                int(row["completed_at"])
+                if row["completed_at"] is not None
+                else None
+            ),
+            continued_at=(
+                int(row["continued_at"])
+                if row["continued_at"] is not None
+                else None
+            ),
+            kind=row["kind"] if row["kind"] in ("subagent", "command") else "subagent",
+            exit_code=(
+                int(row["exit_code"])
+                if row["exit_code"] is not None
+                else None
+            ),
+            output_path=row["output_path"],
+            pid=int(row["pid"]) if row["pid"] is not None else None,
+        )
+
+    async def create_background_task(
+        self,
+        task: BackgroundTaskRecord,
+    ) -> None:
+        await self._run(self._create_background_task_sync, task)
+
+    def _create_background_task_sync(
+        self,
+        task: BackgroundTaskRecord,
+    ) -> None:
+        self._connection.execute(
+            """
+            INSERT INTO background_tasks(
+                id, session_id, run_id, tool_call_id, description,
+                prompt, status, summary, error, trace_json,
+                created_at, started_at, completed_at, continued_at,
+                kind, exit_code, output_path, pid
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                task.id,
+                task.session_id,
+                task.run_id,
+                task.tool_call_id,
+                task.description,
+                task.prompt,
+                task.status,
+                task.summary,
+                task.error,
+                json.dumps(
+                    list(task.trace),
+                    ensure_ascii=False,
+                    separators=(",", ":"),
+                ),
+                task.created_at,
+                task.started_at,
+                task.completed_at,
+                task.continued_at,
+                task.kind,
+                task.exit_code,
+                task.output_path,
+                task.pid,
+            ),
+        )
+
+    async def get_background_task(
+        self,
+        task_id: str,
+    ) -> BackgroundTaskRecord | None:
+        return await self._run(self._get_background_task_sync, task_id)
+
+    def _get_background_task_sync(
+        self,
+        task_id: str,
+    ) -> BackgroundTaskRecord | None:
+        row = self._connection.execute(
+            "SELECT * FROM background_tasks WHERE id = ?",
+            (task_id,),
+        ).fetchone()
+        return (
+            self._background_task_from_row(row)
+            if row is not None
+            else None
+        )
+
+    async def list_background_tasks(
+        self,
+        session_id: str,
+    ) -> list[BackgroundTaskRecord]:
+        return await self._run(
+            self._list_background_tasks_sync,
+            session_id,
+        )
+
+    def _list_background_tasks_sync(
+        self,
+        session_id: str,
+    ) -> list[BackgroundTaskRecord]:
+        rows = self._connection.execute(
+            """
+            SELECT * FROM background_tasks
+            WHERE session_id = ?
+            ORDER BY created_at ASC, id ASC
+            """,
+            (session_id,),
+        ).fetchall()
+        return [self._background_task_from_row(row) for row in rows]
+
+    async def mark_background_task_running(
+        self,
+        task_id: str,
+        *,
+        started_at: int,
+    ) -> BackgroundTaskRecord | None:
+        await self._run(
+            self._mark_background_task_running_sync,
+            task_id,
+            started_at,
+        )
+        return await self.get_background_task(task_id)
+
+    def _mark_background_task_running_sync(
+        self,
+        task_id: str,
+        started_at: int,
+    ) -> None:
+        self._connection.execute(
+            """
+            UPDATE background_tasks
+            SET status = 'running', started_at = ?
+            WHERE id = ? AND status = 'pending'
+            """,
+            (started_at, task_id),
+        )
+
+    async def finish_background_task(
+        self,
+        task_id: str,
+        *,
+        status: BackgroundTaskStatus,
+        completed_at: int,
+        summary: str | None = None,
+        error: str | None = None,
+        trace: tuple[dict[str, Any], ...] | None = None,
+        exit_code: int | None = None,
+    ) -> BackgroundTaskRecord | None:
+        await self._run(
+            self._finish_background_task_sync,
+            task_id,
+            status,
+            completed_at,
+            summary,
+            error,
+            trace,
+            exit_code,
+        )
+        return await self.get_background_task(task_id)
+
+    def _finish_background_task_sync(
+        self,
+        task_id: str,
+        status: BackgroundTaskStatus,
+        completed_at: int,
+        summary: str | None,
+        error: str | None,
+        trace: tuple[dict[str, Any], ...] | None,
+        exit_code: int | None,
+    ) -> None:
+        values: list[Any] = [
+            status,
+            summary,
+            error,
+            completed_at,
+            exit_code,
+        ]
+        trace_sql = ""
+        if trace is not None:
+            trace_sql = ", trace_json = ?"
+            values.append(
+                json.dumps(
+                    list(trace),
+                    ensure_ascii=False,
+                    separators=(",", ":"),
+                )
+            )
+        values.append(task_id)
+        self._connection.execute(
+            f"""
+            UPDATE background_tasks
+            SET status = ?, summary = ?, error = ?, completed_at = ?,
+                exit_code = ?
+                {trace_sql}
+            WHERE id = ? AND status IN ('pending', 'running')
+            """,
+            tuple(values),
+        )
+
+    async def claim_background_tasks(
+        self,
+        session_id: str,
+        *,
+        claimed_at: int,
+    ) -> list[BackgroundTaskRecord]:
+        return await self._run(
+            self._claim_background_tasks_sync,
+            session_id,
+            claimed_at,
+        )
+
+    def _claim_background_tasks_sync(
+        self,
+        session_id: str,
+        claimed_at: int,
+    ) -> list[BackgroundTaskRecord]:
+        self._connection.execute("BEGIN IMMEDIATE")
+        try:
+            rows = self._connection.execute(
+                """
+                SELECT * FROM background_tasks
+                WHERE session_id = ?
+                  AND status IN ('completed', 'failed', 'interrupted')
+                  AND continued_at IS NULL
+                ORDER BY created_at ASC, id ASC
+                """,
+                (session_id,),
+            ).fetchall()
+            tasks = [self._background_task_from_row(row) for row in rows]
+            if tasks:
+                self._connection.executemany(
+                    """
+                    UPDATE background_tasks
+                    SET continued_at = ?
+                    WHERE id = ? AND continued_at IS NULL
+                    """,
+                    [(claimed_at, task.id) for task in tasks],
+                )
+            self._connection.execute("COMMIT")
+        except BaseException:
+            self._connection.execute("ROLLBACK")
+            raise
+        return tasks
+
+    async def release_background_tasks(
+        self,
+        task_ids: Sequence[str],
+    ) -> None:
+        await self._run(self._release_background_tasks_sync, task_ids)
+
+    def _release_background_tasks_sync(
+        self,
+        task_ids: Sequence[str],
+    ) -> None:
+        if not task_ids:
+            return
+        placeholders = ",".join("?" for _ in task_ids)
+        self._connection.execute(
+            f"""
+            UPDATE background_tasks
+            SET continued_at = NULL
+            WHERE id IN ({placeholders})
+            """,
+            tuple(task_ids),
+        )
+
+    async def recover_background_tasks(
+        self,
+        *,
+        completed_at: int,
+    ) -> list[BackgroundTaskRecord]:
+        return await self._run(
+            self._recover_background_tasks_sync,
+            completed_at,
+        )
+
+    def _recover_background_tasks_sync(
+        self,
+        completed_at: int,
+    ) -> list[BackgroundTaskRecord]:
+        rows = self._connection.execute(
+            """
+            SELECT * FROM background_tasks
+            WHERE status IN ('pending', 'running')
+            """
+        ).fetchall()
+        tasks = [self._background_task_from_row(row) for row in rows]
+        self._connection.execute(
+            """
+            UPDATE background_tasks
+            SET status = 'interrupted', completed_at = ?,
+                error = CASE
+                    WHEN kind = 'command' AND pid IS NOT NULL
+                         AND (error IS NULL OR error = '')
+                    THEN 'The sidecar stopped while this command was '
+                         || 'running; the process may still be running '
+                         || '(PID ' || pid || ').'
+                    ELSE error
+                END
+            WHERE status IN ('pending', 'running')
+            """,
+            (completed_at,),
+        )
+        recovered: list[BackgroundTaskRecord] = []
+        for task in tasks:
+            error = task.error
+            if task.kind == "command" and task.pid is not None and not error:
+                error = (
+                    "The sidecar stopped while this command was running; "
+                    f"the process may still be running (PID {task.pid})."
+                )
+            recovered.append(
+                replace(
+                    task,
+                    status="interrupted",
+                    completed_at=completed_at,
+                    error=error,
+                )
+            )
+        return recovered
 
     async def append_committed(self, envelope: CommittedEventEnvelope) -> None:
         await self._run(self._append_committed_sync, envelope)

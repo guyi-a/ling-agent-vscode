@@ -39,6 +39,8 @@ from ling_agent import (
     UserMessageCommitted,
 )
 from ling_agent.effects import FilesystemWriteEffect
+from ling_agent.events import BackgroundTasksCompleted
+from ling_agent.storage import BackgroundTaskRecord, _event_from_dict
 
 
 def _envelope(
@@ -364,7 +366,14 @@ async def _schema_v1_migration(database_path: Path, workspace: Path) -> None:
         version = connection.execute(
             "SELECT version FROM schema_version"
         ).fetchone()[0]
-        assert version == 2
+        assert version == 4
+        tables = {
+            row[0]
+            for row in connection.execute(
+                "SELECT name FROM sqlite_master WHERE type = 'table'"
+            )
+        }
+        assert "background_tasks" in tables
     finally:
         connection.close()
 
@@ -449,8 +458,25 @@ async def _delete_session(database_path: Path, workspace: Path) -> None:
                 event=RunStarted(),
             )
         )
+        await store.create_background_task(
+            BackgroundTaskRecord(
+                id="task-1",
+                session_id="session-1",
+                run_id="run-1",
+                tool_call_id="call-1",
+                description="inspect auth",
+                prompt="inspect auth",
+                status="completed",
+                summary="auth uses JWT",
+                error=None,
+                trace=(),
+                created_at=1,
+                completed_at=2,
+            )
+        )
 
         assert await store.delete_session("session-1") is True
+        assert await store.get_background_task("task-1") is None
         assert await store.get_session("session-1") is None
         try:
             await store.load_committed("session-1")
@@ -469,10 +495,165 @@ def test_sqlite_deletes_session_and_events() -> None:
         asyncio.run(_delete_session(root / "sessions.db", root))
 
 
+async def _schema_v3_migration(database_path: Path) -> None:
+    connection = sqlite3.connect(database_path)
+    try:
+        connection.executescript(
+            """
+            CREATE TABLE schema_version(version INTEGER NOT NULL);
+            INSERT INTO schema_version(version) VALUES (3);
+            CREATE TABLE background_tasks (
+                id TEXT PRIMARY KEY,
+                session_id TEXT NOT NULL,
+                run_id TEXT NOT NULL DEFAULT '',
+                tool_call_id TEXT NOT NULL DEFAULT '',
+                description TEXT NOT NULL,
+                prompt TEXT NOT NULL,
+                status TEXT NOT NULL,
+                summary TEXT,
+                error TEXT,
+                trace_json TEXT NOT NULL DEFAULT '[]',
+                created_at INTEGER NOT NULL,
+                started_at INTEGER,
+                completed_at INTEGER,
+                continued_at INTEGER
+            );
+            """
+        )
+        connection.commit()
+    finally:
+        connection.close()
+
+    store = SQLiteSessionStore(database_path)
+    await store.close()
+
+    connection = sqlite3.connect(database_path)
+    try:
+        version = connection.execute(
+            "SELECT version FROM schema_version"
+        ).fetchone()[0]
+        assert version == 4
+        columns = {
+            row[1]
+            for row in connection.execute(
+                "PRAGMA table_info(background_tasks)"
+            )
+        }
+        assert {"kind", "exit_code", "output_path", "pid"} <= columns
+    finally:
+        connection.close()
+
+
+def test_sqlite_schema_v3_migration() -> None:
+    with tempfile.TemporaryDirectory() as temp:
+        asyncio.run(_schema_v3_migration(Path(temp) / "sessions.db"))
+
+
+async def _command_task_round_trip(
+    database_path: Path,
+    workspace: Path,
+) -> None:
+    store = SQLiteSessionStore(database_path)
+    try:
+        await store.upsert_session(
+            SessionRecord(
+                session_id="session-1",
+                workspace_root=workspace,
+                title="Command",
+                status="idle",
+                created_at=1,
+                updated_at=1,
+            )
+        )
+        await store.create_background_task(
+            BackgroundTaskRecord(
+                id="task-command",
+                session_id="session-1",
+                run_id="run-1",
+                tool_call_id="call-1",
+                description="npm run build",
+                prompt="npm run build",
+                status="running",
+                summary=None,
+                error=None,
+                trace=(),
+                created_at=1,
+                started_at=2,
+                kind="command",
+                output_path=str(workspace / ".agents" / "background" / "task-command.log"),
+                pid=1234,
+            )
+        )
+        task = await store.get_background_task("task-command")
+        assert task is not None
+        assert task.kind == "command"
+        assert task.pid == 1234
+        assert task.output_path is not None
+
+        failed = await store.finish_background_task(
+            "task-command",
+            status="failed",
+            completed_at=3,
+            summary="build failed",
+            exit_code=2,
+        )
+        assert failed is not None
+        assert failed.status == "failed"
+        assert failed.exit_code == 2
+
+        late = await store.finish_background_task(
+            "task-command",
+            status="completed",
+            completed_at=4,
+            summary="late",
+            exit_code=0,
+        )
+        assert late is not None
+        assert late.status == "failed"
+        assert late.exit_code == 2
+    finally:
+        await store.close()
+
+
+def test_sqlite_command_task_round_trip() -> None:
+    with tempfile.TemporaryDirectory() as temp:
+        root = Path(temp)
+        asyncio.run(
+            _command_task_round_trip(
+                root / "sessions.db",
+                root / "workspace",
+            )
+        )
+
+
+def test_old_background_event_uses_defaults() -> None:
+    event = _event_from_dict(
+        "background.tasks.completed",
+        {
+            "tasks": [
+                {
+                    "id": "task-old",
+                    "description": "old task",
+                    "status": "completed",
+                    "summary": "done",
+                }
+            ]
+        },
+    )
+    assert isinstance(event, BackgroundTasksCompleted)
+    notice = event.tasks[0]
+    assert notice.kind == "subagent"
+    assert notice.exit_code is None
+    assert notice.log_path is None
+
+
 if __name__ == "__main__":
     test_sqlite_round_trip_and_wal()
     test_sqlite_conflicts_rollback()
     test_sqlite_schema_v1_migration()
+    test_sqlite_schema_v3_migration()
+    test_sqlite_command_task_round_trip()
+    test_old_background_event_uses_defaults()
     test_sqlite_recovers_interrupted_approvals()
     test_sqlite_deletes_session_and_events()
     print("all ling_agent storage tests passed")

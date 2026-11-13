@@ -202,11 +202,26 @@ def _segment_pattern(segment: str) -> str | None:
     return f"{token}:*"
 
 
+def _command_token(command: str) -> str:
+    match = _COMMAND_TOKEN.match(command)
+    if match is None:
+        return command.strip()
+    return next(
+        (item for item in match.groups() if item),
+        "",
+    ).strip()
+
+
 def _matches_command(command: str, pattern: str) -> bool:
     if pattern.endswith(":*"):
         prefix = pattern[:-2].strip()
         if not prefix:
             return False
+        token = _command_token(command)
+        if token == prefix or token.startswith(f"{prefix} "):
+            return True
+        # Also accept manually written multi-word prefixes such as
+        # "npm install:*" even though generated rules stop at the executable.
         return (
             command == prefix
             or command.startswith(f"{prefix} ")

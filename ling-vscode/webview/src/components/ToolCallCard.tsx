@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import type {
+  BackgroundTaskView,
   SubagentTraceEntry,
   ToolAction,
   ToolCall,
@@ -12,37 +13,61 @@ import { MarkdownMessage } from "./MarkdownMessage";
 interface ToolCallCardProps {
   call: ToolCall;
   subagentTrace?: SubagentTraceEntry[];
+  backgroundTask?: BackgroundTaskView;
   actionsDisabled?: boolean;
+  readOnly?: boolean;
+  backgroundRequested?: boolean;
   onOpenPlan?(path: string): void;
   onBuildPlan?(path: string): void;
+  onBackground?(callId: string): void;
 }
 
 export function ToolCallCard({
   call,
   subagentTrace,
+  backgroundTask,
   actionsDisabled = false,
+  readOnly = false,
+  backgroundRequested = false,
   onOpenPlan,
   onBuildPlan,
+  onBackground,
 }: ToolCallCardProps) {
+  const backgroundMode =
+    call.detail?.kind === "io" &&
+    call.detail.mode === "background";
   const [expanded, setExpanded] = useState(
-    call.detail?.kind === "plan" || call.detail?.kind === "subagent",
+    call.detail?.kind === "plan" ||
+      call.detail?.kind === "subagent" ||
+      backgroundMode,
   );
-  const statusClass = call.status.toLowerCase();
+  const effectiveStatus = backgroundTask
+    ? statusForBackgroundTask(backgroundTask.status, call.status)
+    : call.status;
+  const statusClass = effectiveStatus.toLowerCase();
 
   useEffect(() => {
     if (
       call.detail?.kind === "plan" ||
-      call.detail?.kind === "subagent"
+      call.detail?.kind === "subagent" ||
+      backgroundMode
     ) {
       setExpanded(true);
     }
-  }, [call.detail?.kind]);
+  }, [backgroundMode, call.detail?.kind]);
   const diff =
     call.detail?.kind === "diff" ? call.detail : undefined;
+  const canBackground =
+    onBackground !== undefined &&
+    call.name === "run_command" &&
+    call.status === "Running" &&
+    !backgroundTask &&
+    !readOnly;
 
   return (
-    <article className={`tool-card tool-card--${statusClass}`}>
-      <button
+    <div className="tool-card-stack">
+      <article className={`tool-card tool-card--${statusClass}`}>
+        <button
         className="tool-card-row"
         type="button"
         aria-expanded={expanded}
@@ -68,12 +93,12 @@ export function ToolCallCard({
             </span>
           ) : null}
           <span className="status-dot" />
-          {call.status}
+          {effectiveStatus}
         </span>
         <ChevronIcon className="tool-chevron" />
       </button>
 
-      {expanded ? (
+        {expanded ? (
         <div
           className={`tool-details${
             call.detail ? " tool-details--rich" : ""
@@ -83,7 +108,10 @@ export function ToolCallCard({
             call.detail.kind === "diff" ? (
               <ToolDiff detail={call.detail} />
             ) : call.detail.kind === "io" ? (
-              <ToolIO detail={call.detail} />
+              <ToolIO
+                detail={call.detail}
+                backgroundTask={backgroundTask}
+              />
             ) : call.detail.kind === "plan" ? (
               <ToolPlan
                 detail={call.detail}
@@ -97,6 +125,7 @@ export function ToolCallCard({
               <ToolSubagent
                 detail={call.detail}
                 trace={subagentTrace}
+                backgroundTask={backgroundTask}
                 status={call.status}
               />
             ) : call.detail.kind === "memory" ? (
@@ -113,7 +142,20 @@ export function ToolCallCard({
           )}
         </div>
       ) : null}
-    </article>
+      </article>
+      {canBackground || backgroundRequested ? (
+        <button
+          className="tool-background-action"
+          type="button"
+          disabled={backgroundRequested}
+          onClick={() => onBackground?.(call.id)}
+        >
+          {backgroundRequested
+            ? "Moving to background…"
+            : "Run in background"}
+        </button>
+      ) : null}
+    </div>
   );
 }
 
@@ -364,10 +406,12 @@ function ToolTodo({
 function ToolSubagent({
   detail,
   trace,
+  backgroundTask,
   status,
 }: {
   detail: Extract<ToolDetail, { kind: "subagent" }>;
   trace?: SubagentTraceEntry[];
+  backgroundTask?: BackgroundTaskView;
   status: ToolStatus;
 }) {
   const live = trace ?? [];
@@ -377,7 +421,13 @@ function ToolSubagent({
   const toolCount = entries.filter(
     (entry) => entry.kind === "tool_call",
   ).length;
-  const running = status === "Running" || status === "Waiting";
+  const background = detail.mode === "background";
+  const taskStatus = backgroundTask?.status ?? detail.status;
+  const summary = backgroundTask?.summary ?? detail.summary;
+  const error = backgroundTask?.error ?? detail.error;
+  const running = background
+    ? taskStatus === "pending" || taskStatus === "running"
+    : status === "Running" || status === "Waiting";
   const [showTrace, setShowTrace] = useState(running);
   const traceRef = useRef<HTMLDivElement>(null);
 
@@ -401,21 +451,24 @@ function ToolSubagent({
         </span>
         <span className="tool-subagent__badge">
           {detail.subagentType} · {detail.mode}
+          {background && taskStatus ? ` · ${taskStatus}` : ""}
         </span>
       </div>
 
-      {detail.summary ? (
+      {summary ? (
         <div className="tool-subagent__summary">
-          <MarkdownMessage content={detail.summary} streaming={false} />
+          <MarkdownMessage content={summary} streaming={false} />
         </div>
       ) : null}
 
-      {detail.error && !detail.summary ? (
-        <p className="tool-subagent__error">{detail.error}</p>
+      {error && !summary ? (
+        <p className="tool-subagent__error">{error}</p>
       ) : null}
 
       {running && entries.length === 0 ? (
-        <p className="tool-subagent__empty">Working…</p>
+        <p className="tool-subagent__empty">
+          {background ? "Running in background…" : "Working…"}
+        </p>
       ) : null}
 
       {entries.length > 0 ? (
@@ -440,7 +493,7 @@ function ToolSubagent({
         </div>
       ) : null}
 
-      {!running && !detail.summary && !detail.error && entries.length === 0 ? (
+      {!running && !summary && !error && entries.length === 0 ? (
         <p className="tool-subagent__empty">No summary returned.</p>
       ) : null}
     </div>
@@ -662,10 +715,31 @@ function subagentToolTarget(call: SubagentToolCall): string {
   return call.name;
 }
 
+function statusForBackgroundTask(
+  status: string,
+  fallback: ToolStatus,
+): ToolStatus {
+  if (status === "pending" || status === "running") {
+    return "Running";
+  }
+  if (status === "completed") {
+    return "Completed";
+  }
+  if (status === "failed") {
+    return "Failed";
+  }
+  if (status === "cancelled" || status === "interrupted") {
+    return "Cancelled";
+  }
+  return fallback;
+}
+
 function ToolIO({
   detail,
+  backgroundTask,
 }: {
   detail: Extract<ToolDetail, { kind: "io" }>;
+  backgroundTask?: BackgroundTaskView;
 }) {
   const output = detail.output || detail.error || "(no output)";
   return (
@@ -688,6 +762,17 @@ function ToolIO({
       </div>
       {detail.exitCode !== undefined ? (
         <div className="tool-io__exit">exit {detail.exitCode}</div>
+      ) : null}
+      {backgroundTask ? (
+        <div
+          className={`tool-io__background tool-io__background--${backgroundTask.status}`}
+        >
+          <span>Background · {backgroundTask.status}</span>
+          {backgroundTask.exitCode !== undefined &&
+          backgroundTask.exitCode !== null ? (
+            <span>exit {backgroundTask.exitCode}</span>
+          ) : null}
+        </div>
       ) : null}
     </div>
   );

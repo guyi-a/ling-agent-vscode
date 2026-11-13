@@ -96,6 +96,28 @@ class RunChangesReverted:
     pass
 
 
+@dataclass(slots=True, frozen=True)
+class BackgroundTaskNotice:
+    id: str
+    description: str
+    status: Literal[
+        "completed",
+        "failed",
+        "cancelled",
+        "interrupted",
+    ]
+    summary: str | None = None
+    error: str | None = None
+    kind: Literal["subagent", "command"] = "subagent"
+    exit_code: int | None = None
+    log_path: str | None = None
+
+
+@dataclass(slots=True, frozen=True)
+class BackgroundTasksCompleted:
+    tasks: tuple[BackgroundTaskNotice, ...]
+
+
 CommittedEvent: TypeAlias = (
     RunStarted
     | UserMessageCommitted
@@ -109,6 +131,7 @@ CommittedEvent: TypeAlias = (
     | RunChangesReverted
     | UsageUpdated
     | RunStopped
+    | BackgroundTasksCompleted
 )
 
 
@@ -204,6 +227,8 @@ class EventSink(Protocol):
 
 __all__ = [
     "ApprovalRequested",
+    "BackgroundTaskNotice",
+    "BackgroundTasksCompleted",
     "ApprovalResolved",
     "AssistantMessageCommitted",
     "AssistantTextDelta",

@@ -1,4 +1,5 @@
 import type {
+  BackgroundTaskNoticeView,
   CompactionItem,
   TimelineEntry,
   TimelineMessage,
@@ -24,6 +25,11 @@ export type TimelineContentBlock =
       runId?: string;
     }
   | { kind: "compaction"; compaction: CompactionItem }
+  | {
+      kind: "task-notification";
+      id: string;
+      tasks: BackgroundTaskNoticeView[];
+    }
   | {
       kind: "changes";
       runId: string;
@@ -127,7 +133,8 @@ function groupContentEntries(
       if (
         (entry.kind === "message" &&
           entry.message.content.trim()) ||
-        entry.kind === "compaction"
+        entry.kind === "compaction" ||
+        entry.kind === "task-notification"
       ) {
         // A visible message or compaction boundary keeps tool groups in
         // their original position instead of collecting them across text.
@@ -209,6 +216,15 @@ function groupContentEntries(
       blocks.push({
         kind: "compaction",
         compaction: entry.compaction,
+      });
+      continue;
+    }
+
+    if (entry.kind === "task-notification") {
+      blocks.push({
+        kind: "task-notification",
+        id: entry.id,
+        tasks: entry.tasks,
       });
       continue;
     }
@@ -454,7 +470,13 @@ function groupCompletedRun(
       entry.kind === "message" && entry.message.role === "user",
   );
   const finalIndex = findFinalAnswerIndex(entries);
-  if (userIndex < 0 || finalIndex <= userIndex) {
+  if (finalIndex < 0) {
+    return groupContentEntries(entries, true);
+  }
+  if (userIndex < 0) {
+    return groupRunWithoutUser(entries, finalIndex);
+  }
+  if (finalIndex <= userIndex) {
     return groupContentEntries(entries, true);
   }
 
@@ -539,6 +561,40 @@ function groupCompletedRun(
         ]
       : []),
   ];
+}
+
+function groupRunWithoutUser(
+  entries: TimelineEntry[],
+  finalIndex: number,
+): TimelineBlock[] {
+  const finalEntry = entries[finalIndex];
+  if (
+    finalEntry?.kind !== "message" ||
+    finalEntry.message.role !== "assistant"
+  ) {
+    return groupContentEntries(entries, true);
+  }
+  const activityBlocks = groupContentEntries(
+    entries.slice(0, finalIndex),
+    true,
+  );
+  const answer: Extract<TimelineEntry, { kind: "message" }> = {
+    ...finalEntry,
+    message: {
+      ...finalEntry.message,
+      thinking: undefined,
+      thinkingDone: undefined,
+      thinkingStartedAt: undefined,
+      thinkingDurationMs: undefined,
+    },
+  };
+  const copyText = formatRunCopy(activityBlocks, answer);
+  const answerBlock: TimelineContentBlock = {
+    kind: "entry",
+    entry: answer,
+    ...(copyText ? { copyText } : {}),
+  };
+  return [...activityBlocks, answerBlock];
 }
 
 function formatRunCopy(

@@ -12,6 +12,7 @@ from ling_agent import (
     AssistantThinkingDelta,
     AssistantThinkingDone,
     AssistantTimelineItem,
+    BackgroundTaskNoticeItem,
     CompactionTimelineItem,
     CommittedEventEnvelope,
     ProcessExecEffect,
@@ -37,6 +38,7 @@ def snapshot_to_ui(
     approval_mode: str | None = None,
     pending_questions: Sequence[QuestionRequest] | None = None,
     queued_messages: Sequence[dict[str, Any]] | None = None,
+    background_tasks: Sequence[dict[str, Any]] | None = None,
 ) -> UiEvent:
     pending: list[dict[str, Any]] = []
     entries: list[dict[str, Any]] = []
@@ -136,6 +138,29 @@ def snapshot_to_ui(
                 )
             continue
 
+        if isinstance(item, BackgroundTaskNoticeItem):
+            entries.append(
+                {
+                    "kind": "task-notification",
+                    "id": item.id,
+                    "runId": item.run_id,
+                    "tasks": [
+                        {
+                            "id": task.id,
+                            "description": task.description,
+                            "status": task.status,
+                            "kind": task.kind,
+                            "exitCode": task.exit_code,
+                            "logPath": task.log_path,
+                            "summary": task.summary,
+                            "error": task.error,
+                        }
+                        for task in item.tasks
+                    ],
+                }
+            )
+            continue
+
         if isinstance(item, CompactionTimelineItem):
             entries.append(
                 {
@@ -159,6 +184,7 @@ def snapshot_to_ui(
             for request in (pending_questions or ())
         ],
         "queuedMessages": list(queued_messages or ()),
+        "backgroundTasks": list(background_tasks or ()),
         "error": _run_error(snapshot) if phase == "failed" else None,
         "sessionId": snapshot.session_id,
         "runs": [
@@ -213,10 +239,14 @@ class RpcEventSink:
         *,
         approval_mode: Callable[[], str] | None = None,
         queued_messages: Callable[[], list[dict[str, Any]]] | None = None,
+        background_tasks: (
+            Callable[[], Awaitable[list[dict[str, Any]]]] | None
+        ) = None,
     ) -> None:
         self._emit = emit
         self._approval_mode = approval_mode
         self._queued_messages = queued_messages
+        self._background_tasks = background_tasks
         self._projector: TimelineProjector | None = None
         self._session_id: str | None = None
 
@@ -236,10 +266,16 @@ class RpcEventSink:
             if self._queued_messages is not None
             else None
         )
+        tasks = (
+            await self._background_tasks()
+            if self._background_tasks is not None
+            else None
+        )
         snapshot = snapshot_to_ui(
             projector.snapshot(),
             approval_mode=mode,
             queued_messages=queued,
+            background_tasks=tasks,
         )
         await self._emit(
             {
@@ -466,11 +502,42 @@ def _tool_detail(item: ToolTimelineItem) -> dict[str, Any] | None:
 
     if item.name == "run_command":
         command = arguments.get("command")
+        mode = metadata.get("mode")
+        task_id = metadata.get("taskId")
+        log_path = metadata.get("logPath")
+        status = metadata.get("status")
+        exit_code = metadata.get("exitCode")
         return {
             "kind": "io",
             "input": command if isinstance(command, str) else "",
             "output": item.output,
             **({"error": item.error} if item.error else {}),
+            **(
+                {"mode": mode}
+                if mode in ("foreground", "background")
+                else {}
+            ),
+            **(
+                {"taskId": task_id}
+                if isinstance(task_id, str) and task_id
+                else {}
+            ),
+            **(
+                {"logPath": log_path}
+                if isinstance(log_path, str) and log_path
+                else {}
+            ),
+            **(
+                {"status": status}
+                if isinstance(status, str) and status
+                else {}
+            ),
+            **(
+                {"exitCode": exit_code}
+                if isinstance(exit_code, int)
+                and not isinstance(exit_code, bool)
+                else {}
+            ),
         }
 
     if item.name in ("create_plan", "update_plan"):
@@ -668,13 +735,34 @@ def _subagent_detail(
         if isinstance(trace, list)
         else []
     )
-    if not description and not summary and not entries and not item.error:
+    mode = metadata.get("mode")
+    if mode not in ("foreground", "background"):
+        mode = "foreground"
+    task_id = metadata.get("taskId")
+    status = metadata.get("status")
+    if (
+        not description
+        and not summary
+        and not entries
+        and not item.error
+        and mode != "background"
+    ):
         return None
     return {
         "kind": "subagent",
         "description": description,
         "subagentType": "explore",
-        "mode": "foreground",
+        "mode": mode,
+        **(
+            {"taskId": task_id}
+            if isinstance(task_id, str) and task_id
+            else {}
+        ),
+        **(
+            {"status": status}
+            if isinstance(status, str) and status
+            else {}
+        ),
         **({"summary": summary} if summary else {}),
         **({"trace": entries} if entries else {}),
         **({"error": item.error} if item.error else {}),

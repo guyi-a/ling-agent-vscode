@@ -1,5 +1,30 @@
 # Changelog
 
+## 1.2.0
+
+- Add background explore subagents. `spawn_subagent` accepts
+  `run_in_background`; tasks are queued with configurable concurrency,
+  persisted with the session, and can be stopped individually.
+- Batch finished background tasks into one notification and one automatic
+  continuation, even when several finish together.
+- Add background task cards, a per-session Tasks panel with an active-task
+  badge, and stop controls.
+- Add manual backgrounding for running commands. A **Run in background**
+  action on the tool card detaches the process without interrupting it,
+  records a Command task with exit code and log path, and reuses the batched
+  notification and automatic continuation flow.
+- Add Command tasks to the Tasks panel with exit codes and **View log**.
+  Stopping a command task terminates its process tree; full output is written
+  to `.agents/background/<task-id>.log`.
+- Bump the session database schema to v4 for command task metadata. Tasks
+  interrupted by a sidecar restart are marked `interrupted` and reported when
+  the session is reopened.
+- Fix "allow and don't ask again" rules for compound commands whose
+  subcommands start with quoted strings or executable paths.
+- Keep the **Run in background** action outside the tool card as a compact
+  bottom-left action, and show the run-level Copy action on answers produced
+  by automatic background continuation.
+
 ## 1.1.1
 
 - Add a single Copy action to the final answer's action row for each completed

@@ -17,6 +17,7 @@ from ling_agent import (
     UserSelection,
     default_global_memory_root,
 )
+from ling_agent.command_calls import CommandNotRunning
 from ling_comment.targets import CommentError, CommentTarget
 
 from .comments import CommentService
@@ -481,6 +482,42 @@ class JsonRpcServer:
                 )
             except (RuntimeError, ValueError) as exc:
                 raise JsonRpcError(-32001, str(exc)) from exc
+
+        if method == "background.list":
+            session_id = params.get("sessionId")
+            if session_id is not None and (
+                not isinstance(session_id, str) or not session_id
+            ):
+                raise JsonRpcError(
+                    -32602, "sessionId must be a non-empty string"
+                )
+            return {
+                "tasks": await self._sessions.background_list(session_id)
+            }
+
+        if method == "background.stop":
+            task_id = params.get("taskId")
+            if not isinstance(task_id, str) or not task_id:
+                raise JsonRpcError(-32602, "taskId must be a string")
+            try:
+                task = await self._sessions.stop_background_task(task_id)
+            except ValueError as exc:
+                raise JsonRpcError(-32602, str(exc)) from exc
+            return {"task": task}
+
+        if method == "tool.background":
+            call_id = params.get("callId")
+            if not isinstance(call_id, str) or not call_id:
+                raise JsonRpcError(
+                    -32602, "callId must be a non-empty string"
+                )
+            try:
+                task = await self._sessions.background_tool_call(call_id)
+            except CommandNotRunning as exc:
+                raise JsonRpcError(-32004, str(exc)) from exc
+            except RuntimeError as exc:
+                raise JsonRpcError(-32001, str(exc)) from exc
+            return {"task": task}
 
         if method == "mcp.status":
             workspace_root = params.get("workspaceRoot")

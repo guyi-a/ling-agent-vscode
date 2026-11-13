@@ -1,8 +1,11 @@
 import { useLayoutEffect, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import type {
+  BackgroundTaskNoticeView,
+  BackgroundTaskView,
   TimelineState,
   ToolAction,
+  ToolCall,
   UserSelectionSummary,
 } from "../types";
 import {
@@ -36,6 +39,8 @@ interface TimelineProps {
   onOpenChanges(runId: string): void;
   onRevertChanges(runId: string): void;
   actionsDisabled: boolean;
+  backgroundRequested: ReadonlySet<string>;
+  onBackgroundTool?(callId: string): void;
 }
 
 export function Timeline({
@@ -50,6 +55,8 @@ export function Timeline({
   onOpenChanges,
   onRevertChanges,
   actionsDisabled,
+  backgroundRequested,
+  onBackgroundTool,
 }: TimelineProps) {
   const blocks = groupTimelineEntries(state.entries, state.runs);
   const lastAssistantId = [...state.entries]
@@ -117,6 +124,23 @@ export function Timeline({
       timeline.scrollHeight - timeline.scrollTop - timeline.clientHeight < 72;
   }
 
+  function backgroundTaskFor(
+    call: ToolCall,
+  ): BackgroundTaskView | undefined {
+    const detail = call.detail;
+    const taskId =
+      detail &&
+      "taskId" in detail &&
+      typeof detail.taskId === "string"
+        ? detail.taskId
+        : undefined;
+    return state.backgroundTasks.find(
+      (task) =>
+        (taskId !== undefined && task.id === taskId) ||
+        task.toolCallId === call.id,
+    );
+  }
+
   function renderContentBlock(block: TimelineContentBlock) {
     if (block.kind === "tool-group") {
       return (
@@ -159,9 +183,13 @@ export function Timeline({
                 key={call.id}
                 call={call}
                 subagentTrace={state.subagentTraces[call.id]}
+                backgroundTask={backgroundTaskFor(call)}
                 actionsDisabled={actionsDisabled}
+                readOnly={state.readOnly === true}
+                backgroundRequested={backgroundRequested.has(call.id)}
                 onOpenPlan={onOpenPlan}
                 onBuildPlan={onBuildPlan}
+                onBackground={onBackgroundTool}
               />
             ))}
           </div>
@@ -181,9 +209,13 @@ export function Timeline({
               key={call.id}
               call={call}
               subagentTrace={state.subagentTraces[call.id]}
+              backgroundTask={backgroundTaskFor(call)}
               actionsDisabled={actionsDisabled}
+              readOnly={state.readOnly === true}
+              backgroundRequested={backgroundRequested.has(call.id)}
               onOpenPlan={onOpenPlan}
               onBuildPlan={onBuildPlan}
+              onBackground={onBackgroundTool}
             />
           ))}
         </div>
@@ -195,6 +227,15 @@ export function Timeline({
         <CompactionMarker
           key={getBlockKey(block)}
           item={block.compaction}
+        />
+      );
+    }
+
+    if (block.kind === "task-notification") {
+      return (
+        <TaskNotificationCard
+          key={getBlockKey(block)}
+          tasks={block.tasks}
         />
       );
     }
@@ -396,6 +437,40 @@ function RunActivityDetails({
   );
 }
 
+const TASK_NOTIFICATION_ENDINGS: Record<string, string> = {
+  completed: "已完成",
+  failed: "失败",
+  cancelled: "已停止",
+  interrupted: "已中断",
+};
+
+function TaskNotificationCard({
+  tasks,
+}: {
+  tasks: BackgroundTaskNoticeView[];
+}) {
+  return (
+    <div
+      className="task-notification"
+      role="separator"
+      aria-label="Background tasks finished"
+    >
+      {tasks.map((task) => (
+        <div className="task-notification__line" key={task.id}>
+          <span
+            className="task-notification__label"
+            title={task.description}
+          >
+            {`${task.kind === "command" ? "后台命令" : "后台任务"}${
+              TASK_NOTIFICATION_ENDINGS[task.status] ?? "已结束"
+            } · ${task.description}`}
+          </span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 function getBlockKey(block: TimelineBlock): string {
   if (block.kind === "tools") {
     return `tools-${block.tools[0]?.id ?? "empty"}`;
@@ -407,6 +482,10 @@ function getBlockKey(block: TimelineBlock): string {
 
   if (block.kind === "compaction") {
     return block.compaction.id;
+  }
+
+  if (block.kind === "task-notification") {
+    return `task-notification-${block.id}`;
   }
 
   if (block.kind === "run-thinking") {

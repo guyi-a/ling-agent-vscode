@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 import time
 from pathlib import Path
-from typing import TYPE_CHECKING, Sequence
+from typing import TYPE_CHECKING, Callable, Sequence
 
 from ling_ai.stream import StreamFunction, StreamOptions
 from ling_ai.types import (
@@ -52,10 +52,17 @@ from .compaction import (
     summary_instructions,
     wrap_summary,
 )
+from .background_tasks import (
+    BackgroundTaskManager,
+    background_notification_message,
+)
+from .command_calls import CommandCallRegistry
 from .config import HarnessConfig
 from .effects import ApprovalMode
 from .events import (
     AssistantMessageCommitted,
+    BackgroundTaskNotice,
+    BackgroundTasksCompleted,
     EventSink,
     ToolResultCommitted,
     UserMessageCommitted,
@@ -78,7 +85,11 @@ from .skills import (
     workspace_skills_root,
 )
 from .subagents import SubagentRunner, TraceSink
-from .storage import SQLiteSessionStore, default_database_path
+from .storage import (
+    BackgroundTaskRecord,
+    SQLiteSessionStore,
+    default_database_path,
+)
 from .streaming import StreamFrameBuffer
 from .timeline import TimelineProjector, TimelineSnapshot
 from .web import WebClient
@@ -157,6 +168,7 @@ class CodingAgent:
         browser_bridge: BrowserBridge | None = None,
         web_client: WebClient | None = None,
         global_memory_root: str | Path | None = None,
+        background_tasks: BackgroundTaskManager | None = None,
     ) -> None:
         self.model = model
         self.stream_fn = stream_fn
@@ -164,6 +176,11 @@ class CodingAgent:
         self.workspace = Workspace(workspace_root, self.config)
         self.file_reads = FileReadTracker()
         self.local_settings = LocalSettingsStore(self.workspace.root)
+        self.background_tasks = background_tasks
+        self._command_calls = CommandCallRegistry(
+            background_tasks,
+            self.workspace.root,
+        )
         self.plans = PlanStore(self.workspace.root)
         self.approvals = approvals or _DenyAllApprovalHandler()
         self.event_sink = event_sink
@@ -326,7 +343,11 @@ class CodingAgent:
                 self.workspace,
                 file_reads=self.file_reads,
             ),
-            *create_command_tools(self.workspace, self.config),
+            *create_command_tools(
+                self.workspace,
+                self.config,
+                command_calls=self._command_calls,
+            ),
             *create_document_tools(self.workspace, self.config),
             *create_question_tools(self.questions),
             *create_skill_tools(
@@ -334,7 +355,14 @@ class CodingAgent:
                 max_body_chars=self.config.max_tool_result_chars,
             ),
             *create_plan_tools(self.plans),
-            *create_subagent_tools(self.subagents),
+            *create_subagent_tools(
+                self.subagents,
+                submit_background=(
+                    self._submit_background_task
+                    if self.background_tasks is not None
+                    else None
+                ),
+            ),
             *create_memory_tools(self.memory_store),
         ]
         if self.browser_bridge is not None:
@@ -551,6 +579,54 @@ class CodingAgent:
             pass
         return await stream.result()
 
+    async def _submit_background_task(
+        self,
+        description: str,
+        prompt: str,
+        call: ToolCall,
+    ):
+        if self.background_tasks is None:
+            raise RuntimeError("Background tasks are not available")
+        session = await self._ensure_session()
+        if session.run_id is None:
+            raise RuntimeError("Background tasks require an active run")
+        return await self.background_tasks.submit(
+            session_id=session.session_id,
+            workspace_root=self.workspace.root,
+            run_id=session.run_id,
+            tool_call_id=call.id,
+            description=description,
+            prompt=prompt,
+        )
+
+    async def background_tool_call(
+        self,
+        call_id: str,
+    ) -> BackgroundTaskRecord:
+        if self.background_tasks is None:
+            raise RuntimeError("Background tasks are not available")
+        session = await self._ensure_session()
+        if session.run_id is None:
+            raise RuntimeError("Background tasks require an active run")
+        return await self._command_calls.request_detach(call_id)
+
+    async def continue_background_tasks(
+        self,
+        tasks: tuple[BackgroundTaskNotice, ...],
+        *,
+        reasoning: str | None = None,
+        on_started: Callable[[], None] | None = None,
+    ) -> AssistantMessage:
+        if not tasks:
+            raise ValueError("No background tasks to continue")
+        async with self._prompt_lock:
+            session = await self._ensure_session()
+            self._cancel_event = asyncio.Event()
+            await session.start_background_continuation(tasks)
+            if on_started is not None:
+                on_started()
+            return await self._run_agent(session, reasoning)
+
     async def prompt(
         self,
         text: str,
@@ -716,6 +792,11 @@ class CodingAgent:
             session_id=session.session_id,
             run_id=session.run_id,
         )
+        if session.run_id is not None:
+            self._command_calls.begin_run(
+                session.session_id,
+                session.run_id,
+            )
         tools = await self._create_tools_async(mode)
         prompt = build_system_prompt(
             self.workspace,
@@ -754,6 +835,7 @@ class CodingAgent:
             await session.stop_run("input_blocked")
             raise
         finally:
+            await self._command_calls.end_run()
             if self.questions is not None:
                 await self.questions.cancel_all("Run finished")
 
@@ -807,6 +889,7 @@ class CodingAgent:
         await self.cancel()
         async with self._prompt_lock:
             self._closed = True
+        await self._command_calls.close()
         await self.mcp_manager.close()
         await self.store.close()
 
@@ -837,6 +920,10 @@ def _messages_from_committed_events(events) -> list[Message]:
             (UserMessageCommitted, AssistantMessageCommitted),
         ):
             messages.append(event.message)
+        elif isinstance(event, BackgroundTasksCompleted):
+            messages.append(
+                background_notification_message(event.tasks)
+            )
         elif isinstance(event, ToolResultCommitted):
             messages.append(event.result)
     return messages

@@ -3,13 +3,19 @@
 from __future__ import annotations
 
 import json
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Awaitable, Callable
 
 from ling_ai.types import Tool, ToolCall
 from ling_core import AgentTool, ToolContext, ToolExecution
 
 if TYPE_CHECKING:
+    from ..storage import BackgroundTaskRecord
     from ..subagents import SubagentRunner
+
+SubmitBackground = Callable[
+    [str, str, ToolCall],
+    Awaitable["BackgroundTaskRecord"],
+]
 
 
 def _string_arg(call: ToolCall, name: str) -> str:
@@ -21,6 +27,8 @@ def _string_arg(call: ToolCall, name: str) -> str:
 
 def create_subagent_tools(
     runner: "SubagentRunner",
+    *,
+    submit_background: SubmitBackground | None = None,
 ) -> list[AgentTool]:
     async def spawn_subagent(
         call: ToolCall,
@@ -31,6 +39,35 @@ def create_subagent_tools(
         subagent_type = call.arguments.get("subagent_type", "explore")
         if subagent_type != "explore":
             raise ValueError("subagent_type must be 'explore'")
+        run_in_background = call.arguments.get("run_in_background", False)
+        if not isinstance(run_in_background, bool):
+            raise TypeError("run_in_background must be a boolean")
+
+        if run_in_background:
+            if submit_background is None:
+                raise RuntimeError("Background subagents are not available")
+            task = await submit_background(description, prompt, call)
+            return ToolExecution(
+                output=json.dumps(
+                    {
+                        "mode": "background",
+                        "subagentType": "explore",
+                        "description": description,
+                        "taskId": task.id,
+                        "status": task.status,
+                    },
+                    ensure_ascii=False,
+                ),
+                details={
+                    "kind": "subagent",
+                    "description": description,
+                    "subagentType": "explore",
+                    "mode": "background",
+                    "taskId": task.id,
+                    "status": task.status,
+                    "summary": "",
+                },
+            )
 
         result = await runner.spawn_explore(
             description,
@@ -67,9 +104,10 @@ def create_subagent_tools(
                     "an isolated explore agent. Use when the research would "
                     "require reading many files and the intermediate output "
                     "would clutter the main conversation. The prompt must be "
-                    "self-contained. Do not use it for edits, commands, or "
-                    "user decisions; read critical files yourself before "
-                    "editing."
+                    "self-contained. Set run_in_background=true for research "
+                    "that can run in parallel; the user is notified when it "
+                    "finishes. Do not use it for edits, commands, or user "
+                    "decisions; read critical files yourself before editing."
                 ),
                 parameters={
                     "type": "object",
@@ -95,6 +133,15 @@ def create_subagent_tools(
                             "type": "string",
                             "enum": ["explore"],
                             "default": "explore",
+                        },
+                        "run_in_background": {
+                            "type": "boolean",
+                            "default": False,
+                            "description": (
+                                "Run the subagent in the background and "
+                                "return a task id immediately. Use for "
+                                "parallel research that can finish later."
+                            ),
                         },
                     },
                     "required": ["description", "prompt"],

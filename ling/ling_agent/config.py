@@ -31,6 +31,11 @@ class HarnessConfig:
     agent_max_parallel_tools: int = 4
     subagent_max_steps: int = 30
     subagent_max_summary_chars: int = 8_000
+    background_task_concurrency: int = 3
+    background_task_notify_debounce_ms: int = 150
+    background_command_log_max_chars: int = 20_000_000
+    background_command_tail_chars: int = 8_000
+    background_command_drain_timeout_seconds: float = 2.0
     browser_bridge_port: int = 17_323
     browser_bridge_connect_wait_seconds: float = 3.0
     browser_bridge_command_timeout_seconds: float = 30.0
@@ -58,6 +63,16 @@ class HarnessConfig:
             "agent_max_parallel_tools": self.agent_max_parallel_tools,
             "subagent_max_steps": self.subagent_max_steps,
             "subagent_max_summary_chars": self.subagent_max_summary_chars,
+            "background_task_concurrency": self.background_task_concurrency,
+            "background_task_notify_debounce_ms": (
+                self.background_task_notify_debounce_ms
+            ),
+            "background_command_log_max_chars": (
+                self.background_command_log_max_chars
+            ),
+            "background_command_tail_chars": (
+                self.background_command_tail_chars
+            ),
         }
         for name, value in positive_ints.items():
             if value < 1:
@@ -65,6 +80,10 @@ class HarnessConfig:
 
         if self.command_timeout_seconds <= 0:
             raise ValueError("command_timeout_seconds must be positive")
+        if self.background_command_drain_timeout_seconds <= 0:
+            raise ValueError(
+                "background_command_drain_timeout_seconds must be positive"
+            )
         if self.approval_timeout_seconds <= 0:
             raise ValueError("approval_timeout_seconds must be positive")
         if not 0 <= self.browser_bridge_port <= 65_535:

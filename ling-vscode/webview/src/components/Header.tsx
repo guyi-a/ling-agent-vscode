@@ -1,11 +1,19 @@
-import { HistoryIcon, PlusIcon, SettingsIcon } from "./icons";
+import {
+  HistoryIcon,
+  PlusIcon,
+  SettingsIcon,
+  TasksIcon,
+} from "./icons";
 
 interface HeaderProps {
   title: string;
   isNew: boolean;
   historyAvailable: boolean;
+  tasksAvailable: boolean;
+  taskCount: number;
   settingsDisabled: boolean;
   onHistory(): void;
+  onTasks(): void;
   onSettings(): void;
   onReset(): void;
 }
@@ -14,8 +22,11 @@ export function Header({
   title,
   isNew,
   historyAvailable,
+  tasksAvailable,
+  taskCount,
   settingsDisabled,
   onHistory,
+  onTasks,
   onSettings,
   onReset,
 }: HeaderProps) {
@@ -27,6 +38,20 @@ export function Header({
       </div>
 
       <div className="header-actions">
+        {tasksAvailable ? (
+          <button
+            className="icon-button icon-button--badged"
+            type="button"
+            aria-label="Background tasks"
+            title="Background tasks"
+            onClick={onTasks}
+          >
+            <TasksIcon />
+            {taskCount > 0 ? (
+              <span className="icon-button-badge">{taskCount}</span>
+            ) : null}
+          </button>
+        ) : null}
         {historyAvailable ? (
           <button
             className="icon-button"

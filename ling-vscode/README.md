@@ -88,7 +88,25 @@ For research tasks that would otherwise flood the conversation with intermediate
 - A **Subagent** card shows live tool calls and intermediate output while it runs.
 - When it finishes, the card shows the summary; click **View trace** to review the full execution trace.
 
-The main conversation continues only after the subagent finishes, so this fits tasks that need a research result immediately.
+The main conversation continues only after a foreground subagent finishes, so this fits tasks that need a research result immediately.
+
+### Background research
+
+When research can proceed while the main conversation keeps working, Ling runs the explore subagent in the background and returns a task id immediately. The **Subagent** card shows queued, running, and finished states.
+
+- Background tasks use the same read-only explore agent and isolated context as foreground research.
+- Open **Tasks** in the header to see every background task in the current session and stop a queued or running one.
+- When tasks finish, Ling posts one **Background tasks finished** notification and resumes the main conversation automatically. Tasks that finish together share one notification and one continuation.
+- Task history is stored with the session, so reopening the conversation restores the task list.
+
+### Background commands
+
+Long-running commands can keep running after the main conversation moves on. While a `run_command` card is running, click **Run in background**:
+
+- The process is not interrupted; it becomes a **Command** task with its own status and exit code.
+- Full output is written to `.agents/background/<task-id>.log`; the completion notification includes the exit code and a short output tail.
+- Open **Tasks** to view command tasks and their logs, or to stop one; stopping terminates the process tree.
+- Commands moved to the background keep running if you cancel the current run. They stop when the sidecar closes.
 
 ### Browser (Kro Bridge)
 

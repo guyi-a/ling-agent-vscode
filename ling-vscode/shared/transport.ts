@@ -3,6 +3,8 @@ import type {
   ApprovalMode,
   ApprovalRequest,
   AskUserAnswer,
+  BackgroundTaskNoticeView,
+  BackgroundTaskView,
   AskUserQuestion,
   DiffView,
   EffortLevel,
@@ -124,6 +126,19 @@ export type WebviewToHostMessage =
       callId: string;
       answers?: AskUserAnswer[];
       cancelled?: boolean;
+    }
+  | {
+      type: "background.stop";
+      taskId: string;
+    }
+  | {
+      type: "tool.background";
+      callId: string;
+    }
+  | {
+      type: "background.openLog";
+      taskId: string;
+      sessionId?: string;
     }
   | {
       type: "session.queued.sendNow";
@@ -252,6 +267,13 @@ export type HostToWebviewMessage =
   | {
       type: "ling.mode-changed";
       mode: ApprovalMode;
+    }
+  | {
+      type: "ling.background-result";
+      callId: string;
+      accepted: boolean;
+      task?: BackgroundTaskView;
+      error?: string;
     }
   | {
       type: "ling.ready";
@@ -406,6 +428,20 @@ export function isWebviewToHostMessage(
         (value.feedback === undefined ||
           typeof value.feedback === "string")
       );
+    case "background.stop":
+      return typeof value.taskId === "string" && value.taskId.length > 0;
+    case "tool.background":
+      return (
+        typeof value.callId === "string" && value.callId.length > 0
+      );
+    case "background.openLog":
+      return (
+        typeof value.taskId === "string" &&
+        value.taskId.length > 0 &&
+        (value.sessionId === undefined ||
+          (typeof value.sessionId === "string" &&
+            value.sessionId.length > 0))
+      );
     case "question.answer":
       return (
         typeof value.callId === "string" &&
@@ -492,6 +528,17 @@ export function isHostToWebviewMessage(
   if (value.type === "ling.mode-changed") {
     return isApprovalMode(value.mode);
   }
+  if (value.type === "ling.background-result") {
+    return (
+      typeof value.callId === "string" &&
+      value.callId.length > 0 &&
+      typeof value.accepted === "boolean" &&
+      (value.task === undefined ||
+        isBackgroundTaskView(value.task)) &&
+      (value.error === undefined ||
+        typeof value.error === "string")
+    );
+  }
   if (value.type === "ling.ready") {
     return true;
   }
@@ -566,6 +613,8 @@ export function isUiEvent(value: unknown): value is UiEvent {
         Array.isArray(value.queuedMessages) &&
         value.queuedMessages.every(isQueuedMessage)
       );
+    case "background.updated":
+      return isBackgroundTaskView(value.task);
     case "run.cancelled":
       return true;
     case "run.failed":
@@ -695,6 +744,65 @@ function isSkillStatus(value: unknown): boolean {
   );
 }
 
+function isBackgroundTaskView(value: unknown): value is BackgroundTaskView {
+  return (
+    isRecord(value) &&
+    typeof value.id === "string" &&
+    typeof value.sessionId === "string" &&
+    typeof value.toolCallId === "string" &&
+    typeof value.description === "string" &&
+    typeof value.status === "string" &&
+    (value.kind === undefined ||
+      value.kind === "subagent" ||
+      value.kind === "command") &&
+    (value.exitCode === undefined ||
+      value.exitCode === null ||
+      typeof value.exitCode === "number") &&
+    (value.outputPath === undefined ||
+      value.outputPath === null ||
+      typeof value.outputPath === "string") &&
+    (value.summary === undefined ||
+      value.summary === null ||
+      typeof value.summary === "string") &&
+    (value.error === undefined ||
+      value.error === null ||
+      typeof value.error === "string") &&
+    isNonNegativeInteger(value.createdAt) &&
+    (value.startedAt === undefined ||
+      value.startedAt === null ||
+      isNonNegativeInteger(value.startedAt)) &&
+    (value.completedAt === undefined ||
+      value.completedAt === null ||
+      isNonNegativeInteger(value.completedAt))
+  );
+}
+
+function isBackgroundTaskNoticeView(
+  value: unknown,
+): value is BackgroundTaskNoticeView {
+  return (
+    isRecord(value) &&
+    typeof value.id === "string" &&
+    typeof value.description === "string" &&
+    typeof value.status === "string" &&
+    (value.kind === undefined ||
+      value.kind === "subagent" ||
+      value.kind === "command") &&
+    (value.exitCode === undefined ||
+      value.exitCode === null ||
+      typeof value.exitCode === "number") &&
+    (value.logPath === undefined ||
+      value.logPath === null ||
+      typeof value.logPath === "string") &&
+    (value.summary === undefined ||
+      value.summary === null ||
+      typeof value.summary === "string") &&
+    (value.error === undefined ||
+      value.error === null ||
+      typeof value.error === "string")
+  );
+}
+
 function isSessionSnapshot(value: unknown): value is SessionSnapshot {
   return (
     isRecord(value) &&
@@ -712,6 +820,9 @@ function isSessionSnapshot(value: unknown): value is SessionSnapshot {
     (value.queuedMessages === undefined ||
       (Array.isArray(value.queuedMessages) &&
         value.queuedMessages.every(isQueuedMessage))) &&
+    (value.backgroundTasks === undefined ||
+      (Array.isArray(value.backgroundTasks) &&
+        value.backgroundTasks.every(isBackgroundTaskView))) &&
     (value.approvalMode === undefined ||
       isApprovalMode(value.approvalMode))
   );
@@ -875,6 +986,14 @@ function isTimelineEntry(value: unknown): value is TimelineEntry {
     );
   }
 
+  if (value.kind === "task-notification") {
+    return (
+      typeof value.id === "string" &&
+      Array.isArray(value.tasks) &&
+      value.tasks.every(isBackgroundTaskNoticeView)
+    );
+  }
+
   return false;
 }
 
@@ -942,7 +1061,16 @@ function isToolDetail(value: unknown): value is ToolDetail {
       (value.output === undefined || typeof value.output === "string") &&
       (value.error === undefined || typeof value.error === "string") &&
       (value.exitCode === undefined ||
-        typeof value.exitCode === "number")
+        typeof value.exitCode === "number") &&
+      (value.mode === undefined ||
+        value.mode === "foreground" ||
+        value.mode === "background") &&
+      (value.taskId === undefined ||
+        typeof value.taskId === "string") &&
+      (value.logPath === undefined ||
+        typeof value.logPath === "string") &&
+      (value.status === undefined ||
+        typeof value.status === "string")
     );
   }
   if (value.kind === "text") {
@@ -964,7 +1092,9 @@ function isToolDetail(value: unknown): value is ToolDetail {
     return (
       typeof value.description === "string" &&
       typeof value.subagentType === "string" &&
-      typeof value.mode === "string" &&
+      (value.mode === "foreground" || value.mode === "background") &&
+      (value.taskId === undefined || typeof value.taskId === "string") &&
+      (value.status === undefined || typeof value.status === "string") &&
       (value.summary === undefined || typeof value.summary === "string") &&
       (value.trace === undefined ||
         (Array.isArray(value.trace) &&

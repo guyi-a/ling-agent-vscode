@@ -1,6 +1,7 @@
 import type { UiAction } from "../protocol";
 import type {
   ApprovalResult,
+  BackgroundTaskView,
   QuestionRequest,
   RunPhase,
   SessionSnapshot,
@@ -22,6 +23,7 @@ export function createEmptyTimelineState(): TimelineState {
     error: null,
     readOnly: false,
     subagentTraces: {},
+    backgroundTasks: [],
   };
 }
 
@@ -92,6 +94,15 @@ export function timelineReducer(
         error: null,
       };
 
+    case "background.updated":
+      return {
+        ...state,
+        backgroundTasks: upsertBackgroundTask(
+          state.backgroundTasks,
+          action.task,
+        ),
+      };
+
     case "run.cancelled":
       return cancelRun(state);
 
@@ -136,10 +147,26 @@ function fromSnapshot(
       ...message,
     })),
     runs: (snapshot.runs ?? []).map((run) => ({ ...run })),
+    backgroundTasks: (snapshot.backgroundTasks ?? []).map((task) => ({
+      ...task,
+    })),
     error: snapshot.error ?? null,
     sessionId: snapshot.sessionId,
     readOnly: snapshot.readOnly ?? false,
   };
+}
+
+function upsertBackgroundTask(
+  tasks: BackgroundTaskView[],
+  task: BackgroundTaskView,
+): BackgroundTaskView[] {
+  const index = tasks.findIndex((item) => item.id === task.id);
+  if (index < 0) {
+    return [...tasks, { ...task }];
+  }
+  const next = [...tasks];
+  next[index] = { ...task };
+  return next;
 }
 
 function cloneEntry(entry: TimelineEntry): TimelineEntry {
@@ -183,6 +210,14 @@ function cloneEntry(entry: TimelineEntry): TimelineEntry {
       ...entry,
       kind: "compaction",
       compaction: { ...entry.compaction },
+    };
+  }
+
+  if (entry.kind === "task-notification") {
+    return {
+      ...entry,
+      kind: "task-notification",
+      tasks: entry.tasks.map((task) => ({ ...task })),
     };
   }
 

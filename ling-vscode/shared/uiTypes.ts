@@ -66,6 +66,10 @@ export type ToolDetail =
       output?: string;
       error?: string;
       exitCode?: number;
+      mode?: "foreground" | "background";
+      taskId?: string;
+      logPath?: string;
+      status?: string;
     }
   | {
       kind: "text";
@@ -84,7 +88,9 @@ export type ToolDetail =
       kind: "subagent";
       description: string;
       subagentType: string;
-      mode: string;
+      mode: "foreground" | "background";
+      taskId?: string;
+      status?: string;
       summary?: string;
       trace?: SubagentTraceEntry[];
       error?: string;
@@ -269,6 +275,33 @@ export interface TimelineMessage {
   selections?: UserSelectionSummary[];
 }
 
+export interface BackgroundTaskView {
+  id: string;
+  sessionId: string;
+  toolCallId: string;
+  description: string;
+  status: string;
+  kind?: "subagent" | "command";
+  exitCode?: number | null;
+  outputPath?: string | null;
+  summary?: string | null;
+  error?: string | null;
+  createdAt: number;
+  startedAt?: number | null;
+  completedAt?: number | null;
+}
+
+export interface BackgroundTaskNoticeView {
+  id: string;
+  description: string;
+  status: string;
+  kind?: "subagent" | "command";
+  exitCode?: number | null;
+  logPath?: string | null;
+  summary?: string | null;
+  error?: string | null;
+}
+
 export type TimelineEntry =
   | {
       kind: "message";
@@ -289,6 +322,12 @@ export type TimelineEntry =
       kind: "compaction";
       compaction: CompactionItem;
       runId?: string;
+    }
+  | {
+      kind: "task-notification";
+      id: string;
+      tasks: BackgroundTaskNoticeView[];
+      runId?: string;
     };
 
 export type RunPhase =
@@ -305,6 +344,7 @@ export interface SessionSnapshot {
   pendingApprovals: ApprovalRequest[];
   pendingQuestions?: QuestionRequest[];
   queuedMessages?: QueuedMessage[];
+  backgroundTasks?: BackgroundTaskView[];
   error?: string | null;
   sessionId?: string;
   readOnly?: boolean;
@@ -415,4 +455,5 @@ export interface SettingsView {
 export interface TimelineState extends SessionSnapshot {
   error: string | null;
   subagentTraces: Record<string, SubagentTraceEntry[]>;
+  backgroundTasks: BackgroundTaskView[];
 }

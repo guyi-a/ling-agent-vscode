@@ -15,6 +15,7 @@ import { Header } from "./components/Header";
 import { HistoryPanel } from "./components/HistoryPanel";
 import { QuestionTakeover } from "./components/QuestionTakeover";
 import { SettingsPanel } from "./components/SettingsPanel";
+import { TasksPanel } from "./components/TasksPanel";
 import { Timeline } from "./components/Timeline";
 import { createHostBridge } from "./host";
 import { useHostEvents } from "./hooks/useHostEvents";
@@ -41,6 +42,7 @@ import {
   type WebviewToHostMessage,
 } from "../../shared/transport";
 import type {
+  BackgroundTaskView,
   HistorySession,
   IndexBuildStats,
   IndexStatus,
@@ -62,6 +64,10 @@ export function App() {
   const [mode, setMode] = useState<ApprovalMode>("manual");
   const [effort, setEffort] = useState<EffortLevel>("high");
   const [notice, setNotice] = useState("");
+  const [tasksOpen, setTasksOpen] = useState(false);
+  const [backgroundRequests, setBackgroundRequests] = useState<
+    Set<string>
+  >(() => new Set());
   const [historyOpen, setHistoryOpen] = useState(false);
   const [historyLoading, setHistoryLoading] = useState(false);
   const [historyDeleting, setHistoryDeleting] = useState(false);
@@ -329,6 +335,7 @@ export function App() {
     handleSelectionAdded,
     handleIndexResult,
     handleIndexStatus,
+    handleBackgroundResult,
     handleReady,
   );
   useScriptedEvents(dispatch, streamKey, host.kind === "browser");
@@ -403,6 +410,9 @@ export function App() {
   const historyTitle = historySessions.find(
     (session) => session.id === state.sessionId,
   )?.title;
+  const activeTaskCount = state.backgroundTasks.filter(
+    (task) => task.status === "pending" || task.status === "running",
+  ).length;
   const headerTitle =
     (isEmpty
       ? workspaceName
@@ -520,13 +530,74 @@ export function App() {
     setHistoryDeleting(false);
     setAttachments([]);
     setSelections([]);
+    setBackgroundRequests(new Set());
     setNotice("");
+  }
+
+  function openTasks() {
+    setHistoryOpen(false);
+    setSettingsOpen(false);
+    setTasksOpen(true);
+  }
+
+  function closeTasks() {
+    setTasksOpen(false);
+  }
+
+  function stopTask(taskId: string) {
+    host.postMessage({ type: "background.stop", taskId });
+  }
+
+  function backgroundTool(callId: string) {
+    setBackgroundRequests((current) => {
+      if (current.has(callId)) {
+        return current;
+      }
+      const next = new Set(current);
+      next.add(callId);
+      return next;
+    });
+    host.postMessage({ type: "tool.background", callId });
+  }
+
+  function handleBackgroundResult(
+    callId: string,
+    accepted: boolean,
+    task?: BackgroundTaskView,
+    error?: string,
+  ) {
+    setBackgroundRequests((current) => {
+      if (!current.has(callId)) {
+        return current;
+      }
+      const next = new Set(current);
+      next.delete(callId);
+      return next;
+    });
+    if (accepted && task) {
+      dispatch({ type: "background.updated", task });
+      return;
+    }
+    if (error) {
+      setNotice(`无法转入后台：${error}`);
+    }
+  }
+
+  function openTaskLog(taskId: string) {
+    host.postMessage({
+      type: "background.openLog",
+      taskId,
+      ...(state.sessionId
+        ? { sessionId: state.sessionId }
+        : {}),
+    });
   }
 
   function openHistory() {
     if (host.kind !== "vscode") {
       return;
     }
+    setTasksOpen(false);
     setSettingsOpen(false);
     setHistoryOpen(true);
     setHistoryLoading(true);
@@ -545,6 +616,7 @@ export function App() {
     setHistoryError("");
     setAttachments([]);
     setSelections([]);
+    setBackgroundRequests(new Set());
     setNotice("");
   }
 
@@ -561,6 +633,7 @@ export function App() {
     if (busy) {
       return;
     }
+    setTasksOpen(false);
     setHistoryOpen(false);
     setSettingsOpen(true);
     setSettingsLoading(true);
@@ -671,7 +744,7 @@ export function App() {
       if (event.ctrlKey || event.metaKey || event.altKey) {
         return;
       }
-      if (settingsOpen || historyOpen) {
+      if (settingsOpen || historyOpen || tasksOpen) {
         return;
       }
       event.preventDefault();
@@ -701,7 +774,7 @@ export function App() {
     window.addEventListener("keydown", handleModeShortcut, true);
     return () =>
       window.removeEventListener("keydown", handleModeShortcut, true);
-  }, [mode, settingsOpen, historyOpen]);
+  }, [mode, settingsOpen, historyOpen, tasksOpen]);
 
   function changeEffort(next: EffortLevel) {
     setEffort(next);
@@ -833,8 +906,11 @@ export function App() {
         title={headerTitle}
         isNew={isEmpty}
         historyAvailable={host.kind === "vscode"}
+        tasksAvailable={host.kind === "vscode"}
+        taskCount={activeTaskCount}
         settingsDisabled={busy}
         onHistory={openHistory}
+        onTasks={openTasks}
         onSettings={openSettings}
         onReset={resetSession}
       />
@@ -876,6 +952,14 @@ export function App() {
           onRevokeMcpAuth={revokeMcpAuth}
           onClose={closeSettings}
         />
+      ) : tasksOpen ? (
+        <TasksPanel
+          tasks={state.backgroundTasks}
+          readOnly={readOnly}
+          onStop={stopTask}
+          onOpenLog={openTaskLog}
+          onClose={closeTasks}
+        />
       ) : null}
 
       {isEmpty ? (
@@ -893,6 +977,12 @@ export function App() {
           onOpenChanges={openChanges}
           onRevertChanges={revertChanges}
           actionsDisabled={busy || readOnly}
+          backgroundRequested={backgroundRequests}
+          onBackgroundTool={
+            host.kind === "vscode" && !readOnly
+              ? backgroundTool
+              : undefined
+          }
         />
       )}
 

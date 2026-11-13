@@ -6,6 +6,7 @@ import asyncio
 import os
 import sys
 import uuid
+from contextlib import suppress
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Awaitable, Callable, Sequence
@@ -30,8 +31,10 @@ from ling_agent import (
     default_global_memory_root,
     default_database_path,
 )
+from ling_agent.background_tasks import BackgroundTaskManager
 from ling_agent.browser_bridge import BrowserBridge
 from ling_agent.compaction import CompactionConfig, SummarizeFn
+from ling_agent.events import BackgroundTaskNotice
 from ling_agent.local_settings import (
     LocalSettingsStore,
     command_allow_patterns,
@@ -39,6 +42,9 @@ from ling_agent.local_settings import (
 from ling_agent.mcp import McpConfigStore, McpManager
 from ling_agent.skill_sync import sync_bundled_skills
 from ling_agent.skills import global_skills_root
+from ling_agent.storage import BackgroundTaskRecord
+from ling_agent.subagents import SubagentRunner
+from ling_agent.workspace import Workspace
 from ling_ai.stream import StreamFunction
 from ling_ai.types import Model, TextContent
 
@@ -117,9 +123,32 @@ class _QueuedPrompt:
     approval_mode: ApprovalMode
     reasoning: str | None = None
     display_text: str | None = None
+    kind: str = "prompt"
+    tasks: tuple[BackgroundTaskNotice, ...] = ()
+    task_ids: tuple[str, ...] = ()
 
 
 MAX_QUEUED_PROMPTS = 20
+
+
+def _background_task_view(
+    task: BackgroundTaskRecord,
+) -> dict[str, Any]:
+    return {
+        "id": task.id,
+        "sessionId": task.session_id,
+        "toolCallId": task.tool_call_id,
+        "description": task.description,
+        "status": task.status,
+        "summary": task.summary,
+        "error": task.error,
+        "createdAt": task.created_at,
+        "startedAt": task.started_at,
+        "completedAt": task.completed_at,
+        "kind": task.kind,
+        "exitCode": task.exit_code,
+        "outputPath": task.output_path,
+    }
 
 EmitIndexProgress = Callable[[dict[str, Any]], Awaitable[None]]
 
@@ -180,6 +209,15 @@ class SessionService:
         self._history_store = SQLiteSessionStore(
             default_database_path(resolved_storage_root)
         )
+        self._background_tasks = BackgroundTaskManager(
+            self._history_store,
+            self._make_background_runner,
+            self._config,
+            on_updated=self._emit_background_updated,
+            on_terminal=self._handle_background_terminal,
+        )
+        self._background_schedule_task: asyncio.Task[None] | None = None
+        self._background_continuation_pending = False
         self._agent: CodingAgent | None = None
         self._approvals: RpcApprovalHandler | None = None
         self._questions: RpcQuestionHandler | None = None
@@ -200,7 +238,169 @@ class SessionService:
             if self._recovery_done:
                 return
             await self._history_store.recover_interrupted_approvals()
+            await self._background_tasks.start()
             self._recovery_done = True
+
+    def _make_background_runner(
+        self,
+        workspace: Workspace,
+    ) -> SubagentRunner:
+        model, stream_fn = self._resolve_model()
+        return SubagentRunner(
+            model=model,
+            stream_fn=stream_fn,
+            workspace=workspace,
+            config=self._config,
+            embedder=self._embedder,
+        )
+
+    async def _emit_background_updated(
+        self,
+        task: BackgroundTaskRecord,
+    ) -> None:
+        if self._closed or task.session_id != self._session_id:
+            return
+        await self._emit_event(
+            {
+                "type": "background.updated",
+                "task": _background_task_view(task),
+            }
+        )
+
+    async def _handle_background_terminal(
+        self,
+        session_id: str,
+    ) -> None:
+        if self._closed or session_id != self._session_id:
+            return
+        self._background_continuation_pending = True
+        if (
+            self._background_schedule_task is not None
+            and not self._background_schedule_task.done()
+        ):
+            return
+        self._background_schedule_task = asyncio.create_task(
+            self._delayed_background_continuation(),
+            name="ling-background-continuation-schedule",
+        )
+
+    async def _delayed_background_continuation(self) -> None:
+        try:
+            await asyncio.sleep(
+                self._config.background_task_notify_debounce_ms / 1000
+            )
+            self._background_schedule_task = None
+            await self._maybe_start_background_continuation()
+        except asyncio.CancelledError:
+            return
+
+    async def _maybe_start_background_continuation(self) -> None:
+        if self._closed or self._session_id is None:
+            return
+        if self._task is not None and not self._task.done():
+            return
+        if self._agent is None:
+            if self._workspace_root is None:
+                return
+            await self._ensure_agent(self._workspace_root)
+        agent = self._agent
+        if agent is None:
+            return
+        item = await self._claim_background_item()
+        if item is None:
+            self._background_continuation_pending = False
+            return
+        if self._task is not None and not self._task.done():
+            self._queue.insert(0, item)
+            return
+        self._task = asyncio.create_task(
+            self._run_queue(agent, item),
+            name="ling-background-continuation",
+        )
+
+    async def _claim_background_item(
+        self,
+    ) -> _QueuedPrompt | None:
+        if self._session_id is None:
+            return None
+        tasks = await self._background_tasks.claim_notifications(
+            self._session_id
+        )
+        if not tasks:
+            return None
+        notices = tuple(
+            BackgroundTaskNotice(
+                id=task.id,
+                description=task.description,
+                status=task.status,
+                summary=task.summary,
+                error=task.error,
+                kind=task.kind,
+                exit_code=task.exit_code,
+                log_path=task.output_path,
+            )
+            for task in tasks
+        )
+        return _QueuedPrompt(
+            id=f"background-{uuid.uuid4()}",
+            prompt="",
+            attachments=(),
+            selections=(),
+            active_paths=(),
+            approval_mode=self._approval_mode,
+            kind="background",
+            tasks=notices,
+            task_ids=tuple(task.id for task in tasks),
+        )
+
+    async def _run_background(
+        self,
+        agent: CodingAgent,
+        item: _QueuedPrompt,
+    ) -> tuple[str, bool]:
+        started = False
+
+        def mark_started() -> None:
+            nonlocal started
+            started = True
+
+        try:
+            result = await agent.continue_background_tasks(
+                item.tasks,
+                on_started=mark_started,
+            )
+        except asyncio.CancelledError:
+            if not started:
+                await self._background_tasks.release_notifications(
+                    list(item.task_ids)
+                )
+            await self._emit_event({"type": "run.cancelled"})
+            raise
+        except Exception as exc:
+            if not started:
+                await self._background_tasks.release_notifications(
+                    list(item.task_ids)
+                )
+            await self._emit_event(
+                {
+                    "type": "run.failed",
+                    "message": str(exc) or type(exc).__name__,
+                }
+            )
+            return "error", started
+        if result.stop_reason == "error":
+            await self._emit_event(
+                {
+                    "type": "run.failed",
+                    "message": result.error_message
+                    or "The agent run failed",
+                }
+            )
+            return "error", started
+        if result.stop_reason == "aborted":
+            await self._emit_event({"type": "run.cancelled"})
+            return "aborted", started
+        return "completed", started
 
     async def start(
         self,
@@ -467,6 +667,50 @@ class SessionService:
             ],
         }
 
+    async def background_list(
+        self,
+        session_id: str | None = None,
+    ) -> list[dict[str, Any]]:
+        target = session_id or self._session_id
+        if not target:
+            return []
+        tasks = await self._background_tasks.list(target)
+        return [_background_task_view(task) for task in tasks]
+
+    async def background_tool_call(
+        self,
+        call_id: str,
+    ) -> dict[str, Any]:
+        agent = self._agent
+        if (
+            agent is None
+            or self._task is None
+            or self._task.done()
+            or self._session_id is None
+        ):
+            raise RuntimeError("No active run")
+        if (
+            agent.session is not None
+            and agent.session.session_id != self._session_id
+        ):
+            raise RuntimeError("The command belongs to another session")
+        task = await agent.background_tool_call(call_id)
+        return _background_task_view(task)
+
+    async def stop_background_task(
+        self,
+        task_id: str,
+    ) -> dict[str, Any]:
+        task = await self._background_tasks.get(task_id)
+        if task is None:
+            raise ValueError(f"Unknown background task: {task_id}")
+        if self._session_id is not None and task.session_id != self._session_id:
+            raise ValueError("Background task belongs to another session")
+        updated = await self._background_tasks.stop(task_id)
+        if updated is None:
+            raise ValueError(f"Unknown background task: {task_id}")
+        return _background_task_view(updated)
+
     async def ensure_mcp_config(self, workspace_root: str) -> dict[str, Any]:
         root = Path(workspace_root).expanduser().resolve()
         if not root.is_dir():
@@ -540,7 +784,17 @@ class SessionService:
 
     async def cancel(self) -> None:
         had_queue = bool(self._queue)
+        queued_tasks = [
+            task_id
+            for item in self._queue
+            if item.kind == "background"
+            for task_id in item.task_ids
+        ]
         self._queue.clear()
+        if queued_tasks:
+            await self._background_tasks.release_notifications(
+                queued_tasks
+            )
         self._promote_pending = False
         if had_queue:
             await self._emit_queue()
@@ -565,6 +819,7 @@ class SessionService:
                     "pendingApprovals": [],
                     "pendingQuestions": [],
                     "queuedMessages": [],
+                    "backgroundTasks": [],
                     "error": None,
                     "readOnly": False,
                     "approvalMode": self._approval_mode.value,
@@ -708,6 +963,10 @@ class SessionService:
             self._session_id = None
             self._approval_mode = ApprovalMode.MANUAL
 
+        for task in await self._background_tasks.list(session_id):
+            if task.status in ("pending", "running"):
+                await self._background_tasks.stop(task.id)
+
         deleted = await self._history_store.delete_session(session_id)
         if not deleted:
             raise ValueError(f"Unknown session: {session_id}")
@@ -722,6 +981,7 @@ class SessionService:
                         "pendingApprovals": [],
                         "pendingQuestions": [],
                         "queuedMessages": [],
+                        "backgroundTasks": [],
                         "error": None,
                         "readOnly": False,
                         "approvalMode": self._approval_mode.value,
@@ -756,6 +1016,7 @@ class SessionService:
         self._workspace_root = record.workspace_root
         self._session_id = session_id
         self._approval_mode = record.approval_mode
+        await self._handle_background_terminal(session_id)
         return await self._project_history(session_id, read_only=False)
 
     async def delete_message(self, message_id: str) -> dict[str, Any]:
@@ -905,6 +1166,7 @@ class SessionService:
         self._session_id = session_id
         self._approval_mode = approval_mode
         await self._ensure_agent(record.workspace_root)
+        await self._handle_background_terminal(session_id)
         snapshot = await self.snapshot()
         await self._emit_event(
             {
@@ -930,6 +1192,7 @@ class SessionService:
                         else ()
                     ),
                     queued_messages=self.queue_view(),
+                    background_tasks=await self.background_list(),
                 )
         if self._session_id is not None:
             return await self._project_history(
@@ -942,6 +1205,7 @@ class SessionService:
             "pendingApprovals": [],
             "pendingQuestions": [],
             "queuedMessages": [],
+            "backgroundTasks": [],
             "error": None,
             "readOnly": False,
             "approvalMode": self._approval_mode.value,
@@ -963,6 +1227,7 @@ class SessionService:
         snapshot = snapshot_to_ui(
             projector.snapshot(),
             approval_mode=record.approval_mode.value,
+            background_tasks=await self.background_list(session_id),
         )
         snapshot["sessionId"] = session_id
         snapshot["readOnly"] = read_only
@@ -971,9 +1236,17 @@ class SessionService:
     async def close(self) -> None:
         if self._closed:
             return
-        await self._dispose_agent()
-        await self._browser_bridge.stop()
         self._closed = True
+        if (
+            self._background_schedule_task is not None
+            and not self._background_schedule_task.done()
+        ):
+            self._background_schedule_task.cancel()
+            with suppress(asyncio.CancelledError):
+                await self._background_schedule_task
+        await self._dispose_agent()
+        await self._background_tasks.close()
+        await self._browser_bridge.stop()
         await self._history_store.close()
 
     async def wait_for_idle(self) -> None:
@@ -1001,6 +1274,7 @@ class SessionService:
             self._emit_event,
             approval_mode=lambda: self._approval_mode.value,
             queued_messages=self.queue_view,
+            background_tasks=self.background_list,
         )
         model, stream_fn = self._resolve_model()
         self._agent = CodingAgent(
@@ -1020,6 +1294,7 @@ class SessionService:
             browser_bridge=self._browser_bridge,
             web_client=resolve_web_client(model),
             global_memory_root=default_global_memory_root(),
+            background_tasks=self._background_tasks,
         )
         if self._session_id is not None:
             await self._agent.resume(self._session_id)
@@ -1088,17 +1363,26 @@ class SessionService:
                     await agent.session.set_approval_mode(
                         item.approval_mode
                     )
-            status = await self._run(
-                agent,
-                item.prompt,
-                item.attachments,
-                item.selections,
-                item.active_paths,
-                item.reasoning,
-                display_text=item.display_text,
-            )
+            if item.kind == "background":
+                status, started = await self._run_background(agent, item)
+                if status == "error" and not started:
+                    # The continuation never began; stop here instead of
+                    # immediately reclaiming the same released tasks.
+                    self._background_continuation_pending = False
+                    await self._emit_queue()
+                    return
+            else:
+                status = await self._run(
+                    agent,
+                    item.prompt,
+                    item.attachments,
+                    item.selections,
+                    item.active_paths,
+                    item.reasoning,
+                    display_text=item.display_text,
+                )
 
-            if status != "completed":
+            if status != "completed" and item.kind != "background":
                 if status == "aborted" and self._promote_pending and self._queue:
                     self._promote_pending = False
                 else:
@@ -1108,6 +1392,11 @@ class SessionService:
                     return
             else:
                 self._promote_pending = False
+
+            background_item = await self._claim_background_item()
+            if background_item is not None:
+                item = background_item
+                continue
 
             if not self._queue:
                 await self._emit_queue()
@@ -1171,7 +1460,7 @@ class SessionService:
             (
                 index
                 for index, item in enumerate(self._queue)
-                if item.id == queued_id
+                if item.id == queued_id and item.kind == "prompt"
             ),
             None,
         )
@@ -1207,6 +1496,7 @@ class SessionService:
                 "attachmentCount": len(item.attachments),
             }
             for item in self._queue
+            if item.kind == "prompt"
         ]
 
     async def _emit_queue(self) -> None:

@@ -15,6 +15,7 @@ venv/
 # Ling runtime state
 **/.agents/attachments/
 **/.agents/spills/
+**/.agents/background/
 **/.agents/code-index/
 **/.agents/notes/
 **/.agents/mcp.json

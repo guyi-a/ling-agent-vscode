@@ -161,6 +161,25 @@ button:disabled {
   background: var(--vscode-toolbar-hoverBackground, #353941);
 }
 
+.icon-button--badged {
+  position: relative;
+}
+
+.icon-button-badge {
+  position: absolute;
+  top: 1px;
+  right: 1px;
+  min-width: 13px;
+  padding: 0 3px;
+  border-radius: 7px;
+  color: #24262a;
+  background: var(--accent);
+  font-family: var(--mono);
+  font-size: 9px;
+  line-height: 13px;
+  text-align: center;
+}
+
 .icon-button:disabled {
   color: var(--muted);
   cursor: default;
@@ -546,6 +565,117 @@ button:disabled {
 
 .history-empty p {
   margin: 0;
+}
+
+.task-row {
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--line);
+}
+
+.task-row__heading {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.task-row__kind,
+.task-row__exit {
+  flex: 0 0 auto;
+  color: var(--muted);
+  font-family: var(--mono);
+  font-size: 9.5px;
+  text-transform: uppercase;
+}
+
+.task-row__exit {
+  text-transform: none;
+}
+
+.task-row__status {
+  flex: 0 0 auto;
+  padding: 1px 5px;
+  border-radius: 4px;
+  color: var(--muted);
+  background: var(--raised);
+  font-family: var(--mono);
+  font-size: 9.5px;
+}
+
+.task-row__status--completed {
+  color: var(--success);
+}
+
+.task-row__status--failed,
+.task-row__status--cancelled,
+.task-row__status--interrupted {
+  color: var(--error);
+}
+
+.task-row__description {
+  min-width: 0;
+  flex: 1 1 auto;
+  overflow: hidden;
+  color: var(--text);
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.task-row__stop {
+  flex: 0 0 auto;
+  padding: 2px 6px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  color: var(--muted);
+  background: var(--raised);
+  font-size: 10px;
+}
+
+.task-row__stop:hover {
+  color: var(--error);
+  border-color: var(--error);
+}
+
+.task-row__log {
+  flex: 0 0 auto;
+  padding: 2px 6px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  color: var(--muted);
+  background: var(--raised);
+  font-size: 10px;
+}
+
+.task-row__log:hover {
+  color: var(--text);
+  border-color: var(--focus);
+}
+
+.task-row__id {
+  display: block;
+  margin-top: 4px;
+  overflow: hidden;
+  color: var(--muted);
+  font-family: var(--mono);
+  font-size: 9.5px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.task-row__summary,
+.task-row__error {
+  max-height: 140px;
+  margin: 6px 0 0;
+  overflow-y: auto;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+}
+
+.task-row__error {
+  color: var(--error);
 }
 
 .history-panel-footer {
@@ -1894,6 +2024,39 @@ button:disabled {
   background: var(--vscode-list-hoverBackground, #30343a);
 }
 
+.tool-card-stack {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  width: 100%;
+  min-width: 0;
+}
+
+.tool-card-stack > .tool-card {
+  width: 100%;
+}
+
+.tool-background-action {
+  margin: 3px 0 0 10px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  font-size: 10px;
+  line-height: 1.4;
+  text-align: left;
+}
+
+.tool-background-action:hover:not(:disabled) {
+  color: var(--text);
+  text-decoration: underline;
+}
+
+.tool-background-action:disabled {
+  cursor: default;
+  opacity: 0.6;
+}
+
 .tool-icon {
   display: grid;
   width: 25px;
@@ -2098,6 +2261,27 @@ button:disabled {
   color: var(--muted);
   font-family: var(--mono);
   font-size: 11px;
+}
+
+.tool-io__background {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  color: var(--muted);
+  font-family: var(--mono);
+  font-size: 11px;
+}
+
+.tool-io__background--running {
+  color: var(--accent);
+}
+
+.tool-io__background--completed {
+  color: var(--success);
+}
+
+.tool-io__background--failed {
+  color: var(--error);
 }
 
 .tool-text {
@@ -2596,6 +2780,37 @@ button:disabled {
 .compaction-marker-label {
   flex: 0 0 auto;
   text-align: center;
+}
+
+.task-notification {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin: 12px 0;
+}
+
+.task-notification__line {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  color: color-mix(in srgb, var(--text) 82%, var(--muted));
+  font-size: 12.5px;
+}
+
+.task-notification__line::before,
+.task-notification__line::after {
+  content: "";
+  flex: 1 1 auto;
+  height: 1px;
+  background: color-mix(in srgb, var(--text) 18%, transparent);
+}
+
+.task-notification__label {
+  flex: 0 1 auto;
+  max-width: 78%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .run-state {
