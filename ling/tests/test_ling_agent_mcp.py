@@ -9,6 +9,7 @@ import sys
 import tempfile
 from pathlib import Path
 from typing import Any
+from unittest.mock import patch
 from urllib.parse import parse_qs, urlparse
 
 from mcp.server.fastmcp import FastMCP
@@ -402,7 +403,11 @@ async def _oauth_pkce_round_trip(root: Path) -> None:
 
 
 def test_mcp_oauth_pkce_round_trip() -> None:
-    with tempfile.TemporaryDirectory() as temp:
+    with (
+        tempfile.TemporaryDirectory() as temp,
+        # The flow normally opens the system browser; keep tests headless.
+        patch("ling_agent.mcp.auth.webbrowser.open", return_value=True),
+    ):
         asyncio.run(_oauth_pkce_round_trip(Path(temp)))
 
 
