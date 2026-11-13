@@ -8,14 +8,18 @@ from unittest.mock import patch
 
 from ling_ai.types import ToolCall
 from ling_agent import (
+    ApprovalMode,
     FilesystemReadEffect,
     FilesystemWriteEffect,
     MetaEffect,
+    McpAdminEffect,
+    McpEffect,
     NetworkEffect,
     ProcessExecEffect,
     UnknownEffect,
     Workspace,
     WorkspacePathError,
+    approval_reason,
     classify_command,
     derive_effect,
 )
@@ -181,6 +185,7 @@ def test_powershell_command_classification() -> None:
             "Get-Content C:\\Windows\\win.ini",
             "Get-Content $env:SECRET",
             "Get-Content README.md | Select-Object -First 1",
+            "Get-ChildItem | Format-Table -AutoSize",
             "git diff --output=diff.txt",
             "Set-Content README.md -Value changed",
         ]
@@ -195,15 +200,69 @@ def test_powershell_command_classification() -> None:
             "git clean -fd",
             "Stop-Computer",
             "diskpart",
+            "format C:",
         ]
         for command in destructive:
             assert classify_command(command, workspace) == "destructive", command
 
         assert classify_command("git status; Remove-Item x", workspace) == "destructive"
+        table_command = derive_effect(
+            _call(
+                "run_command",
+                {"command": "Get-ChildItem | Format-Table -AutoSize"},
+            ),
+            workspace,
+        )
+        assert approval_reason(table_command, ApprovalMode.AUTO) is None
+
+
+def test_mcp_effect_and_approval_policy() -> None:
+    with tempfile.TemporaryDirectory() as temp:
+        workspace = Workspace(Path(temp))
+        admin = derive_effect(
+            _call(
+                "mcp_add_server",
+                {"name": "docs", "url": "https://example.com/mcp"},
+            ),
+            workspace,
+        )
+        assert isinstance(admin, McpAdminEffect)
+        assert approval_reason(admin, ApprovalMode.AUTO) is not None
+
+    local = McpEffect(
+        server="local",
+        tool="write",
+        transport="stdio",
+        target="node server.js",
+        private_host=True,
+        read_only=False,
+        destructive=False,
+        open_world=False,
+        trusted_annotations=False,
+    )
+    assert approval_reason(local, ApprovalMode.MANUAL) is not None
+    assert approval_reason(local, ApprovalMode.AUTO) is None
+
+    destructive = McpEffect(
+        server="remote",
+        tool="delete",
+        transport="http",
+        target="https://example.com/mcp",
+        private_host=False,
+        read_only=False,
+        destructive=True,
+        open_world=True,
+        trusted_annotations=False,
+    )
+    assert approval_reason(
+        destructive,
+        ApprovalMode.AUTO,
+    ) == "MCP destructive tool remote/delete"
 
 
 if __name__ == "__main__":
     test_derive_effect_for_current_tools()
     test_derive_effect_rejects_path_escape()
     test_powershell_command_classification()
+    test_mcp_effect_and_approval_policy()
     print("all ling_agent effect tests passed")

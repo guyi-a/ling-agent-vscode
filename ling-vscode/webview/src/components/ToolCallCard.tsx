@@ -101,6 +101,8 @@ export function ToolCallCard({
               />
             ) : call.detail.kind === "memory" ? (
               <ToolMemory detail={call.detail} />
+            ) : call.detail.kind === "skill" ? (
+              <ToolSkill detail={call.detail} />
             ) : (
               <pre className="tool-text">{call.detail.text}</pre>
             )
@@ -112,6 +114,25 @@ export function ToolCallCard({
         </div>
       ) : null}
     </article>
+  );
+}
+
+function ToolSkill({
+  detail,
+}: {
+  detail: Extract<ToolDetail, { kind: "skill" }>;
+}) {
+  if (!detail.ok) {
+    return (
+      <div className="tool-memory-error" role="alert">
+        {detail.error ?? "Unable to load skill."}
+      </div>
+    );
+  }
+  return (
+    <div className="tool-skill__body">
+      <MarkdownMessage content={detail.body} streaming={false} />
+    </div>
   );
 }
 

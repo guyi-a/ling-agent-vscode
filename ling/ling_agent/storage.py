@@ -26,11 +26,14 @@ from ling_ai.types import (
 
 from .approvals import ApprovalDecision, ApprovalKind, ApprovalRequest
 from .attachments import UserAttachment
+from .changes import RunChange
 from .selections import UserSelection
 from .effects import (
     ApprovalMode,
     FilesystemReadEffect,
     FilesystemWriteEffect,
+    McpAdminEffect,
+    McpEffect,
     MetaEffect,
     NetworkEffect,
     ProcessExecEffect,
@@ -44,6 +47,8 @@ from .events import (
     CompactionApplied,
     CommittedEvent,
     CommittedEventEnvelope,
+    RunChangesCommitted,
+    RunChangesReverted,
     RunStarted,
     RunStopped,
     ToolExecutionStarted,
@@ -110,6 +115,8 @@ def _event_kind(event: CommittedEvent) -> str:
         ApprovalRequested: "approval.requested",
         ApprovalResolved: "approval.resolved",
         CompactionApplied: "compaction.applied",
+        RunChangesCommitted: "run.changes.committed",
+        RunChangesReverted: "run.changes.reverted",
         UsageUpdated: "usage.updated",
         RunStopped: "run.stopped",
     }
@@ -265,6 +272,26 @@ def _assistant_message_from_dict(data: dict[str, Any]) -> AssistantMessage:
     )
 
 
+def _run_change_from_dict(data: dict[str, Any]) -> RunChange:
+    return RunChange(
+        path=str(data["path"]),
+        before_exists=bool(data["before_exists"]),
+        before=(
+            str(data["before"])
+            if data.get("before") is not None
+            else None
+        ),
+        after_exists=bool(data["after_exists"]),
+        after=(
+            str(data["after"])
+            if data.get("after") is not None
+            else None
+        ),
+        added=int(data.get("added", 0)),
+        removed=int(data.get("removed", 0)),
+    )
+
+
 def _tool_result_from_dict(data: dict[str, Any]) -> ToolResultMessage:
     content: list[Any] = []
     for block in data.get("content") or []:
@@ -341,6 +368,29 @@ def _effect_from_dict(data: dict[str, Any]) -> Any:
         return MetaEffect(operation=str(data.get("operation", "meta")))
     if kind == "subagent":
         return SubagentEffect()
+    if kind == "mcp_call":
+        return McpEffect(
+            server=data["server"],
+            tool=data["tool"],
+            transport=data["transport"],
+            target=data["target"],
+            private_host=bool(data.get("private_host", False)),
+            read_only=bool(data.get("read_only", False)),
+            destructive=bool(data.get("destructive", False)),
+            open_world=bool(data.get("open_world", False)),
+            trusted_annotations=bool(
+                data.get("trusted_annotations", False)
+            ),
+        )
+    if kind == "mcp_admin":
+        return McpAdminEffect(
+            operation=str(data.get("operation", "admin")),
+            server=(
+                str(data["server"])
+                if data.get("server") is not None
+                else None
+            ),
+        )
     return UnknownEffect(note=str(data.get("note", "unknown effect")))
 
 
@@ -397,6 +447,15 @@ def _event_from_dict(kind: str, data: dict[str, Any]) -> CommittedEvent:
             replaced_count=int(data.get("replaced_count", 0)),
             estimated_tokens=int(data.get("estimated_tokens", 0)),
         )
+    if kind == "run.changes.committed":
+        return RunChangesCommitted(
+            changes=tuple(
+                _run_change_from_dict(item)
+                for item in data.get("changes") or ()
+            )
+        )
+    if kind == "run.changes.reverted":
+        return RunChangesReverted()
     if kind == "usage.updated":
         return UsageUpdated(usage=_usage_from_dict(data["usage"]))
     if kind == "run.stopped":

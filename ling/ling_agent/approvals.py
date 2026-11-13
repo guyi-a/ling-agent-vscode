@@ -20,6 +20,8 @@ from .effects import (
     BrowserEffect,
     Effect,
     FilesystemWriteEffect,
+    McpAdminEffect,
+    McpEffect,
     ProcessExecEffect,
     approval_reason,
     derive_effect,
@@ -35,6 +37,7 @@ class ApprovalKind(str, Enum):
     COMMAND = "command"
     BROWSER = "browser"
     UNKNOWN = "unknown"
+    MCP = "mcp"
 
 
 class ApprovalDecision(str, Enum):
@@ -234,6 +237,8 @@ def _kind_for_effect(effect: Effect) -> ApprovalKind:
         return ApprovalKind.COMMAND
     if isinstance(effect, BrowserEffect):
         return ApprovalKind.BROWSER
+    if isinstance(effect, (McpEffect, McpAdminEffect)):
+        return ApprovalKind.MCP
     return ApprovalKind.UNKNOWN
 
 
@@ -248,6 +253,7 @@ def create_approval_hook(
     mode: ApprovalMode | Callable[[], ApprovalMode] = ApprovalMode.MANUAL,
     manager: ApprovalManager | None = None,
     timeout_seconds: float = 120.0,
+    effect_resolver: Callable[[ToolCall], Effect | None] | None = None,
 ) -> HookCallback:
     if timeout_seconds <= 0:
         raise ValueError("timeout_seconds must be positive")
@@ -264,7 +270,11 @@ def create_approval_hook(
         ):
             return _deny("Approval cancelled")
 
-        effect = derive_effect(event.call, resolved_workspace)
+        effect = (
+            effect_resolver(event.call)
+            if effect_resolver is not None
+            else None
+        ) or derive_effect(event.call, resolved_workspace)
         mode_now = mode_provider()
         if mode_now is ApprovalMode.PLAN:
             denial = plan_mode_denial(effect)

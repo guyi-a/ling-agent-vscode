@@ -25,6 +25,9 @@ from ling_agent import (
     AssistantMessageCommitted,
     CommittedEventEnvelope,
     DuplicateEventError,
+    RunChange,
+    RunChangesCommitted,
+    RunChangesReverted,
     RunStarted,
     RunStopped,
     SQLiteSessionStore,
@@ -191,6 +194,52 @@ def test_sqlite_round_trip_and_wal() -> None:
     with tempfile.TemporaryDirectory() as temp:
         root = Path(temp)
         asyncio.run(_round_trip(root / "sessions.db", root))
+
+
+async def _changes_round_trip(
+    database_path: Path,
+    workspace: Path,
+) -> None:
+    store = SQLiteSessionStore(database_path)
+    await store.upsert_session(
+        SessionRecord(
+            session_id="session-1",
+            workspace_root=workspace,
+            title="Changes",
+            status="idle",
+            created_at=1,
+            updated_at=1,
+        )
+    )
+    change = RunChange(
+        path="a.txt",
+        before_exists=True,
+        before="old\n",
+        after_exists=True,
+        after="new\n",
+        added=1,
+        removed=1,
+    )
+    await store.append_committed(_envelope(1, RunStarted()))
+    await store.append_committed(
+        _envelope(2, RunChangesCommitted(changes=(change,)))
+    )
+    await store.append_committed(_envelope(3, RunChangesReverted()))
+    await store.close()
+
+    reopened = SQLiteSessionStore(database_path)
+    events = await reopened.load_committed("session-1")
+    committed = events[1].event
+    assert isinstance(committed, RunChangesCommitted)
+    assert committed.changes == (change,)
+    assert isinstance(events[2].event, RunChangesReverted)
+    await reopened.close()
+
+
+def test_run_changes_round_trip() -> None:
+    with tempfile.TemporaryDirectory() as temp:
+        root = Path(temp)
+        asyncio.run(_changes_round_trip(root / "sessions.db", root))
 
 
 async def _conflicts(database_path: Path, workspace: Path) -> None:

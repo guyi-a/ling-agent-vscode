@@ -209,6 +209,7 @@ async def _allowed_tool_flow(root: Path) -> None:
         "ToolExecutionStarted",
         "ToolResultCommitted",
         "AssistantMessageCommitted",
+        "RunChangesCommitted",
         "RunStopped",
     ]
     assert approval_handler.requests[0].call_id == "call-1"

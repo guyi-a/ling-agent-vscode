@@ -440,6 +440,98 @@ class JsonRpcServer:
         if method == "session.snapshot":
             return await self._sessions.snapshot()
 
+        if method == "changes.get":
+            session_id = params.get("sessionId")
+            run_id = params.get("runId")
+            if not isinstance(session_id, str) or not session_id:
+                raise JsonRpcError(
+                    -32602,
+                    "sessionId must be a non-empty string",
+                )
+            if not isinstance(run_id, str) or not run_id:
+                raise JsonRpcError(
+                    -32602,
+                    "runId must be a non-empty string",
+                )
+            try:
+                return await self._sessions.run_changes(
+                    session_id,
+                    run_id,
+                )
+            except ValueError as exc:
+                raise JsonRpcError(-32004, str(exc)) from exc
+
+        if method == "changes.revert":
+            session_id = params.get("sessionId")
+            run_id = params.get("runId")
+            if not isinstance(session_id, str) or not session_id:
+                raise JsonRpcError(
+                    -32602,
+                    "sessionId must be a non-empty string",
+                )
+            if not isinstance(run_id, str) or not run_id:
+                raise JsonRpcError(
+                    -32602,
+                    "runId must be a non-empty string",
+                )
+            try:
+                return await self._sessions.revert_run_changes(
+                    session_id,
+                    run_id,
+                )
+            except (RuntimeError, ValueError) as exc:
+                raise JsonRpcError(-32001, str(exc)) from exc
+
+        if method == "mcp.status":
+            workspace_root = params.get("workspaceRoot")
+            if not isinstance(workspace_root, str) or not workspace_root.strip():
+                raise JsonRpcError(
+                    -32602,
+                    "workspaceRoot must be a non-empty string",
+                )
+            try:
+                return await self._sessions.mcp_status(workspace_root)
+            except (RuntimeError, ValueError) as exc:
+                raise JsonRpcError(-32001, str(exc)) from exc
+
+        if method == "mcp.ensureConfig":
+            workspace_root = params.get("workspaceRoot")
+            if not isinstance(workspace_root, str) or not workspace_root.strip():
+                raise JsonRpcError(
+                    -32602,
+                    "workspaceRoot must be a non-empty string",
+                )
+            try:
+                return await self._sessions.ensure_mcp_config(workspace_root)
+            except (RuntimeError, ValueError, OSError) as exc:
+                raise JsonRpcError(-32001, str(exc)) from exc
+
+        if method in ("mcp.authorize", "mcp.revokeAuth"):
+            workspace_root = params.get("workspaceRoot")
+            name = params.get("name")
+            if not isinstance(workspace_root, str) or not workspace_root.strip():
+                raise JsonRpcError(
+                    -32602,
+                    "workspaceRoot must be a non-empty string",
+                )
+            if not isinstance(name, str) or not name.strip():
+                raise JsonRpcError(
+                    -32602,
+                    "name must be a non-empty string",
+                )
+            try:
+                if method == "mcp.authorize":
+                    return await self._sessions.authorize_mcp_server(
+                        workspace_root,
+                        name,
+                    )
+                return await self._sessions.revoke_mcp_auth(
+                    workspace_root,
+                    name,
+                )
+            except (RuntimeError, ValueError, OSError) as exc:
+                raise JsonRpcError(-32001, str(exc)) from exc
+
         if method == "session.setMode":
             mode = _parse_approval_mode(
                 params.get("mode"),

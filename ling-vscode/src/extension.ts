@@ -26,6 +26,8 @@ import type {
   IndexStatus,
   MemoryScope,
   MemoryStatus,
+  McpIssue,
+  McpServerStatus,
   SessionSnapshot,
   SettingsView,
   SkillStatus,
@@ -42,7 +44,10 @@ import {
 import { CommentCodeLensProvider } from "./comment/commentCodeLens";
 import { CommentController } from "./comment/commentController";
 import { CommentPreviewController } from "./comment/commentPreview";
-import { DiffController } from "./diffController";
+import {
+  DiffController,
+  type ChangeReviewItem,
+} from "./diffController";
 import { PlanCodeLensProvider } from "./plan/planCodeLens";
 import {
   captureEditorSelection,
@@ -274,6 +279,12 @@ class ChatViewProvider implements vscode.WebviewViewProvider {
   private restoredLastSession = false;
   private memories: MemoryStatus[] = [];
   private memoryDiagnostics: string[] = [];
+  private mcpServers: McpServerStatus[] = [];
+  private mcpIssues: McpIssue[] = [];
+  private mcpConfigPath =
+    path.join(this.workspaceRootForMcp(), ".agents", "mcp.json");
+  private readonly mcpWatcher: vscode.FileSystemWatcher;
+  private mcpWatchTimer: NodeJS.Timeout | undefined;
 
   constructor(
     private readonly extensionUri: vscode.Uri,
@@ -282,7 +293,35 @@ class ChatViewProvider implements vscode.WebviewViewProvider {
     private readonly configPath: string,
     private settings: LingSettings,
     private readonly diffController: DiffController,
-  ) {}
+  ) {
+    this.mcpWatcher = vscode.workspace.createFileSystemWatcher(
+      "**/.agents/mcp.json",
+    );
+    const refreshMcp = () => {
+      if (this.mcpWatchTimer) {
+        clearTimeout(this.mcpWatchTimer);
+      }
+      this.mcpWatchTimer = setTimeout(() => {
+        this.mcpWatchTimer = undefined;
+        void this.refreshMcpStatuses()
+          .then(() => {
+            if (this.view) {
+              this.postToWebview({
+                type: "ling.settings",
+                settings: this.settingsView(),
+              });
+            }
+          })
+          .catch((error) => {
+            this.mcpServers = [];
+            this.mcpIssues = [{ message: formatError(error) }];
+          });
+      }, 180);
+    };
+    this.mcpWatcher.onDidChange(refreshMcp);
+    this.mcpWatcher.onDidCreate(refreshMcp);
+    this.mcpWatcher.onDidDelete(refreshMcp);
+  }
 
   resolveWebviewView(webviewView: vscode.WebviewView): void {
     this.view = webviewView;
@@ -495,6 +534,14 @@ class ChatViewProvider implements vscode.WebviewViewProvider {
         );
         break;
 
+      case "changes.open":
+        void this.handleOpenChanges(value.sessionId, value.runId);
+        break;
+
+      case "changes.revert":
+        void this.handleRevertChanges(value.sessionId, value.runId);
+        break;
+
       case "history.list":
         void this.handleHistoryList("");
         break;
@@ -531,6 +578,18 @@ class ChatViewProvider implements vscode.WebviewViewProvider {
 
       case "memory.delete":
         void this.handleMemoryDelete(value.scope, value.name);
+        break;
+
+      case "mcp.openConfig":
+        void this.handleMcpOpenConfig();
+        break;
+
+      case "mcp.authorize":
+        void this.handleMcpAuthorize(value.name);
+        break;
+
+      case "mcp.revokeAuth":
+        void this.handleMcpRevokeAuth(value.name);
         break;
     }
   }
@@ -1078,7 +1137,18 @@ class ChatViewProvider implements vscode.WebviewViewProvider {
       skills: this.skillStatuses(),
       memories: this.memories,
       memoryDiagnostics: this.memoryDiagnostics,
+      mcpServers: this.mcpServers,
+      mcpIssues: this.mcpIssues,
+      mcpConfigPath: this.mcpConfigPath,
     };
+  }
+
+  private workspaceRootForMcp(): string {
+    return (
+      vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ??
+      this.scratchRoot ??
+      process.cwd()
+    );
   }
 
   private skillStatuses(): SkillStatus[] {
@@ -1234,6 +1304,12 @@ class ChatViewProvider implements vscode.WebviewViewProvider {
     } catch (cause) {
       this.memoryDiagnostics = [formatError(cause)];
     }
+    try {
+      await this.refreshMcpStatuses();
+    } catch (cause) {
+      this.mcpServers = [];
+      this.mcpIssues = [{ message: formatError(cause) }];
+    }
     this.postToWebview({
       type: "ling.settings",
       settings: this.settingsView(),
@@ -1254,6 +1330,114 @@ class ChatViewProvider implements vscode.WebviewViewProvider {
       globs: [...memory.globs],
     }));
     this.memoryDiagnostics = [...result.diagnostics];
+  }
+
+  private async refreshMcpStatuses(): Promise<void> {
+    await this.sidecar.start();
+    const result = await this.sidecar.call<{
+      configPath: string;
+      servers: McpServerStatus[];
+      issues: McpIssue[];
+    }>("mcp.status", {
+      workspaceRoot: this.sessionWorkspaceRoot(),
+    });
+    this.mcpConfigPath = result.configPath;
+    this.mcpServers = result.servers.map((server) => ({
+      ...server,
+      tools: [...server.tools],
+    }));
+    this.mcpIssues = result.issues.map((issue) => ({ ...issue }));
+  }
+
+  private async handleMcpOpenConfig(): Promise<void> {
+    try {
+      const result = await this.sidecar.call<{ path: string }>(
+        "mcp.ensureConfig",
+        { workspaceRoot: this.sessionWorkspaceRoot() },
+      );
+      const expectedDirectory = path.resolve(
+        this.sessionWorkspaceRoot(),
+        ".agents",
+      );
+      if (
+        !isPathInside(expectedDirectory, result.path) ||
+        path.basename(result.path).toLowerCase() !== "mcp.json"
+      ) {
+        throw new Error("MCP config path escaped .agents.");
+      }
+      await this.refreshMcpStatuses();
+      this.postToWebview({
+        type: "ling.settings",
+        settings: this.settingsView(),
+      });
+      await vscode.window.showTextDocument(
+        vscode.Uri.file(result.path),
+        { preview: false },
+      );
+    } catch (error) {
+      await vscode.window.showErrorMessage(
+        `Unable to open MCP config: ${formatError(error)}`,
+      );
+    }
+  }
+
+  private async handleMcpAuthorize(name: string): Promise<void> {
+    try {
+      await vscode.window.withProgress(
+        {
+          location: vscode.ProgressLocation.Notification,
+          title: `Waiting for MCP authorization: ${name}`,
+        },
+        () =>
+          this.sidecar.call<{
+            name: string;
+            state: string;
+            authorized: boolean;
+            toolCount: number;
+          }>(
+            "mcp.authorize",
+            {
+              workspaceRoot: this.sessionWorkspaceRoot(),
+              name,
+            },
+            300_000,
+          ),
+      );
+      await this.postSettings();
+      await vscode.window.showInformationMessage(
+        `MCP server ${name} is authorized.`,
+      );
+    } catch (error) {
+      await vscode.window.showErrorMessage(
+        `Unable to authorize MCP server: ${formatError(error)}`,
+      );
+    }
+  }
+
+  private async handleMcpRevokeAuth(name: string): Promise<void> {
+    const choice = await vscode.window.showWarningMessage(
+      `Remove stored OAuth credentials for MCP server "${name}"?`,
+      { modal: true },
+      "Remove",
+    );
+    if (choice !== "Remove") {
+      return;
+    }
+    try {
+      await this.sidecar.call(
+        "mcp.revokeAuth",
+        {
+          workspaceRoot: this.sessionWorkspaceRoot(),
+          name,
+        },
+        30_000,
+      );
+      await this.postSettings();
+    } catch (error) {
+      await vscode.window.showErrorMessage(
+        `Unable to revoke MCP authorization: ${formatError(error)}`,
+      );
+    }
   }
 
   private memoryRoot(scope: MemoryScope): string {
@@ -1545,6 +1729,74 @@ class ChatViewProvider implements vscode.WebviewViewProvider {
         type: "run.failed",
         message: `Unable to start a new session: ${formatError(error)}`,
       });
+    }
+  }
+
+  private async handleOpenChanges(
+    sessionId: string,
+    runId: string,
+  ): Promise<void> {
+    try {
+      const result = await this.sidecar.call<{
+        runId: string;
+        changes: ChangeReviewItem[];
+      }>("changes.get", { sessionId, runId });
+      if (result.changes.length === 0) {
+        throw new Error("No recorded changes for this run.");
+      }
+      await this.diffController.openChanges(
+        runId,
+        `Ling: 本轮修改（${result.changes.length} 个文件）`,
+        result.changes,
+      );
+    } catch (error) {
+      this.output.appendLine(
+        `Unable to open run changes: ${formatError(error)}`,
+      );
+      await vscode.window.showErrorMessage(
+        `Unable to open run changes: ${formatError(error)}`,
+      );
+    }
+  }
+
+  private async handleRevertChanges(
+    sessionId: string,
+    runId: string,
+  ): Promise<void> {
+    const choice = await vscode.window.showWarningMessage(
+      "撤销这一轮对工作区文件的修改？",
+      {
+        modal: true,
+        detail:
+          "Ling 会先检查文件是否仍保持本轮结束时的状态；如已被后续修改，则不会覆盖。",
+      },
+      "撤销",
+    );
+    if (choice !== "撤销") {
+      return;
+    }
+    try {
+      const result = await vscode.window.withProgress(
+        {
+          location: vscode.ProgressLocation.Notification,
+          title: "正在撤销 Ling 修改…",
+        },
+        () =>
+          this.sidecar.call<{ reverted: boolean; count: number }>(
+            "changes.revert",
+            { sessionId, runId },
+          ),
+      );
+      await vscode.window.showInformationMessage(
+        `已撤销 ${result.count} 个文件的修改。`,
+      );
+    } catch (error) {
+      this.output.appendLine(
+        `Unable to revert run changes: ${formatError(error)}`,
+      );
+      await vscode.window.showErrorMessage(
+        `Unable to revert changes: ${formatError(error)}`,
+      );
     }
   }
 

@@ -289,6 +289,70 @@ def test_maybe_compact_creates_record() -> None:
     assert "compacted-summary" in result.summary_message.content
 
 
+def test_repeated_compaction_accumulates_replaced_messages() -> None:
+    config = CompactionConfig(
+        window_nominal_tokens=1_000,
+        window_usable_ratio=1.0,
+        reserved_output_tokens=0,
+        buffer_tokens=0,
+        keep_last_user_turns=1,
+    )
+    old = CompactionRecord(
+        id="c1",
+        through_message_id="assistant:1",
+        summary="first summary",
+        replaced_message_ids=("user:0", "assistant:1"),
+        replaced_count=2,
+        estimated_tokens=100,
+    )
+    rows = [
+        _row("user:0", "user", "first", order=0),
+        _row("assistant:1", "assistant", "answer", order=1),
+        _row("user:2", "user", "second", order=2),
+        _row(
+            "assistant:3",
+            "assistant",
+            "answer",
+            order=3,
+            total_tokens=5_000,
+        ),
+        _row("user:4", "user", "current", order=4),
+        _row("assistant:5", "assistant", "answer", order=5),
+    ]
+
+    async def summarize(folded: object, prior: str) -> str:
+        assert prior == "first summary"
+        return "combined summary"
+
+    result = asyncio.run(
+        maybe_compact(rows, old, config, summarize)
+    )
+
+    assert result is not None
+    assert result.record.replaced_message_ids == (
+        "user:0",
+        "assistant:1",
+        "user:2",
+        "assistant:3",
+    )
+    assert result.record.replaced_count == 4
+
+    messages = [
+        _user("first"),
+        _assistant([TextContent("answer")]),
+        _user("second"),
+        _assistant([TextContent("answer")]),
+        _user("current"),
+        _assistant([TextContent("answer")]),
+    ]
+    view = project_model_messages(messages, result.record)
+    assert len(view) == 3
+    assert isinstance(view[0], UserMessage)
+    assert "combined summary" in view[0].content
+    assert isinstance(view[1], UserMessage)
+    assert view[1].content == "current"
+
+
 def test_maybe_compact_returns_none_on_summary_failure() -> None:
     config = CompactionConfig(
         window_nominal_tokens=1_000,

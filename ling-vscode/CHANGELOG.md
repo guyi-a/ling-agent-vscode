@@ -1,5 +1,28 @@
 # Changelog
 
+## 1.0.0
+
+- Promote Ling to a stable release with a complete MCP client supporting
+  stdio, Streamable HTTP, SSE fallback, cached tool manifests, and lazy,
+  pooled server connections.
+- Add OAuth 2.1 authorization-code flow with PKCE, metadata discovery,
+  dynamic client registration, state validation, loopback callbacks,
+  token refresh, and automatic reconnect.
+- Store OAuth credentials with Windows DPAPI, support authorization and
+  revocation from both Agent tools and Settings, and remove credentials
+  together with deleted MCP server configurations.
+- Add Agent-managed MCP configuration tools for listing, testing, adding,
+  enabling, disabling, reloading, and removing servers. MCP capability
+  changes always require approval, and configuration files are hot-reloaded.
+- Add MCP-aware tool naming, risk effects, approval behavior, tool cards,
+  connection status, diagnostics, and a Settings configuration entry point.
+- Add per-run workspace change ledgers with net line counts, multi-file diff
+  review, and conflict-safe undo for the current run.
+- Fix repeated context compaction so cumulative message boundaries remain
+  correct, and invalidate stale compaction state after history edits.
+- Refine grouped tool cards, Skill cards, user-message presentation, and
+  change-summary layout.
+
 ## 0.14.0
 
 - Add direct browser control through the Kro Browser Bridge extension, with

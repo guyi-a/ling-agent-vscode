@@ -173,6 +173,25 @@ def snapshot_to_ui(
                     if run.completed_at is not None
                     else {}
                 ),
+                **(
+                    {
+                        "changes": [
+                            {
+                                "path": change.path,
+                                "added": change.added,
+                                "removed": change.removed,
+                            }
+                            for change in run.changes
+                        ]
+                    }
+                    if run.changes
+                    else {}
+                ),
+                **(
+                    {"changesReverted": True}
+                    if run.changes_reverted
+                    else {}
+                ),
             }
             for run in snapshot.runs.values()
         ],
@@ -377,12 +396,23 @@ def _tool_detail(item: ToolTimelineItem) -> dict[str, Any] | None:
     arguments = item.arguments if isinstance(item.arguments, dict) else {}
     metadata = item.details if isinstance(item.details, dict) else {}
 
+    if item.name == "load_skill":
+        return _skill_tool_detail(item)
+
     if item.name in (
         "memory_list",
         "memory_write",
         "memory_delete",
     ):
         return _memory_tool_detail(item)
+
+    if item.name.startswith("mcp_"):
+        return {
+            "kind": "io",
+            "input": _format_tool_input(item.name, arguments),
+            "output": item.output,
+            **({"error": item.error} if item.error else {}),
+        }
 
     if item.name == "edit_file":
         path = arguments.get("path")
@@ -470,6 +500,64 @@ def _tool_detail(item: ToolTimelineItem) -> dict[str, Any] | None:
         }
 
     return None
+
+
+def _skill_tool_detail(
+    item: ToolTimelineItem,
+) -> dict[str, Any] | None:
+    try:
+        payload = json.loads(item.output)
+    except (TypeError, ValueError):
+        return None
+    if not isinstance(payload, dict):
+        return None
+    name = payload.get("name")
+    if not isinstance(name, str) or not name:
+        requested = item.arguments.get("name")
+        name = requested if isinstance(requested, str) else "Skill"
+    if payload.get("ok") is False:
+        message = payload.get("message")
+        return {
+            "kind": "skill",
+            "name": name,
+            "description": "",
+            "body": "",
+            "skillPath": "",
+            "ok": False,
+            **(
+                {"error": message}
+                if isinstance(message, str) and message
+                else {}
+            ),
+        }
+    description = payload.get("description")
+    body = payload.get("body")
+    skill_path = payload.get("skill_path")
+    if (
+        not isinstance(description, str)
+        or not isinstance(body, str)
+        or not isinstance(skill_path, str)
+    ):
+        return None
+    scripts_path = payload.get("scripts_path")
+    return {
+        "kind": "skill",
+        "name": name,
+        "description": description,
+        "body": body,
+        "skillPath": skill_path,
+        "ok": True,
+        **(
+            {"scriptsPath": scripts_path}
+            if isinstance(scripts_path, str)
+            else {}
+        ),
+        **(
+            {"truncated": True}
+            if payload.get("truncated") is True
+            else {}
+        ),
+    }
 
 
 def _memory_tool_detail(
@@ -719,6 +807,7 @@ def _tool_action(
     "Browser",
     "Web",
     "Memory",
+    "MCP",
 ]:
     if name in ("create_plan", "update_plan", "todo_write"):
         return "Plan"
@@ -734,6 +823,8 @@ def _tool_action(
         "memory_delete",
     ):
         return "Memory"
+    if name.startswith("mcp_"):
+        return "MCP"
     if name == "load_skill":
         return "Skill"
     if name in (
@@ -750,6 +841,21 @@ def _tool_action(
 
 
 def _tool_target(name: str, arguments: dict[str, object]) -> str:
+    if name.startswith("mcp_"):
+        if "__" in name:
+            server, tool = name[4:].split("__", 1)
+            return f"{server} / {tool}"
+        management = {
+            "mcp_list_servers": "server inventory",
+            "mcp_reload": "reload manifests",
+        }
+        if name in management:
+            return management[name]
+        for key in ("name", "url", "command"):
+            value = arguments.get(key)
+            if isinstance(value, str) and value:
+                return value[:80]
+        return name
     if name == "memory_list":
         return "memory inventory"
     if name in ("memory_write", "memory_delete"):

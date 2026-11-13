@@ -586,6 +586,36 @@ export function App() {
     setNotice("");
   }
 
+  function openChanges(runId: string) {
+    if (host.kind !== "vscode") {
+      setNotice("File changes are only available in VS Code.");
+      return;
+    }
+    if (!state.sessionId) {
+      return;
+    }
+    host.postMessage({
+      type: "changes.open",
+      sessionId: state.sessionId,
+      runId,
+    });
+  }
+
+  function revertChanges(runId: string) {
+    if (host.kind !== "vscode") {
+      setNotice("Undo is only available in VS Code.");
+      return;
+    }
+    if (!state.sessionId) {
+      return;
+    }
+    host.postMessage({
+      type: "changes.revert",
+      sessionId: state.sessionId,
+      runId,
+    });
+  }
+
   function send(
     text: string,
     attachmentsToSend: UserAttachmentView[] = attachments,
@@ -709,6 +739,30 @@ export function App() {
     host.postMessage({ type: "memory.delete", scope, name });
   }
 
+  function openMcpConfig() {
+    if (host.kind !== "vscode") {
+      setNotice("MCP configuration is only available in VS Code.");
+      return;
+    }
+    host.postMessage({ type: "mcp.openConfig" });
+  }
+
+  function authorizeMcp(name: string) {
+    if (host.kind !== "vscode") {
+      setNotice("MCP authorization is only available in VS Code.");
+      return;
+    }
+    host.postMessage({ type: "mcp.authorize", name });
+  }
+
+  function revokeMcpAuth(name: string) {
+    if (host.kind !== "vscode") {
+      setNotice("MCP authorization is only available in VS Code.");
+      return;
+    }
+    host.postMessage({ type: "mcp.revokeAuth", name });
+  }
+
   function copyToClipboard(text: string, noticeText: string) {
     if (host.kind === "vscode") {
       host.postMessage({ type: "selection.copy", text });
@@ -800,6 +854,9 @@ export function App() {
           onOpenMemory={openMemory}
           onCreateMemory={createMemory}
           onDeleteMemory={deleteMemory}
+          onOpenMcpConfig={openMcpConfig}
+          onAuthorizeMcp={authorizeMcp}
+          onRevokeMcpAuth={revokeMcpAuth}
           onClose={closeSettings}
         />
       ) : null}
@@ -816,6 +873,8 @@ export function App() {
           onCopyMessage={copyMessage}
           onDeleteMessage={deleteMessage}
           onRegenerateMessage={regenerateMessage}
+          onOpenChanges={openChanges}
+          onRevertChanges={revertChanges}
           actionsDisabled={busy || readOnly}
         />
       )}

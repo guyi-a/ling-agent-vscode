@@ -11,6 +11,8 @@ import type {
   IndexStatus,
   MemoryScope,
   MemoryStatus,
+  McpIssue,
+  McpServerStatus,
   QueuedMessage,
   QuestionRequest,
   RunPhase,
@@ -29,6 +31,7 @@ import type {
   UserSelectionKind,
   UserSelectionRef,
   UserSelectionView,
+  WorkspaceChangeSummary,
 } from "./uiTypes";
 
 export const UI_PROTOCOL_VERSION = 1;
@@ -137,6 +140,16 @@ export type WebviewToHostMessage =
       effort?: EffortLevel;
     }
   | {
+      type: "changes.open";
+      sessionId: string;
+      runId: string;
+    }
+  | {
+      type: "changes.revert";
+      sessionId: string;
+      runId: string;
+    }
+  | {
       type: "history.list";
     }
   | {
@@ -174,6 +187,17 @@ export type WebviewToHostMessage =
       type: "memory.delete";
       name: string;
       scope: MemoryScope;
+    }
+  | {
+      type: "mcp.openConfig";
+    }
+  | {
+      type: "mcp.authorize";
+      name: string;
+    }
+  | {
+      type: "mcp.revokeAuth";
+      name: string;
     };
 
 export type HostToWebviewMessage =
@@ -260,6 +284,14 @@ export function isWebviewToHostMessage(
         value.messageId.length > 0 &&
         (value.effort === undefined || isEffortLevel(value.effort))
       );
+    case "changes.open":
+    case "changes.revert":
+      return (
+        typeof value.sessionId === "string" &&
+        value.sessionId.length > 0 &&
+        typeof value.runId === "string" &&
+        value.runId.length > 0
+      );
     case "history.search":
       return typeof value.query === "string";
     case "history.delete":
@@ -338,6 +370,11 @@ export function isWebviewToHostMessage(
         value.name.length > 0 &&
         (value.scope === "workspace" || value.scope === "global")
       );
+    case "mcp.openConfig":
+      return true;
+    case "mcp.authorize":
+    case "mcp.revokeAuth":
+      return typeof value.name === "string" && value.name.length > 0;
     case "settings.save":
       return (
         typeof value.apiKey === "string" &&
@@ -581,7 +618,46 @@ function isSettingsView(value: unknown): value is SettingsView {
     Array.isArray(value.memoryDiagnostics) &&
     value.memoryDiagnostics.every(
       (item) => typeof item === "string",
-    )
+    ) &&
+    Array.isArray(value.mcpServers) &&
+    value.mcpServers.every(isMcpServerStatus) &&
+    Array.isArray(value.mcpIssues) &&
+    value.mcpIssues.every(isMcpIssue) &&
+    typeof value.mcpConfigPath === "string"
+  );
+}
+
+function isMcpServerStatus(value: unknown): value is McpServerStatus {
+  return (
+    isRecord(value) &&
+    typeof value.name === "string" &&
+    value.name.length > 0 &&
+    (value.kind === "stdio" || value.kind === "http") &&
+    typeof value.target === "string" &&
+    typeof value.enabled === "boolean" &&
+    [
+      "connected",
+      "configured",
+      "not-connected",
+      "needs-auth",
+      "disabled",
+      "error",
+    ].includes(String(value.state)) &&
+    (value.auth === "none" || value.auth === "oauth") &&
+    (value.authorized === undefined ||
+      typeof value.authorized === "boolean") &&
+    isNonNegativeInteger(value.toolCount) &&
+    Array.isArray(value.tools) &&
+    value.tools.every((item) => typeof item === "string") &&
+    (value.error === undefined || typeof value.error === "string")
+  );
+}
+
+function isMcpIssue(value: unknown): value is McpIssue {
+  return (
+    isRecord(value) &&
+    (value.name === undefined || typeof value.name === "string") &&
+    typeof value.message === "string"
   );
 }
 
@@ -646,7 +722,24 @@ function isTimelineRun(value: unknown): value is TimelineRunView {
         Number.isFinite(value.startedAt))) &&
     (value.completedAt === undefined ||
       (typeof value.completedAt === "number" &&
-        Number.isFinite(value.completedAt)))
+        Number.isFinite(value.completedAt))) &&
+    (value.changes === undefined ||
+      (Array.isArray(value.changes) &&
+        value.changes.every(isWorkspaceChangeSummary))) &&
+    (value.changesReverted === undefined ||
+      typeof value.changesReverted === "boolean")
+  );
+}
+
+function isWorkspaceChangeSummary(
+  value: unknown,
+): value is WorkspaceChangeSummary {
+  return (
+    isRecord(value) &&
+    typeof value.path === "string" &&
+    value.path.length > 0 &&
+    isNonNegativeInteger(value.added) &&
+    isNonNegativeInteger(value.removed)
   );
 }
 
@@ -880,6 +973,20 @@ function isToolDetail(value: unknown): value is ToolDetail {
       (value.error === undefined || typeof value.error === "string")
     );
   }
+  if (value.kind === "skill") {
+    return (
+      typeof value.name === "string" &&
+      typeof value.description === "string" &&
+      typeof value.body === "string" &&
+      typeof value.skillPath === "string" &&
+      (value.scriptsPath === undefined ||
+        typeof value.scriptsPath === "string") &&
+      (value.truncated === undefined ||
+        typeof value.truncated === "boolean") &&
+      typeof value.ok === "boolean" &&
+      (value.error === undefined || typeof value.error === "string")
+    );
+  }
   return false;
 }
 
@@ -1022,7 +1129,8 @@ function isToolAction(value: unknown): value is ToolAction {
     value === "Subagent" ||
     value === "Browser" ||
     value === "Web" ||
-    value === "Memory"
+    value === "Memory" ||
+    value === "MCP"
   );
 }
 

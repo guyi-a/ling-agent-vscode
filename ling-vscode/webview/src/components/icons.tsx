@@ -135,6 +135,15 @@ export function RegenerateIcon(props: IconProps) {
   );
 }
 
+export function UndoIcon(props: IconProps) {
+  return (
+    <IconBase {...props}>
+      <path d="m8 7-4 4 4 4" />
+      <path d="M5 11h8a5 5 0 0 1 5 5v1" />
+    </IconBase>
+  );
+}
+
 export function SendIcon(props: IconProps) {
   return (
     <IconBase {...props}>
@@ -230,6 +239,16 @@ export function ToolIcon({
       <IconBase {...props}>
         <path d="M7 4h10v16l-5-3-5 3V4Z" />
         <path d="M10 9h4M10 12h4" />
+      </IconBase>
+    );
+  }
+
+  if (action === "MCP") {
+    return (
+      <IconBase {...props}>
+        <path d="M8 7V4.5M16 7V4.5" />
+        <path d="M6 7h12v4a6 6 0 0 1-12 0V7Z" />
+        <path d="M12 17v3" />
       </IconBase>
     );
   }

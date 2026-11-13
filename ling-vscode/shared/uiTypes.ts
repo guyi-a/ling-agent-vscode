@@ -9,7 +9,8 @@ export type ToolAction =
   | "Subagent"
   | "Browser"
   | "Web"
-  | "Memory";
+  | "Memory"
+  | "MCP";
 
 export type ToolStatus =
   | "Running"
@@ -96,6 +97,17 @@ export type ToolDetail =
       path?: string;
       memories?: MemoryDetailItem[];
       diagnostics?: string[];
+      ok: boolean;
+      error?: string;
+    }
+  | {
+      kind: "skill";
+      name: string;
+      description: string;
+      body: string;
+      skillPath: string;
+      scriptsPath?: string;
+      truncated?: boolean;
       ok: boolean;
       error?: string;
     };
@@ -216,6 +228,14 @@ export interface TimelineRunView {
   status: TimelineRunStatus;
   startedAt?: number;
   completedAt?: number;
+  changes?: WorkspaceChangeSummary[];
+  changesReverted?: boolean;
+}
+
+export interface WorkspaceChangeSummary {
+  path: string;
+  added: number;
+  removed: number;
 }
 
 export type UserAttachmentKind = "image" | "file";
@@ -324,6 +344,32 @@ export interface MemoryStatus {
   error?: string;
 }
 
+export type McpServerState =
+  | "connected"
+  | "configured"
+  | "not-connected"
+  | "needs-auth"
+  | "disabled"
+  | "error";
+
+export interface McpServerStatus {
+  name: string;
+  kind: "stdio" | "http";
+  target: string;
+  enabled: boolean;
+  state: McpServerState;
+  auth: "none" | "oauth";
+  authorized?: boolean;
+  toolCount: number;
+  tools: string[];
+  error?: string;
+}
+
+export interface McpIssue {
+  name?: string;
+  message: string;
+}
+
 export interface IndexStatus {
   files: number;
   totalFiles: number;
@@ -357,6 +403,9 @@ export interface SettingsView {
   skills: SkillStatus[];
   memories: MemoryStatus[];
   memoryDiagnostics: string[];
+  mcpServers: McpServerStatus[];
+  mcpIssues: McpIssue[];
+  mcpConfigPath: string;
 }
 
 export interface TimelineState extends SessionSnapshot {

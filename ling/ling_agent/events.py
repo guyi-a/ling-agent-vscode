@@ -16,6 +16,7 @@ from ling_ai.types import (
 
 from .approvals import ApprovalDecision, ApprovalRequest
 from .attachments import UserAttachment
+from .changes import RunChange
 from .selections import UserSelection
 
 
@@ -85,6 +86,16 @@ class CompactionApplied:
     estimated_tokens: int
 
 
+@dataclass(slots=True, frozen=True)
+class RunChangesCommitted:
+    changes: tuple[RunChange, ...]
+
+
+@dataclass(slots=True, frozen=True)
+class RunChangesReverted:
+    pass
+
+
 CommittedEvent: TypeAlias = (
     RunStarted
     | UserMessageCommitted
@@ -94,6 +105,8 @@ CommittedEvent: TypeAlias = (
     | ApprovalRequested
     | ApprovalResolved
     | CompactionApplied
+    | RunChangesCommitted
+    | RunChangesReverted
     | UsageUpdated
     | RunStopped
 )
@@ -200,6 +213,8 @@ __all__ = [
     "CommittedEvent",
     "CommittedEventEnvelope",
     "EventSink",
+    "RunChangesCommitted",
+    "RunChangesReverted",
     "RunStarted",
     "RunStopped",
     "StreamFrame",

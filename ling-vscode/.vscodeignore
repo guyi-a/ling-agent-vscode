@@ -12,6 +12,7 @@ package-lock.json
 .gitignore
 *.vsix
 __pycache__/**
+.pytest_cache/**
 a.py
 b.md
 b.py

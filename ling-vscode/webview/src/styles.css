@@ -648,6 +648,83 @@ button:disabled {
   white-space: nowrap;
 }
 
+.settings-mcp-heading {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 9px;
+}
+
+.settings-mcp-path {
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  color: var(--muted);
+  font-family: var(--mono);
+  font-size: 10px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.settings-mcp-servers {
+  margin: 0 0 16px;
+  padding: 0;
+  list-style: none;
+}
+
+.settings-mcp-server {
+  padding: 9px 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.settings-mcp-server-heading {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.settings-mcp-state,
+.settings-mcp-tools {
+  padding: 1px 5px;
+  border-radius: 4px;
+  font-size: 9.5px;
+}
+
+.settings-mcp-state {
+  color: var(--muted);
+  background: var(--raised);
+}
+
+.settings-mcp-state--connected {
+  color: var(--success);
+  background: color-mix(in srgb, var(--success) 10%, transparent);
+}
+
+.settings-mcp-state--error {
+  color: var(--error);
+  background: color-mix(in srgb, var(--error) 10%, transparent);
+}
+
+.settings-mcp-tools {
+  margin-left: auto;
+  color: var(--muted);
+}
+
+.settings-mcp-error {
+  margin: 5px 0 0;
+  color: var(--error);
+  font-size: 10px;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+
+.settings-mcp-actions {
+  display: flex;
+  gap: 6px;
+  margin-top: 7px;
+}
+
 .settings-memory-actions {
   display: flex;
   flex-wrap: wrap;
@@ -1161,13 +1238,6 @@ button:disabled {
   word-break: break-all;
 }
 
-.message-author {
-  color: var(--muted);
-  font-size: 10px;
-  font-weight: 600;
-  line-height: 1;
-}
-
 .message--assistant {
   max-width: 95%;
   padding: 1px 2px;
@@ -1672,6 +1742,133 @@ button:disabled {
   min-width: 0;
 }
 
+.change-summary {
+  flex: 0 0 auto;
+  margin: 12px 0 6px;
+  width: 100%;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: color-mix(in srgb, var(--raised) 52%, transparent);
+}
+
+.change-summary__header {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  min-height: 42px;
+  padding: 7px 9px;
+}
+
+.change-summary__icon {
+  display: grid;
+  flex: 0 0 auto;
+  width: 27px;
+  height: 27px;
+  place-items: center;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  color: var(--text);
+  background: var(--canvas);
+}
+
+.change-summary__icon svg {
+  width: 14px;
+  height: 14px;
+}
+
+.change-summary__title {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.change-summary__title strong {
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.change-summary__stats,
+.change-summary__file-stats {
+  display: inline-flex;
+  gap: 7px;
+  font-family: var(--mono);
+  font-size: 10.5px;
+}
+
+.change-summary__added {
+  color: #69c989;
+}
+
+.change-summary__removed {
+  color: #e87979;
+}
+
+.change-summary__actions {
+  display: flex;
+  flex: 0 0 auto;
+  gap: 6px;
+}
+
+.change-summary__button {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 7px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  color: var(--muted);
+  background: transparent;
+  font-size: 10.5px;
+}
+
+.change-summary__button:hover:not(:disabled) {
+  color: var(--text);
+  background: color-mix(in srgb, var(--raised) 75%, transparent);
+}
+
+.change-summary__button:disabled {
+  cursor: default;
+  opacity: 0.45;
+}
+
+.change-summary__button svg {
+  width: 13px;
+  height: 13px;
+}
+
+.change-summary__files {
+  margin: 0;
+  padding: 3px 0;
+  border-top: 1px solid var(--line);
+  list-style: none;
+}
+
+.change-summary__file {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 7px 10px 7px 9px;
+  color: var(--muted);
+  font-family: var(--mono);
+  font-size: 11.5px;
+}
+
+.change-summary__file + .change-summary__file {
+  border-top: 1px solid color-mix(in srgb, var(--line) 55%, transparent);
+}
+
+.change-summary__path {
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .tool-card {
   min-width: 0;
   overflow: hidden;
@@ -2018,6 +2215,23 @@ button:disabled {
 .tool-memory-result__name {
   margin-top: 0;
   color: var(--text);
+}
+
+.tool-skill__body {
+  max-height: 360px;
+  padding: 8px 10px;
+  overflow: auto;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  color: var(--text);
+  background: color-mix(in srgb, var(--raised) 42%, transparent);
+  font-size: 12px;
+  scrollbar-color: var(--line) transparent;
+  scrollbar-width: thin;
+}
+
+.tool-skill__body .markdown-body {
+  font-size: 12px;
 }
 
 .tool-plan {

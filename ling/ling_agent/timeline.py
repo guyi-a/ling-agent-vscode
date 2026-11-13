@@ -10,6 +10,7 @@ from ling_ai.types import AssistantMessage, TextContent, ThinkingContent, ToolCa
 
 from .approvals import ApprovalRequest
 from .attachments import UserAttachment
+from .changes import RunChange
 from .selections import UserSelection
 from .events import (
     ApprovalRequested,
@@ -21,6 +22,8 @@ from .events import (
     CompactionApplied,
     CommittedEventEnvelope,
     RunStarted,
+    RunChangesCommitted,
+    RunChangesReverted,
     RunStopped,
     StreamFrameEnvelope,
     ToolArgumentsDelta,
@@ -110,6 +113,8 @@ class TimelineRun:
     status: Literal["running", "completed", "cancelled", "error"] = "running"
     started_at: int | None = None
     completed_at: int | None = None
+    changes: tuple[RunChange, ...] = ()
+    changes_reverted: bool = False
 
 
 TimelineItem: TypeAlias = (
@@ -308,6 +313,14 @@ class TimelineProjector:
             target = self._find(envelope.message_id or "")
             if isinstance(target, AssistantTimelineItem):
                 target.usage = event.usage
+            return
+
+        if isinstance(event, RunChangesCommitted):
+            self._run_for(envelope).changes = tuple(event.changes)
+            return
+
+        if isinstance(event, RunChangesReverted):
+            self._run_for(envelope).changes_reverted = True
             return
 
         if isinstance(event, RunStopped):

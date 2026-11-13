@@ -48,12 +48,20 @@ async def maybe_compact(
     if not isinstance(summary, str) or not summary.strip():
         return None
 
+    replaced_message_ids = tuple(
+        dict.fromkeys(
+            [
+                *(active.replaced_message_ids if active is not None else ()),
+                *(row.id for row in plan.folded),
+            ]
+        )
+    )
     record = CompactionRecord(
         id=uuid.uuid4().hex,
         through_message_id=plan.through_message_id,
         summary=summary.strip(),
-        replaced_message_ids=tuple(row.id for row in plan.folded),
-        replaced_count=len(plan.folded),
+        replaced_message_ids=replaced_message_ids,
+        replaced_count=len(replaced_message_ids),
         estimated_tokens=estimated,
     )
     return MaybeCompactResult(

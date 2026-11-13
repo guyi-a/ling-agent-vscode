@@ -29,6 +29,16 @@ interface ActiveDiff {
   originalVirtual: boolean;
 }
 
+export interface ChangeReviewItem {
+  path: string;
+  beforeExists: boolean;
+  before: string | null;
+  afterExists: boolean;
+  after: string | null;
+  added: number;
+  removed: number;
+}
+
 class DiffContentProvider implements vscode.TextDocumentContentProvider {
   private readonly contents = new Map<string, string>();
   private readonly changed = new vscode.EventEmitter<vscode.Uri>();
@@ -118,6 +128,50 @@ export class DiffController implements vscode.Disposable {
     } finally {
       this.resolving = false;
     }
+  }
+
+  async openChanges(
+    runId: string,
+    title: string,
+    changes: ChangeReviewItem[],
+  ): Promise<void> {
+    const root = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    if (!root || changes.length === 0) {
+      return;
+    }
+    const token = runId.replace(/[^A-Za-z0-9_-]/g, "_");
+    const resources: Array<
+      [vscode.Uri, vscode.Uri, vscode.Uri]
+    > = [];
+    for (const [index, change] of changes.entries()) {
+      const filePath = path.resolve(root, change.path);
+      const relative = path.relative(root, filePath);
+      if (relative.startsWith("..") || path.isAbsolute(relative)) {
+        throw new Error(
+          `Change path escapes the workspace: ${change.path}`,
+        );
+      }
+      const resource = vscode.Uri.file(filePath);
+      const before = this.virtualUri(
+        `${token}/${index}`,
+        "original",
+        path.basename(change.path),
+      );
+      const after = this.virtualUri(
+        `${token}/${index}`,
+        "modified",
+        path.basename(change.path),
+      );
+      this.provider.set(before, change.before ?? "");
+      this.provider.set(after, change.after ?? "");
+      resources.push([resource, before, after]);
+    }
+    await vscode.commands.executeCommand(
+      "vscode.changes",
+      title,
+      resources,
+    );
+    await ensureInlineDiffView(this.output);
   }
 
   private async apply(snapshot: SessionSnapshot): Promise<void> {

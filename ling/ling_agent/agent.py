@@ -61,6 +61,7 @@ from .events import (
     UserMessageCommitted,
 )
 from .memory import MemoryStore
+from .mcp import McpManager, create_mcp_tools
 from .plans import PlanStore
 from .prompt import build_system_prompt
 from .questions import QuestionHandler
@@ -175,6 +176,7 @@ class CodingAgent:
             self.workspace.root,
             global_root=self.global_memory_root,
         )
+        self.mcp_manager = McpManager(self.workspace.root)
         self.subagents = SubagentRunner(
             model=model,
             stream_fn=stream_fn,
@@ -230,7 +232,7 @@ class CodingAgent:
             if self._session is not None:
                 return self._session
             await self.store.recover_interrupted_approvals()
-            tools = self._create_tools()
+            tools = await self._create_tools_async()
             prompt = build_system_prompt(
                 self.workspace,
                 config=self.config,
@@ -270,7 +272,7 @@ class CodingAgent:
             if record is None:
                 raise ValueError(f"Unknown session: {session_id}")
 
-            tools = self._create_tools(record.approval_mode)
+            tools = await self._create_tools_async(record.approval_mode)
             prompt = build_system_prompt(
                 self.workspace,
                 config=self.config,
@@ -363,6 +365,20 @@ class CodingAgent:
             if tool.definition.name not in {"create_plan", "update_plan"}
         ]
 
+    async def _create_tools_async(
+        self,
+        mode: ApprovalMode = ApprovalMode.MANUAL,
+    ):
+        tools = self._create_tools(mode)
+        if mode is not ApprovalMode.PLAN:
+            tools.extend(
+                await create_mcp_tools(
+                    self.mcp_manager,
+                    {tool.definition.name for tool in tools},
+                )
+            )
+        return tools
+
     def _create_hooks(self, session: Session) -> HookRegistry:
         hooks = HookRegistry()
         hooks.register(
@@ -383,6 +399,9 @@ class CodingAgent:
                 mode=lambda: session.approval_mode,
                 manager=session.approvals,
                 timeout_seconds=self.config.approval_timeout_seconds,
+                effect_resolver=lambda call: (
+                    self.mcp_manager.effect_for_tool(call.name)
+                ),
             ),
         )
         return hooks
@@ -676,7 +695,7 @@ class CodingAgent:
             session_id=session.session_id,
             run_id=session.run_id,
         )
-        tools = self._create_tools(mode)
+        tools = await self._create_tools_async(mode)
         prompt = build_system_prompt(
             self.workspace,
             config=self.config,
@@ -767,6 +786,7 @@ class CodingAgent:
         await self.cancel()
         async with self._prompt_lock:
             self._closed = True
+        await self.mcp_manager.close()
         await self.store.close()
 
     async def __aenter__(self) -> "CodingAgent":

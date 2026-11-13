@@ -44,6 +44,7 @@ def create_skill_tools(
         payload = {
             "ok": True,
             "name": skill.name,
+            "description": skill.description,
             "body": body,
             "skill_path": str(skill.dir_path),
         }

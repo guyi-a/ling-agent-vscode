@@ -44,8 +44,16 @@ from .approvals import (
     ApprovalRequest,
 )
 from .attachments import UserAttachment, friendly_provider_error
+from .changes import (
+    MUTATION_TOOL_NAMES,
+    PendingRunChange,
+    finalize_run_change,
+    normalize_change_path,
+    read_change_state,
+    revert_run_changes as restore_run_changes,
+)
 from .selections import UserSelection
-from .compaction import CompactionRecord
+from .compaction import CompactionRecord, rows_from_messages
 from .effects import ApprovalMode
 from .events import (
     ApprovalRequested,
@@ -59,6 +67,8 @@ from .events import (
     CommittedEventEnvelope,
     EventSink,
     RunStarted,
+    RunChangesCommitted,
+    RunChangesReverted,
     RunStopped,
     StreamFrame,
     ToolArgumentsDelta,
@@ -132,6 +142,7 @@ class Session:
         self._turn_counter = 0
         self._approval_ids: dict[str, str] = {}
         self._run_has_images = False
+        self._pending_changes: dict[str, PendingRunChange] = {}
         self.active_compaction: CompactionRecord | None = None
 
     @classmethod
@@ -189,6 +200,15 @@ class Session:
         )
         events = await store.load_committed(session_id)
         session.active_compaction = _find_latest_compaction(events)
+        if (
+            session.active_compaction is not None
+            and session.context.messages
+            and not _compaction_matches_context(
+                session.active_compaction,
+                session.context.messages,
+            )
+        ):
+            session.active_compaction = None
         return session
 
     @property
@@ -266,6 +286,7 @@ class Session:
         self._run_has_images = any(
             attachment.kind == "image" for attachment in attachments
         )
+        self._pending_changes = {}
         message_id = _new_id("message")
 
         await self._commit(
@@ -296,6 +317,7 @@ class Session:
         self._current_turn = None
         self._last_completed_turn = None
         self._run_has_images = False
+        self._pending_changes = {}
         await self._commit(
             RunStarted(continuation=True),
             step=0,
@@ -502,6 +524,10 @@ class Session:
             if self._last_completed_turn is not None
             else None
         )
+        await self._commit_run_changes(
+            turn_id=turn_id,
+            message_id=message_id,
+        )
         await self._commit(
             RunStopped(status=status, message=message),
             step=self._turn_counter,
@@ -512,6 +538,44 @@ class Session:
         self._run_id = None
         self._current_turn = None
         self._last_completed_turn = None
+        self._pending_changes = {}
+
+    async def revert_changes(self, run_id: str) -> int:
+        """Restore the recorded final state of one completed run."""
+
+        if self._run_id is not None:
+            raise SessionStateError("Cancel the active run before undo")
+        events = await self.store.load_committed(self.session_id)
+        committed = next(
+            (
+                envelope
+                for envelope in events
+                if envelope.run_id == run_id
+                and isinstance(envelope.event, RunChangesCommitted)
+            ),
+            None,
+        )
+        if committed is None or not committed.event.changes:
+            raise ValueError("This run has no recorded file changes")
+        reverted = any(
+            envelope.run_id == run_id
+            and isinstance(envelope.event, RunChangesReverted)
+            for envelope in events
+        )
+        if reverted:
+            raise ValueError("This run has already been reverted")
+
+        count = restore_run_changes(
+            self.record.workspace_root,
+            committed.event.changes,
+        )
+        await self._commit(
+            RunChangesReverted(),
+            step=0,
+            turn_id=run_id,
+            run_id=run_id,
+        )
+        return count
 
     async def publish_frame(
         self,
@@ -545,9 +609,43 @@ class Session:
         hooks.register(PostToolUse, self._post_tool_hook)
 
     async def _pre_tool_hook(self, event: PreToolUse) -> None:
+        if event.call.name in MUTATION_TOOL_NAMES:
+            raw_path = event.call.arguments.get("path")
+            relative = normalize_change_path(
+                self.record.workspace_root,
+                raw_path,
+            )
+            if relative is not None and relative not in self._pending_changes:
+                exists, text = read_change_state(
+                    self.record.workspace_root,
+                    relative,
+                )
+                self._pending_changes[relative] = PendingRunChange(
+                    path=relative,
+                    before_exists=exists,
+                    before=text,
+                )
         await self.commit_tool_started(event.call)
 
     async def _post_tool_hook(self, event: PostToolUse) -> None:
+        if event.call.name in MUTATION_TOOL_NAMES and not event.is_error:
+            raw_path = event.call.arguments.get("path")
+            relative = normalize_change_path(
+                self.record.workspace_root,
+                raw_path,
+            )
+            pending = (
+                self._pending_changes.get(relative)
+                if relative is not None
+                else None
+            )
+            if pending is not None:
+                exists, text = read_change_state(
+                    self.record.workspace_root,
+                    pending.path,
+                )
+                pending.after_exists = exists
+                pending.after = text
         execution = ToolExecution(
             output=event.output,
             is_error=event.is_error,
@@ -555,6 +653,26 @@ class Session:
         )
         await self.commit_tool_result(
             ToolRegistry.to_result(event.call, execution)
+        )
+
+    async def _commit_run_changes(
+        self,
+        *,
+        turn_id: str,
+        message_id: str | None,
+    ) -> None:
+        changes = tuple(
+            change
+            for pending in self._pending_changes.values()
+            if (change := finalize_run_change(pending)) is not None
+        )
+        if not changes:
+            return
+        await self._commit(
+            RunChangesCommitted(changes=changes),
+            step=self._turn_counter,
+            turn_id=turn_id,
+            message_id=message_id,
         )
 
     def _require_tool_turn(self) -> SessionTurn:
@@ -572,8 +690,10 @@ class Session:
         message_id: str | None = None,
         call_id: str | None = None,
         approval_id: str | None = None,
+        run_id: str | None = None,
     ) -> CommittedEventEnvelope:
-        if self._run_id is None:
+        target_run_id = run_id or self._run_id
+        if target_run_id is None:
             raise SessionStateError("No active run")
         async with self._commit_lock:
             seq = self._last_seq + 1
@@ -581,7 +701,7 @@ class Session:
                 session_id=self.session_id,
                 seq=seq,
                 event_id=_new_id("event"),
-                run_id=self._run_id,
+                run_id=target_run_id,
                 turn_id=turn_id,
                 step=step,
                 event=event,
@@ -610,19 +730,33 @@ class Session:
 
 def _find_latest_compaction(events) -> CompactionRecord | None:
     latest: CompactionRecord | None = None
+    replaced_message_ids: list[str] = []
     for envelope in events:
         event = envelope.event
         if not isinstance(event, CompactionApplied):
             continue
+        replaced_message_ids.extend(event.replaced_message_ids)
+        cumulative_ids = tuple(dict.fromkeys(replaced_message_ids))
         latest = CompactionRecord(
             id=event.compaction_id,
             through_message_id=event.through_message_id,
             summary=_message_text(event.summary),
-            replaced_message_ids=tuple(event.replaced_message_ids),
-            replaced_count=event.replaced_count,
+            replaced_message_ids=cumulative_ids,
+            replaced_count=len(cumulative_ids),
             estimated_tokens=event.estimated_tokens,
         )
     return latest
+
+
+def _compaction_matches_context(
+    record: CompactionRecord,
+    messages,
+) -> bool:
+    row_ids = {row.id for row in rows_from_messages(messages)}
+    return (
+        record.through_message_id in row_ids
+        and set(record.replaced_message_ids).issubset(row_ids)
+    )
 
 
 def _message_text(message: UserMessage) -> str:

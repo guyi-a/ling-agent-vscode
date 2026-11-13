@@ -205,6 +205,35 @@ def test_memory_list_has_structured_detail() -> None:
     ]
 
 
+def test_load_skill_has_markdown_detail() -> None:
+    item = _item(
+        "load_skill",
+        {"name": "inline-visualization"},
+        output=(
+            '{"ok":true,"name":"inline-visualization",'
+            '"description":"Render compact diagrams.",'
+            '"body":"# Diagram\\n\\nUse an SVG.",'
+            '"skill_path":"E:/skills/inline-visualization",'
+            '"scripts_path":"E:/skills/inline-visualization/scripts"}'
+        ),
+    )
+
+    detail = _tool_entry(
+        item,
+        waiting_for_approval=False,
+    )["tool"]["detail"]
+
+    assert detail == {
+        "kind": "skill",
+        "name": "inline-visualization",
+        "description": "Render compact diagrams.",
+        "body": "# Diagram\n\nUse an SVG.",
+        "skillPath": "E:/skills/inline-visualization",
+        "scriptsPath": "E:/skills/inline-visualization/scripts",
+        "ok": True,
+    }
+
+
 def test_mutation_tools_attach_ui_details() -> None:
     with tempfile.TemporaryDirectory() as temp:
         root = Path(temp)

@@ -81,6 +81,27 @@ class BrowserEffect:
 
 
 @dataclass(slots=True, frozen=True)
+class McpEffect:
+    server: str
+    tool: str
+    transport: Literal["http", "stdio"]
+    target: str
+    private_host: bool
+    read_only: bool
+    destructive: bool
+    open_world: bool
+    trusted_annotations: bool
+    kind: Literal["mcp_call"] = "mcp_call"
+
+
+@dataclass(slots=True, frozen=True)
+class McpAdminEffect:
+    operation: str
+    server: str | None = None
+    kind: Literal["mcp_admin"] = "mcp_admin"
+
+
+@dataclass(slots=True, frozen=True)
 class UnknownEffect:
     note: str
     kind: Literal["unknown"] = "unknown"
@@ -94,6 +115,8 @@ Effect: TypeAlias = (
     | MetaEffect
     | SubagentEffect
     | BrowserEffect
+    | McpEffect
+    | McpAdminEffect
     | UnknownEffect
 )
 
@@ -105,7 +128,9 @@ _DESTRUCTIVE_COMMANDS = (
     re.compile(r"(?i)\bgit\s+reset\s+--hard\b"),
     re.compile(r"(?i)\bgit\s+clean\s+-\S*f"),
     re.compile(r"(?i)\b(?:Format-Volume|Clear-Disk|Stop-Computer|Restart-Computer|diskpart)\b"),
-    re.compile(r"(?i)\bformat(?:\.com)?\b"),
+    re.compile(
+        r"(?i)(?:^|[;&|]\s*)format(?:\.com)?(?=\s|$)"
+    ),
     re.compile(r"(?i)\bshutdown\b"),
 )
 _HARMLESS_SIMPLE = {
@@ -199,7 +224,7 @@ def classify_command(
 def derive_effect(call: ToolCall, workspace: Workspace) -> Effect:
     arguments = call.arguments
 
-    if call.name in ("load_skill", "ask_user"):
+    if call.name in ("load_skill", "ask_user", "mcp_list_servers"):
         return MetaEffect(operation=call.name)
 
     if call.name == "memory_list":
@@ -241,6 +266,21 @@ def derive_effect(call: ToolCall, workspace: Workspace) -> Effect:
             action=action,
             classification=classify_browser_action(action),
             target=target if isinstance(target, str) else "",
+        )
+
+    if call.name in (
+        "mcp_add_server",
+        "mcp_remove_server",
+        "mcp_set_enabled",
+        "mcp_reload",
+        "mcp_test_server",
+        "mcp_authorize_server",
+        "mcp_revoke_server_auth",
+    ):
+        name = arguments.get("name")
+        return McpAdminEffect(
+            operation=call.name.removeprefix("mcp_"),
+            server=name if isinstance(name, str) and name else None,
         )
 
     if call.name == "web_search":
@@ -379,6 +419,22 @@ def plan_mode_denial(effect: Effect) -> str | None:
             "are blocked; use extension_status, list_pages, read_state, "
             "extract, describe_element, wait_for, or scroll."
         )
+    if isinstance(effect, McpAdminEffect):
+        return (
+            "Plan mode cannot add, remove, enable, disable, or reload MCP "
+            "servers because those operations change future capabilities."
+        )
+    if isinstance(effect, McpEffect):
+        trusted_read = (
+            effect.read_only
+            and effect.trusted_annotations
+            and not effect.destructive
+        )
+        if not trusted_read:
+            return (
+                "Plan mode only allows MCP tools marked read-only by a "
+                "server whose annotations you explicitly trust."
+            )
     if isinstance(
         effect,
         (
@@ -411,6 +467,21 @@ def approval_reason(
             if mode is ApprovalMode.AUTO
             else f"browser {effect.action}"
         )
+    if isinstance(effect, McpAdminEffect):
+        target = f" {effect.server}" if effect.server else ""
+        return f"MCP server {effect.operation}{target}"
+    if isinstance(effect, McpEffect):
+        if effect.destructive:
+            return f"MCP destructive tool {effect.server}/{effect.tool}"
+        if effect.transport == "stdio":
+            return (
+                None
+                if mode is ApprovalMode.AUTO
+                else f"MCP stdio tool {effect.server}/{effect.tool}"
+            )
+        if effect.private_host:
+            return f"MCP private network tool {effect.server}/{effect.tool}"
+        return None
     if isinstance(effect, UnknownEffect):
         return effect.note
     if isinstance(effect, NetworkEffect):
@@ -450,6 +521,8 @@ __all__ = [
     "Effect",
     "FilesystemReadEffect",
     "FilesystemWriteEffect",
+    "McpAdminEffect",
+    "McpEffect",
     "MetaEffect",
     "NetworkEffect",
     "plan_mode_denial",

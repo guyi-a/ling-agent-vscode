@@ -4,6 +4,7 @@ import type {
   EffortLevel,
   IndexStatus,
   MemoryScope,
+  McpServerStatus,
   SettingsView,
 } from "../types";
 import {
@@ -43,6 +44,9 @@ interface SettingsPanelProps {
   onOpenMemory(path: string): void;
   onCreateMemory(scope: MemoryScope): void;
   onDeleteMemory(scope: MemoryScope, name: string): void;
+  onOpenMcpConfig(): void;
+  onAuthorizeMcp(name: string): void;
+  onRevokeMcpAuth(name: string): void;
   onClose(): void;
 }
 
@@ -60,6 +64,9 @@ export function SettingsPanel({
   onOpenMemory,
   onCreateMemory,
   onDeleteMemory,
+  onOpenMcpConfig,
+  onAuthorizeMcp,
+  onRevokeMcpAuth,
   onClose,
 }: SettingsPanelProps) {
   const [apiKey, setApiKey] = useState("");
@@ -548,6 +555,57 @@ export function SettingsPanel({
               />
             </label>
 
+            <p className="settings-section">MCP</p>
+            <p className="settings-hint">
+              External stdio and HTTP tools. Servers run only when their
+              tools are used; configuration changes apply on the next turn.
+            </p>
+            <div className="settings-mcp-heading">
+              <span
+                className="settings-mcp-path"
+                title={settings.mcpConfigPath}
+              >
+                {settings.mcpConfigPath}
+              </span>
+              <button
+                className="settings-memory-button"
+                type="button"
+                onClick={onOpenMcpConfig}
+              >
+                Edit config
+              </button>
+            </div>
+            {settings.mcpIssues.length > 0 ? (
+              <div className="settings-memory-diagnostics" role="alert">
+                {settings.mcpIssues.map((issue, index) => (
+                  <p key={`${issue.name ?? "config"}:${index}`}>
+                    {issue.name ? `${issue.name}: ` : ""}
+                    {issue.message}
+                  </p>
+                ))}
+              </div>
+            ) : null}
+            {settings.mcpServers.length === 0 ? (
+              <p className="settings-hint">
+                No MCP servers configured.
+              </p>
+            ) : (
+              <ul className="settings-mcp-servers">
+                {settings.mcpServers.map((server) => (
+                  <McpServerRow
+                    key={server.name}
+                    server={server}
+                    onAuthorize={() =>
+                      onAuthorizeMcp(server.name)
+                    }
+                    onRevoke={() =>
+                      onRevokeMcpAuth(server.name)
+                    }
+                  />
+                ))}
+              </ul>
+            )}
+
             <p className="settings-section">Skills</p>
             {settings.skills.length === 0 ? (
               <p className="settings-hint">No skills found.</p>
@@ -711,6 +769,66 @@ export function SettingsPanel({
         </div>
       ) : null}
     </section>
+  );
+}
+
+function McpServerRow({
+  server,
+  onAuthorize,
+  onRevoke,
+}: {
+  server: McpServerStatus;
+  onAuthorize(): void;
+  onRevoke(): void;
+}) {
+  const state =
+    server.state === "connected"
+      ? "Connected"
+      : server.state === "configured"
+        ? "Configured"
+        : server.state === "disabled"
+          ? "Disabled"
+          : server.state === "needs-auth"
+            ? "Needs authorization"
+          : server.state === "error"
+            ? "Error"
+            : "Not connected";
+  return (
+    <li className="settings-mcp-server">
+      <div className="settings-mcp-server-heading">
+        <span className="settings-memory-name">{server.name}</span>
+        <span className="settings-memory-badge">{server.kind}</span>
+        <span
+          className={`settings-mcp-state settings-mcp-state--${server.state}`}
+        >
+          {state}
+        </span>
+        <span className="settings-mcp-tools">
+          {server.toolCount} tool
+          {server.toolCount === 1 ? "" : "s"}
+        </span>
+      </div>
+      <span
+        className="settings-skill-path"
+        title={server.target}
+      >
+        {server.target}
+      </span>
+      {server.error ? (
+        <p className="settings-mcp-error">{server.error}</p>
+      ) : null}
+      {server.auth === "oauth" ? (
+        <div className="settings-mcp-actions">
+          <button
+            className="settings-memory-action"
+            type="button"
+            onClick={server.authorized ? onRevoke : onAuthorize}
+          >
+            {server.authorized ? "Revoke auth" : "Authorize"}
+          </button>
+        </div>
+      ) : null}
+    </li>
   );
 }
 

@@ -40,6 +40,8 @@ const result = spawnSync(
     "pypdf",
     "--collect-all",
     "websockets",
+    "--collect-all",
+    "mcp",
     "--distpath",
     outputDir,
     "--workpath",

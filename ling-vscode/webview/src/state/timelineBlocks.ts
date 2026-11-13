@@ -4,6 +4,7 @@ import type {
   TimelineMessage,
   TimelineRunView,
   ToolCall,
+  WorkspaceChangeSummary,
 } from "../types";
 
 export type TimelineContentBlock =
@@ -23,6 +24,12 @@ export type TimelineContentBlock =
     }
   | { kind: "compaction"; compaction: CompactionItem }
   | {
+      kind: "changes";
+      runId: string;
+      changes: WorkspaceChangeSummary[];
+      reverted: boolean;
+    }
+  | {
       kind: "run-thinking";
       id: string;
       runId?: string;
@@ -40,6 +47,7 @@ export type ToolGroupCategory =
   | "collab"
   | "flow"
   | "memory"
+  | "mcp"
   | "other";
 
 export function groupTimelineEntries(
@@ -57,7 +65,7 @@ export function groupTimelineEntries(
 
   const flushLooseEntries = () => {
     if (looseEntries.length > 0) {
-      blocks.push(...groupContentEntries(looseEntries));
+      blocks.push(...groupContentEntries(looseEntries, false));
       looseEntries = [];
     }
   };
@@ -98,30 +106,54 @@ export type TimelineBlock =
 
 function groupContentEntries(
   entries: TimelineEntry[],
+  settleLast: boolean,
 ): TimelineContentBlock[] {
   const blocks: TimelineContentBlock[] = [];
-  const inactiveByCategory = new Map<
+  const segments: Array<{
+    id: string;
+    category: ToolGroupCategory;
+    tools: ToolCall[];
+    toolIds: Set<string>;
+    active: boolean;
+  }> = [];
+  const segmentByToolId = new Map<
     string,
-    { category: ToolGroupCategory; tools: ToolCall[] }
+    (typeof segments)[number]
   >();
+  let activeSegmentKey = "";
   for (const entry of entries) {
-    if (
-      entry.kind !== "tool" ||
-      isActiveTool(entry.tool) ||
-      isUngroupableTool(entry.tool)
-    ) {
+    if (entry.kind !== "tool") {
       continue;
     }
     const category = classifyToolCategory(entry.tool);
-    const key = `${entry.runId ?? ""}:${category}`;
-    const group = inactiveByCategory.get(key);
-    if (group) {
-      group.tools.push(entry.tool);
-    } else {
-      inactiveByCategory.set(key, {
+    const segmentKey = isUngroupableTool(entry.tool)
+      ? `single:${entry.tool.id}`
+      : `${entry.runId ?? ""}:${category}`;
+    if (segmentKey !== activeSegmentKey) {
+      segments.push({
+        id: `${segmentKey}:${segments.length}`,
         category,
-        tools: [entry.tool],
+        tools: [],
+        toolIds: new Set(),
+        active: false,
       });
+      activeSegmentKey = segmentKey;
+    }
+    const segment = segments.at(-1)!;
+    segment.tools.push(entry.tool);
+    segment.toolIds.add(entry.tool.id);
+    segment.active ||= isActiveTool(entry.tool);
+    segmentByToolId.set(entry.tool.id, segment);
+  }
+  const lastSegmentIndex = segments.length - 1;
+  const groupedSegments = new Set<string>();
+  for (const [index, segment] of segments.entries()) {
+    if (
+      !segment.active &&
+      segment.tools.length >= 2 &&
+      (index < lastSegmentIndex || settleLast)
+    ) {
+      groupedSegments.add(segment.id);
     }
   }
   const emittedGroups = new Set<string>();
@@ -132,28 +164,22 @@ function groupContentEntries(
 
   for (const entry of entries) {
     if (entry.kind === "tool") {
-      if (
-        isActiveTool(entry.tool) ||
-        isUngroupableTool(entry.tool)
-      ) {
-        appendToolCards(blocks, entry.tool, entry.runId);
-        continue;
-      }
-      const category = classifyToolCategory(entry.tool);
-      const key = `${entry.runId ?? ""}:${category}`;
-      const group = inactiveByCategory.get(key);
-      if (group && group.tools.length >= 2) {
-        if (!emittedGroups.has(key)) {
-          emittedGroups.add(key);
+      const segment = segmentByToolId.get(entry.tool.id);
+      if (segment && groupedSegments.has(segment.id)) {
+        if (!emittedGroups.has(segment.id)) {
+          emittedGroups.add(segment.id);
           blocks.push({
             kind: "tool-group",
-            category,
-            tools: group.tools,
-            summary: summarizeToolGroup(category, group.tools),
-            failedCount: group.tools.filter(
+            category: segment.category,
+            tools: segment.tools,
+            summary: summarizeToolGroup(
+              segment.category,
+              segment.tools,
+            ),
+            failedCount: segment.tools.filter(
               (tool) => tool.status === "Failed",
             ).length,
-            cancelledCount: group.tools.filter(
+            cancelledCount: segment.tools.filter(
               (tool) => tool.status === "Cancelled",
             ).length,
             ...(entry.runId ? { runId: entry.runId } : {}),
@@ -299,6 +325,9 @@ export function classifyToolCategory(
   ) {
     return "memory";
   }
+  if (name.startsWith("mcp_")) {
+    return "mcp";
+  }
   return "other";
 }
 
@@ -390,6 +419,9 @@ function summarizeToolGroup(
       .filter(Boolean)
       .join(" · ");
   }
+  if (category === "mcp") {
+    return `MCP 操作 ${tools.length} 次`;
+  }
   return `其他操作 ${tools.length} 次`;
 }
 
@@ -413,7 +445,7 @@ function groupCompletedRun(
   );
   const finalIndex = findFinalAnswerIndex(entries);
   if (userIndex < 0 || finalIndex <= userIndex) {
-    return groupContentEntries(entries);
+    return groupContentEntries(entries, true);
   }
 
   const finalEntry = entries[finalIndex];
@@ -421,7 +453,7 @@ function groupCompletedRun(
     finalEntry?.kind !== "message" ||
     finalEntry.message.role !== "assistant"
   ) {
-    return groupContentEntries(entries);
+    return groupContentEntries(entries, true);
   }
 
   const activityEntries = [
@@ -438,7 +470,7 @@ function groupCompletedRun(
         ]
       : []),
   ];
-  const activityBlocks = groupContentEntries(activityEntries);
+  const activityBlocks = groupContentEntries(activityEntries, true);
   const answer: Extract<TimelineEntry, { kind: "message" }> = {
     ...finalEntry,
     message: {
@@ -483,6 +515,16 @@ function groupCompletedRun(
       blocks: activityBlocks,
     },
     { kind: "entry", entry: answer },
+    ...(run.changes?.length
+      ? [
+          {
+            kind: "changes" as const,
+            runId: run.id,
+            changes: run.changes,
+            reverted: run.changesReverted ?? false,
+          },
+        ]
+      : []),
   ];
 }
 

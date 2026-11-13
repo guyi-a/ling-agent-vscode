@@ -23,6 +23,11 @@ from .browser_bridge import (
     BrowserRegistry,
     classify_browser_action,
 )
+from .changes import (
+    ChangeConflictError,
+    ChangeError,
+    RunChange,
+)
 from .config import HarnessConfig
 from .effects import (
     ApprovalMode,
@@ -32,6 +37,8 @@ from .effects import (
     FilesystemReadEffect,
     FilesystemWriteEffect,
     MetaEffect,
+    McpAdminEffect,
+    McpEffect,
     NetworkEffect,
     ProcessExecEffect,
     SubagentEffect,
@@ -52,6 +59,8 @@ from .events import (
     CommittedEvent,
     CommittedEventEnvelope,
     EventSink,
+    RunChangesCommitted,
+    RunChangesReverted,
     RunStarted,
     RunStopped,
     StreamFrame,
@@ -209,6 +218,8 @@ __all__ = [
     "FilesystemWriteEffect",
     "HarnessConfig",
     "MetaEffect",
+    "McpAdminEffect",
+    "McpEffect",
     "NetworkEffect",
     "ProcessExecEffect",
     "PromptAssembly",
@@ -224,6 +235,9 @@ __all__ = [
     "MEMORY_NAME_PATTERN",
     "MemoryLoadResult",
     "MemoryStore",
+    "RunChange",
+    "RunChangesCommitted",
+    "RunChangesReverted",
     "RunStarted",
     "SKILL_FILE",
     "Skill",
@@ -250,6 +264,8 @@ __all__ = [
     "BrowserEffect",
     "BrowserPage",
     "BrowserRegistry",
+    "ChangeConflictError",
+    "ChangeError",
     "SubagentEffect",
     "SubagentError",
     "SubagentResult",

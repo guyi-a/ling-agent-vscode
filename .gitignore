@@ -17,6 +17,9 @@ venv/
 **/.agents/spills/
 **/.agents/code-index/
 **/.agents/notes/
+**/.agents/mcp.json
+**/.agents/mcp-cache.json
+**/.agents/mcp-auth/
 ling/ling_retrieval/report*.json
 
 # Local-only material

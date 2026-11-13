@@ -7,3 +7,6 @@ resources/skills/
 .agents/spills/
 .agents/code-index/
 .agents/notes/
+.agents/mcp.json
+.agents/mcp-cache.json
+.agents/mcp-auth/

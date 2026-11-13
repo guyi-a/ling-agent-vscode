@@ -15,7 +15,9 @@ from ling_agent import (
     ApprovalRequest,
     AssistantMessageCommitted,
     CodingAgent,
+    CompactionApplied,
     HarnessConfig,
+    RunChangesCommitted,
     RunStarted,
     RunStopped,
     SQLiteSessionStore,
@@ -28,6 +30,7 @@ from ling_agent import (
 )
 from ling_agent.browser_bridge import BrowserBridge
 from ling_agent.compaction import CompactionConfig, SummarizeFn
+from ling_agent.mcp import McpConfigStore, McpManager
 from ling_ai.stream import StreamFunction
 from ling_ai.types import Model, TextContent
 
@@ -285,6 +288,191 @@ class SessionService:
             cancelled=cancelled,
         )
 
+    async def run_changes(
+        self,
+        session_id: str,
+        run_id: str,
+    ) -> dict[str, Any]:
+        """Return the persisted before/after snapshots for one run."""
+
+        record = await self._history_store.get_session(session_id)
+        if record is None:
+            raise ValueError(f"Unknown session: {session_id}")
+        events = await self._history_store.load_committed(session_id)
+        committed = next(
+            (
+                envelope
+                for envelope in events
+                if envelope.run_id == run_id
+                and isinstance(envelope.event, RunChangesCommitted)
+            ),
+            None,
+        )
+        if committed is None:
+            return {"runId": run_id, "changes": []}
+        return {
+            "runId": run_id,
+            "changes": [
+                {
+                    "path": change.path,
+                    "beforeExists": change.before_exists,
+                    "before": change.before,
+                    "afterExists": change.after_exists,
+                    "after": change.after,
+                    "added": change.added,
+                    "removed": change.removed,
+                }
+                for change in committed.event.changes
+            ],
+        }
+
+    async def revert_run_changes(
+        self,
+        session_id: str,
+        run_id: str,
+    ) -> dict[str, Any]:
+        """Undo one run after checking its recorded output is still current."""
+
+        if self._task is not None and not self._task.done():
+            raise RuntimeError("Cancel the active run before undo")
+        if self._session_id != session_id:
+            raise RuntimeError("Open this conversation before undo")
+        record = await self._history_store.get_session(session_id)
+        if record is None:
+            raise ValueError(f"Unknown session: {session_id}")
+        agent = self._agent
+        if agent is None:
+            agent = await self._ensure_agent(record.workspace_root)
+        if agent.session is None:
+            await agent.ensure_session()
+        session = agent.session
+        if session is None:
+            raise RuntimeError("Open this conversation before undo")
+        count = await session.revert_changes(run_id)
+        return {"reverted": True, "count": count}
+
+    async def mcp_status(self, workspace_root: str) -> dict[str, Any]:
+        root = Path(workspace_root).expanduser().resolve()
+        if not root.is_dir():
+            raise ValueError(f"Workspace does not exist: {root}")
+        agent = self._agent
+        if (
+            agent is not None
+            and self._workspace_root == root
+            and agent.session is not None
+        ):
+            status = await agent.mcp_manager.status()
+        else:
+            manager = McpManager(root)
+            try:
+                status = await manager.status()
+            finally:
+                await manager.close()
+        return {
+            "configPath": status.config_path,
+            "servers": [
+                {
+                    "name": server.name,
+                    "kind": server.kind,
+                    "target": server.target,
+                    "enabled": server.enabled,
+                    "state": server.state,
+                    "auth": server.auth,
+                    **(
+                        {"authorized": server.authorized}
+                        if server.authorized is not None
+                        else {}
+                    ),
+                    "toolCount": server.tool_count,
+                    "tools": list(server.tools),
+                    **(
+                        {"error": server.error}
+                        if server.error
+                        else {}
+                    ),
+                }
+                for server in status.servers
+            ],
+            "issues": [
+                {
+                    "name": issue.name,
+                    "message": issue.message,
+                }
+                for issue in status.issues
+            ],
+        }
+
+    async def ensure_mcp_config(self, workspace_root: str) -> dict[str, Any]:
+        root = Path(workspace_root).expanduser().resolve()
+        if not root.is_dir():
+            raise ValueError(f"Workspace does not exist: {root}")
+        store = McpConfigStore(root)
+        path = store.ensure_file()
+        return {"path": str(path)}
+
+    async def authorize_mcp_server(
+        self,
+        workspace_root: str,
+        name: str,
+    ) -> dict[str, Any]:
+        root = Path(workspace_root).expanduser().resolve()
+        if not root.is_dir():
+            raise ValueError(f"Workspace does not exist: {root}")
+        agent = self._agent
+        manager = None
+        owned = False
+        if (
+            agent is not None
+            and self._workspace_root == root
+            and agent.session is not None
+        ):
+            manager = agent.mcp_manager
+        else:
+            manager = McpManager(root)
+            owned = True
+        try:
+            status = await manager.authorize_server(name)
+            return {
+                "name": status.name,
+                "state": status.state,
+                "authorized": status.authorized,
+                "toolCount": status.tool_count,
+                "tools": list(status.tools),
+            }
+        finally:
+            if owned:
+                await manager.close()
+
+    async def revoke_mcp_auth(
+        self,
+        workspace_root: str,
+        name: str,
+    ) -> dict[str, Any]:
+        root = Path(workspace_root).expanduser().resolve()
+        if not root.is_dir():
+            raise ValueError(f"Workspace does not exist: {root}")
+        agent = self._agent
+        manager = None
+        owned = False
+        if (
+            agent is not None
+            and self._workspace_root == root
+            and agent.session is not None
+        ):
+            manager = agent.mcp_manager
+        else:
+            manager = McpManager(root)
+            owned = True
+        try:
+            status = await manager.revoke_server_auth(name)
+            return {
+                "revoked": True,
+                "servers": len(status.servers),
+            }
+        finally:
+            if owned:
+                await manager.close()
+
     async def cancel(self) -> None:
         had_queue = bool(self._queue)
         self._queue.clear()
@@ -526,6 +714,11 @@ class SessionService:
             raise ValueError(f"Unknown message: {message_id}")
 
         seqs = {target.seq}
+        seqs.update(
+            envelope.seq
+            for envelope in events
+            if isinstance(envelope.event, CompactionApplied)
+        )
         if isinstance(target.event, AssistantMessageCommitted):
             for envelope in events:
                 if envelope.turn_id != target.turn_id:

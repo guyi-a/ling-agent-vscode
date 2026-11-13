@@ -16,6 +16,7 @@ import type {
   ToolGroupCategory,
 } from "../state/timelineBlocks";
 import { CompactionMarker } from "./CompactionMarker";
+import { ChangeSummary } from "./ChangeSummary";
 import { MarkdownMessage } from "./MarkdownMessage";
 import { MessageActions } from "./MessageActions";
 import { MessageAttachments } from "./MessageAttachments";
@@ -32,6 +33,8 @@ interface TimelineProps {
   onCopyMessage(text: string): void;
   onDeleteMessage(messageId: string): void;
   onRegenerateMessage(messageId: string): void;
+  onOpenChanges(runId: string): void;
+  onRevertChanges(runId: string): void;
   actionsDisabled: boolean;
 }
 
@@ -44,6 +47,8 @@ export function Timeline({
   onCopyMessage,
   onDeleteMessage,
   onRegenerateMessage,
+  onOpenChanges,
+  onRevertChanges,
   actionsDisabled,
 }: TimelineProps) {
   const blocks = groupTimelineEntries(state.entries, state.runs);
@@ -101,7 +106,7 @@ export function Timeline({
       timeline.scrollTop = timeline.scrollHeight;
       stickToBottom.current = true;
     }
-  }, [state.entries, state.phase]);
+  }, [state.entries, state.phase, state.runs]);
 
   function handleScroll() {
     const timeline = timelineRef.current;
@@ -194,6 +199,25 @@ export function Timeline({
       );
     }
 
+    if (block.kind === "changes") {
+      return (
+        <ChangeSummary
+          key={getBlockKey(block)}
+          changes={block.changes}
+          reverted={block.reverted}
+          viewDisabled={
+            state.phase === "running" ||
+            state.phase === "waiting_approval"
+          }
+          revertDisabled={
+            actionsDisabled || state.readOnly || block.reverted
+          }
+          onView={() => onOpenChanges(block.runId)}
+          onRevert={() => onRevertChanges(block.runId)}
+        />
+      );
+    }
+
     if (block.kind === "run-thinking") {
       const label = block.active
         ? "Thinking…"
@@ -262,7 +286,6 @@ export function Timeline({
         ) : (
           <>
             <div className="message-bubble">
-              <span className="message-author">You</span>
               {entry.message.attachments?.length ? (
                 <MessageAttachments
                   attachments={entry.message.attachments}
@@ -389,6 +412,10 @@ function getBlockKey(block: TimelineBlock): string {
     return block.id;
   }
 
+  if (block.kind === "changes") {
+    return `changes-${block.runId}`;
+  }
+
   if (block.kind === "run-activity") {
     return block.id;
   }
@@ -406,6 +433,7 @@ function categoryLabel(category: ToolGroupCategory): string {
     collab: "协作",
     flow: "流程",
     memory: "记忆",
+    mcp: "MCP",
     other: "其他",
   }[category];
 }
@@ -423,5 +451,6 @@ const CATEGORY_ACTIONS: Record<ToolGroupCategory, ToolAction> = {
   collab: "Subagent",
   flow: "Skill",
   memory: "Memory",
+  mcp: "MCP",
   other: "Read",
 };

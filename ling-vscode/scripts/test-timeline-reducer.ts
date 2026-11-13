@@ -10,6 +10,7 @@ import {
   timelineReducer,
 } from "../webview/src/state/timelineReducer";
 import {
+  classifyToolCategory,
   formatRunDuration,
   groupTimelineEntries,
 } from "../webview/src/state/timelineBlocks";
@@ -573,6 +574,73 @@ assert.equal(
         ],
         added: 1,
         removed: 1,
+      },
+    },
+  }),
+  true,
+);
+assert.equal(
+  isWebviewToHostMessage({
+    type: "changes.open",
+    sessionId: "session-1",
+    runId: "run-1",
+  }),
+  true,
+);
+assert.equal(
+  isWebviewToHostMessage({
+    type: "changes.revert",
+    sessionId: "session-1",
+    runId: "run-1",
+  }),
+  true,
+);
+assert.equal(
+  isWebviewToHostMessage({ type: "mcp.openConfig" }),
+  true,
+);
+assert.equal(
+  isWebviewToHostMessage({
+    type: "mcp.authorize",
+    name: "docs",
+  }),
+  true,
+);
+assert.equal(
+  isWebviewToHostMessage({
+    type: "mcp.revokeAuth",
+    name: "docs",
+  }),
+  true,
+);
+
+assert.equal(
+  classifyToolCategory({
+    id: "tool-mcp",
+    name: "mcp_docs__search",
+    action: "MCP",
+    target: "docs / search",
+    status: "Completed",
+    details: [],
+  }),
+  "mcp",
+);
+assert.equal(
+  isUiEvent({
+    type: "tool.updated",
+    tool: {
+      id: "tool-skill",
+      action: "Skill",
+      target: "inline-visualization",
+      status: "Completed",
+      details: [],
+      detail: {
+        kind: "skill",
+        name: "inline-visualization",
+        description: "Render compact diagrams.",
+        body: "# Diagram",
+        skillPath: "E:/skills/inline-visualization",
+        ok: true,
       },
     },
   }),
@@ -1616,6 +1684,7 @@ assert.deepEqual(
 const editGroupBlocks = groupTimelineEntries([
   {
     kind: "tool",
+    runId: "edit-run",
     tool: {
       id: "edit-a",
       name: "edit_file",
@@ -1634,6 +1703,7 @@ const editGroupBlocks = groupTimelineEntries([
   },
   {
     kind: "tool",
+    runId: "edit-run",
     tool: {
       id: "edit-b",
       name: "write_file",
@@ -1650,7 +1720,14 @@ const editGroupBlocks = groupTimelineEntries([
       },
     },
   },
-] as TimelineEntry[]);
+] as TimelineEntry[], [
+  {
+    id: "edit-run",
+    status: "completed",
+    startedAt: 1,
+    completedAt: 2,
+  },
+]);
 assert.equal(
   editGroupBlocks[0]?.kind === "tool-group"
     ? editGroupBlocks[0].summary
@@ -1661,6 +1738,7 @@ assert.equal(
 const webGroupBlocks = groupTimelineEntries([
   {
     kind: "tool",
+    runId: "web-run",
     tool: {
       id: "web-search",
       name: "web_search",
@@ -1672,6 +1750,7 @@ const webGroupBlocks = groupTimelineEntries([
   },
   {
     kind: "tool",
+    runId: "web-run",
     tool: {
       id: "web-fetch",
       name: "web_fetch",
@@ -1681,7 +1760,14 @@ const webGroupBlocks = groupTimelineEntries([
       details: [],
     },
   },
-] as TimelineEntry[]);
+] as TimelineEntry[], [
+  {
+    id: "web-run",
+    status: "completed",
+    startedAt: 1,
+    completedAt: 2,
+  },
+]);
 assert.equal(
   webGroupBlocks[0]?.kind === "tool-group"
     ? webGroupBlocks[0].summary
@@ -1692,6 +1778,7 @@ assert.equal(
 const memoryGroupBlocks = groupTimelineEntries([
   {
     kind: "tool",
+    runId: "memory-run",
     tool: {
       id: "memory-list",
       name: "memory_list",
@@ -1703,6 +1790,7 @@ const memoryGroupBlocks = groupTimelineEntries([
   },
   {
     kind: "tool",
+    runId: "memory-run",
     tool: {
       id: "memory-write",
       name: "memory_write",
@@ -1712,7 +1800,14 @@ const memoryGroupBlocks = groupTimelineEntries([
       details: [],
     },
   },
-] as TimelineEntry[]);
+] as TimelineEntry[], [
+  {
+    id: "memory-run",
+    status: "completed",
+    startedAt: 1,
+    completedAt: 2,
+  },
+]);
 assert.equal(
   memoryGroupBlocks[0]?.kind === "tool-group"
     ? memoryGroupBlocks[0].category
@@ -1724,6 +1819,98 @@ assert.equal(
     ? memoryGroupBlocks[0].summary
     : undefined,
   "查看 1 次 · 更新 1 次",
+);
+
+const splitSegments = groupTimelineEntries([
+  {
+    kind: "tool",
+    tool: {
+      id: "search-a",
+      name: "grep",
+      action: "Read",
+      target: "alpha",
+      status: "Completed",
+      details: [],
+    },
+  },
+  {
+    kind: "tool",
+    tool: {
+      id: "search-b",
+      name: "grep",
+      action: "Read",
+      target: "beta",
+      status: "Completed",
+      details: [],
+    },
+  },
+  {
+    kind: "tool",
+    tool: {
+      id: "command-a",
+      name: "run_command",
+      action: "Run",
+      target: "npm test",
+      status: "Completed",
+      details: [],
+    },
+  },
+  {
+    kind: "tool",
+    tool: {
+      id: "search-c",
+      name: "grep",
+      action: "Read",
+      target: "gamma",
+      status: "Completed",
+      details: [],
+    },
+  },
+] as TimelineEntry[]);
+assert.deepEqual(
+  splitSegments.map((block) => block.kind),
+  ["tool-group", "tools"],
+);
+assert.deepEqual(
+  splitSegments[0]?.kind === "tool-group"
+    ? splitSegments[0].tools.map((tool) => tool.id)
+    : undefined,
+  ["search-a", "search-b"],
+);
+assert.deepEqual(
+  splitSegments[1]?.kind === "tools"
+    ? splitSegments[1].tools.map((tool) => tool.id)
+    : undefined,
+  ["command-a", "search-c"],
+);
+
+const activeSameCategory = groupTimelineEntries([
+  {
+    kind: "tool",
+    tool: {
+      id: "active-search-a",
+      name: "grep",
+      action: "Read",
+      target: "alpha",
+      status: "Completed",
+      details: [],
+    },
+  },
+  {
+    kind: "tool",
+    tool: {
+      id: "active-search-b",
+      name: "grep",
+      action: "Read",
+      target: "beta",
+      status: "Completed",
+      details: [],
+    },
+  },
+] as TimelineEntry[]);
+assert.deepEqual(
+  activeSameCategory.map((block) => block.kind),
+  ["tools"],
 );
 
 const questionBlocks = groupTimelineEntries([
@@ -1871,6 +2058,66 @@ assert.ok(
   runningRunBlocks.every(
     (block) => block.kind !== "run-activity",
   ),
+);
+
+const changedRunBlocks = groupTimelineEntries(
+  [
+    {
+      kind: "message",
+      runId: "run-changed",
+      message: {
+        id: "user-changed",
+        role: "user",
+        content: "change two files",
+        streaming: false,
+      },
+    },
+    {
+      kind: "tool",
+      runId: "run-changed",
+      tool: {
+        id: "tool-changed",
+        action: "Edit",
+        target: "a.py",
+        status: "Completed",
+        details: [],
+      },
+    },
+    {
+      kind: "message",
+      runId: "run-changed",
+      message: {
+        id: "answer-changed",
+        role: "assistant",
+        content: "Updated both.",
+        streaming: false,
+      },
+    },
+  ] as TimelineEntry[],
+  [
+    {
+      id: "run-changed",
+      status: "completed",
+      startedAt: 1_000,
+      completedAt: 2_000,
+      changes: [
+        { path: "a.py", added: 2, removed: 1 },
+        { path: "b.py", added: 3, removed: 0 },
+      ],
+      changesReverted: false,
+    },
+  ],
+);
+const changesBlock = changedRunBlocks.find(
+  (block) => block.kind === "changes",
+);
+assert.equal(changesBlock?.kind, "changes");
+assert.deepEqual(
+  changesBlock?.kind === "changes" ? changesBlock.changes : [],
+  [
+    { path: "a.py", added: 2, removed: 1 },
+    { path: "b.py", added: 3, removed: 0 },
+  ],
 );
 
 console.log("timelineReducer and transport tests passed");

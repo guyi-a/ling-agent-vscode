@@ -38,6 +38,7 @@ from ling_ai.types import (
     ThinkingContent,
     ToolCall,
     Usage,
+    UserMessage,
 )
 
 from ling_agent import (
@@ -45,6 +46,7 @@ from ling_agent import (
     ApprovalMode,
     ApprovalRequest,
     ApprovalRequested,
+    CompactionApplied,
     CommittedEventEnvelope,
     HarnessConfig,
     RunStarted,
@@ -2114,6 +2116,30 @@ class LingRpcSessionTests(unittest.IsolatedAsyncioTestCase):
                     if entry["kind"] == "message"
                     and entry["message"]["role"] == "assistant"
                 )
+                session_id = snapshot["sessionId"]
+                store = service._history_store
+                last_seq = await store.last_seq(session_id)
+                await store.append_committed(
+                    CommittedEventEnvelope(
+                        session_id=session_id,
+                        seq=last_seq + 1,
+                        event_id="test-compaction",
+                        run_id="test-run",
+                        turn_id="test-turn",
+                        step=0,
+                        event=CompactionApplied(
+                            compaction_id="test-compaction",
+                            through_message_id="assistant:0",
+                            summary=UserMessage(
+                                content="summary",
+                                timestamp=1,
+                            ),
+                            replaced_message_ids=("user:0",),
+                            replaced_count=1,
+                            estimated_tokens=1,
+                        ),
+                    )
+                )
                 self.assertTrue(
                     (
                         await service.delete_message(
@@ -2129,6 +2155,13 @@ class LingRpcSessionTests(unittest.IsolatedAsyncioTestCase):
                     if entry["kind"] == "message"
                 ]
                 self.assertEqual(roles, ["user"])
+                events = await store.load_committed(session_id)
+                self.assertFalse(
+                    any(
+                        isinstance(envelope.event, CompactionApplied)
+                        for envelope in events
+                    )
+                )
             finally:
                 await service.close()
 
@@ -2194,6 +2227,62 @@ class LingRpcSessionTests(unittest.IsolatedAsyncioTestCase):
                 self.assertEqual(
                     getattr(streams.options[-1], "reasoning", None),
                     "low",
+                )
+            finally:
+                await service.close()
+
+    async def test_mcp_status_and_config_rpc(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            workspace = Path(temp)
+            config_path = workspace / ".agents" / "mcp.json"
+            config_path.parent.mkdir()
+            config_path.write_text(
+                json.dumps(
+                    {
+                        "mcpServers": {
+                            "fixture": {
+                                "url": "https://example.com/mcp",
+                            }
+                        }
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            async def emit(_event: dict[str, Any]) -> None:
+                return None
+
+            service = SessionService(
+                emit,
+                model=MODEL,
+                stream_fn=ScriptedStreams([]),
+                storage_root=workspace / "state",
+            )
+            server = JsonRpcServer(
+                io.StringIO(),
+                io.StringIO(),
+                sessions=service,
+            )
+            try:
+                status = await server.handle_message(
+                    {
+                        "jsonrpc": "2.0",
+                        "id": 1,
+                        "method": "mcp.status",
+                        "params": {
+                            "workspaceRoot": str(workspace),
+                        },
+                    }
+                )
+                self.assertIsNotNone(status)
+                assert status is not None
+                self.assertEqual(
+                    status["result"]["servers"][0]["name"],
+                    "fixture",
+                )
+                self.assertEqual(
+                    status["result"]["configPath"],
+                    str(config_path),
                 )
             finally:
                 await service.close()
