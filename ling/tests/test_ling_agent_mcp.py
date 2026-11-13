@@ -69,7 +69,9 @@ def test_mcp_config_parses_stdio_and_http() -> None:
         assert config.get("wiki").kind == "http"  # type: ignore[union-attr]
         assert config.get("local") is not None
         assert config.get("local").kind == "stdio"  # type: ignore[union-attr]
-        assert config.get("local").cwd == str(root)  # type: ignore[union-attr]
+        assert (  # type: ignore[union-attr]
+            Path(config.get("local").cwd).resolve() == root.resolve()
+        )
         assert len(config.issues) == 1
         assert config.issues[0].name == "broken"
 

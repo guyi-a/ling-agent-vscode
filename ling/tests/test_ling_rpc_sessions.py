@@ -2281,8 +2281,8 @@ class LingRpcSessionTests(unittest.IsolatedAsyncioTestCase):
                     "fixture",
                 )
                 self.assertEqual(
-                    status["result"]["configPath"],
-                    str(config_path),
+                    Path(status["result"]["configPath"]).resolve(),
+                    config_path.resolve(),
                 )
             finally:
                 await service.close()
