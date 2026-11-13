@@ -14,6 +14,7 @@ from ling_agent import (
     AssistantTimelineItem,
     CompactionTimelineItem,
     CommittedEventEnvelope,
+    ProcessExecEffect,
     QuestionRequest,
     StreamFrameEnvelope,
     TimelineItem,
@@ -24,6 +25,7 @@ from ling_agent import (
     UserTimelineItem,
     question_request_to_dict,
 )
+from ling_agent.local_settings import command_allow_patterns
 
 UiEvent = dict[str, Any]
 EmitUiEvent = Callable[[UiEvent], Awaitable[None]]
@@ -792,7 +794,50 @@ def _approval_request(item: ApprovalTimelineItem) -> dict[str, Any]:
             f"Arguments: {json.dumps(request.arguments, ensure_ascii=False, sort_keys=True)}",
             f"Effect digest: {request.effect_digest}",
         ],
+        **(
+            {"allowAlways": allow_always}
+            if (allow_always := _approval_allow_always(request)) is not None
+            else {}
+        ),
     }
+
+
+def _approval_allow_always(
+    request: Any,
+) -> dict[str, Any] | None:
+    if request.tool_name in ("write_file", "edit_file"):
+        return {
+            "kind": "mode",
+            "mode": "accept-write",
+            "label": "Yes, allow all edits this session",
+        }
+    if request.tool_name != "run_command":
+        return None
+    effect = request.effect
+    if (
+        not isinstance(effect, ProcessExecEffect)
+        or effect.classification == "destructive"
+    ):
+        return None
+    command = request.arguments.get("command")
+    if not isinstance(command, str):
+        return None
+    patterns = command_allow_patterns(command)
+    if patterns is None:
+        return None
+    if len(patterns) == 1:
+        label = (
+            patterns[0][:-2]
+            if patterns[0].endswith(":*")
+            else patterns[0]
+        )
+        text = f'Yes, and don\'t ask again for "{label}" commands'
+    else:
+        text = (
+            "Yes, and don't ask again for these "
+            f"{len(patterns)} commands"
+        )
+    return {"kind": "command", "label": text}
 
 
 def _tool_action(
@@ -851,11 +896,36 @@ def _tool_target(name: str, arguments: dict[str, object]) -> str:
         }
         if name in management:
             return management[name]
-        for key in ("name", "url", "command"):
+        server_name = arguments.get("name")
+        label = (
+            server_name[:80]
+            if isinstance(server_name, str) and server_name
+            else name
+        )
+        verbs = {
+            "mcp_add_server": "add",
+            "mcp_test_server": "test",
+            "mcp_authorize_server": "authorize",
+            "mcp_remove_server": "remove",
+            "mcp_revoke_server_auth": "revoke auth",
+        }
+        verb = verbs.get(name)
+        if name == "mcp_set_enabled":
+            enabled = arguments.get("enabled")
+            verb = (
+                "enable"
+                if enabled is True
+                else "disable"
+                if enabled is False
+                else "toggle"
+            )
+        if verb:
+            return f"{verb} {label}"
+        for key in ("url", "command"):
             value = arguments.get(key)
             if isinstance(value, str) and value:
                 return value[:80]
-        return name
+        return label
     if name == "memory_list":
         return "memory inventory"
     if name in ("memory_write", "memory_delete"):

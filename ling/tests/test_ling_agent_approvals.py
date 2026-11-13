@@ -26,6 +26,7 @@ from ling_agent import (
     create_approval_hook,
     create_mutation_tools,
 )
+from ling_agent.local_settings import LocalSettingsStore
 from ling_core import Agent, HookRegistry, PreToolUse, ToolContext
 
 MODEL = Model(
@@ -247,8 +248,84 @@ def test_denied_write_never_touches_disk() -> None:
         assert "Permission denied" in tool_result.content[0].text
 
 
+class FeedbackApprovalHandler:
+    async def request(
+        self,
+        request: ApprovalRequest,
+    ) -> ApprovalDecision:
+        return ApprovalDecision.DENY
+
+    def feedback_for(self, approval_id: str) -> str | None:
+        return "use pnpm instead"
+
+
+def test_approval_feedback_reaches_denial_reason() -> None:
+    with tempfile.TemporaryDirectory() as temp:
+        root = Path(temp)
+        hook = create_approval_hook(FeedbackApprovalHandler(), root)
+
+        decision = asyncio.run(
+            hook(_pre_tool("run_command", {"command": "npm install"}))
+        )
+
+        assert decision is not None
+        assert decision.allowed is False
+        assert "use pnpm instead" in (decision.reason or "")
+
+
+def test_local_allowlist_skips_matching_normal_command() -> None:
+    with tempfile.TemporaryDirectory() as temp:
+        root = Path(temp)
+        store = LocalSettingsStore(root)
+        store.allow_command("npm:*")
+        handler = StaticApprovalHandler(ApprovalDecision.ALLOW_ONCE)
+        hook = create_approval_hook(
+            handler,
+            root,
+            local_settings=store,
+        )
+
+        decision = asyncio.run(
+            hook(_pre_tool("run_command", {"command": "npm install"}))
+        )
+
+        assert decision is not None
+        assert decision.allowed is True
+        assert handler.requests == []
+
+
+def test_local_allowlist_never_bypasses_destructive_command() -> None:
+    with tempfile.TemporaryDirectory() as temp:
+        root = Path(temp)
+        store = LocalSettingsStore(root)
+        store.allow_command("Remove-Item:*")
+        handler = StaticApprovalHandler(ApprovalDecision.ALLOW_ONCE)
+        hook = create_approval_hook(
+            handler,
+            root,
+            local_settings=store,
+        )
+
+        decision = asyncio.run(
+            hook(
+                _pre_tool(
+                    "run_command",
+                    {"command": "Remove-Item -Recurse -Force build"},
+                )
+            )
+        )
+
+        assert decision is not None
+        assert decision.allowed is True
+        assert [request.kind for request in handler.requests] == [
+            ApprovalKind.COMMAND,
+        ]
+
+
 if __name__ == "__main__":
     test_approval_contracts()
     test_allowed_mutations_are_applied_in_order()
     test_denied_write_never_touches_disk()
+    test_local_allowlist_skips_matching_normal_command()
+    test_local_allowlist_never_bypasses_destructive_command()
     print("all ling_agent approval tests passed")

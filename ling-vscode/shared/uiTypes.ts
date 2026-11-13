@@ -137,6 +137,10 @@ export interface ToolCall {
   detail?: ToolDetail;
 }
 
+export type ApprovalAllowAlways =
+  | { kind: "mode"; mode: ApprovalMode; label: string }
+  | { kind: "command"; label: string };
+
 export interface ApprovalRequest {
   id: string;
   tool: string;
@@ -146,6 +150,7 @@ export interface ApprovalRequest {
   arguments?: Record<string, unknown>;
   effectDigest: string;
   details: string[];
+  allowAlways?: ApprovalAllowAlways;
 }
 
 export interface ApprovalResult {

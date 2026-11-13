@@ -60,6 +60,8 @@ from .events import (
     ToolResultCommitted,
     UserMessageCommitted,
 )
+from .file_state import FileReadTracker, create_read_guard_hook
+from .local_settings import LocalSettingsStore
 from .memory import MemoryStore
 from .mcp import McpManager, create_mcp_tools
 from .plans import PlanStore
@@ -160,6 +162,8 @@ class CodingAgent:
         self.stream_fn = stream_fn
         self.config = config or HarnessConfig()
         self.workspace = Workspace(workspace_root, self.config)
+        self.file_reads = FileReadTracker()
+        self.local_settings = LocalSettingsStore(self.workspace.root)
         self.plans = PlanStore(self.workspace.root)
         self.approvals = approvals or _DenyAllApprovalHandler()
         self.event_sink = event_sink
@@ -312,12 +316,16 @@ class CodingAgent:
             *create_file_tools(
                 self.workspace,
                 extra_read_roots=self._skill_read_roots,
+                file_reads=self.file_reads,
             ),
             *create_search_tools(
                 self.workspace,
                 embedder=self.embedder,
             ),
-            *create_mutation_tools(self.workspace),
+            *create_mutation_tools(
+                self.workspace,
+                file_reads=self.file_reads,
+            ),
             *create_command_tools(self.workspace, self.config),
             *create_document_tools(self.workspace, self.config),
             *create_question_tools(self.questions),
@@ -401,6 +409,10 @@ class CodingAgent:
         session.register_hooks(hooks)
         hooks.register(
             PreToolUse,
+            create_read_guard_hook(self.workspace, self.file_reads),
+        )
+        hooks.register(
+            PreToolUse,
             create_approval_hook(
                 SessionApprovalHandler(session, self.approvals),
                 self.workspace,
@@ -410,6 +422,7 @@ class CodingAgent:
                 effect_resolver=lambda call: (
                     self.mcp_manager.effect_for_tool(call.name)
                 ),
+                local_settings=self.local_settings,
             ),
         )
         return hooks

@@ -242,6 +242,46 @@ async def _integration(root: Path) -> None:
     assert "new" in command_results[0].content[0].text
 
 
+async def _blind_edit_is_rejected_before_approval(root: Path) -> None:
+    workspace = root / "workspace"
+    workspace.mkdir()
+    (workspace / "README.md").write_text("old\n", encoding="utf-8")
+    state = root / "state"
+    approvals = AllowApprovalHandler()
+    coding = CodingAgent(
+        model=MODEL,
+        stream_fn=ScriptedStreams(
+            [
+                _assistant(
+                    [
+                        ToolCall(
+                            id="edit-1",
+                            name="edit_file",
+                            arguments={
+                                "path": "README.md",
+                                "old_text": "old",
+                                "new_text": "new",
+                            },
+                        )
+                    ],
+                    stop_reason="tool_use",
+                ),
+                _assistant([TextContent("done")]),
+            ]
+        ),
+        workspace_root=workspace,
+        storage_root=state,
+        approvals=approvals,
+    )
+    try:
+        await coding.prompt("edit README.md")
+    finally:
+        await coding.close()
+
+    assert (workspace / "README.md").read_text(encoding="utf-8") == "old\n"
+    assert approvals.requests == []
+
+
 async def _close_pending_approval(root: Path) -> None:
     workspace = root / "workspace"
     workspace.mkdir()
@@ -311,7 +351,13 @@ def test_close_rejects_pending_approval() -> None:
         asyncio.run(_close_pending_approval(Path(temp)))
 
 
+def test_blind_edit_is_rejected_before_approval() -> None:
+    with tempfile.TemporaryDirectory() as temp:
+        asyncio.run(_blind_edit_is_rejected_before_approval(Path(temp)))
+
+
 if __name__ == "__main__":
     test_coding_agent_inspect_edit_verify()
     test_close_rejects_pending_approval()
+    test_blind_edit_is_rejected_before_approval()
     print("all ling_agent integration tests passed")

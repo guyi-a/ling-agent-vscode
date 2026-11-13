@@ -72,6 +72,7 @@ from .events import (
     UsageUpdated,
     UserMessageCommitted,
 )
+from .file_state import FileReadTracker, create_read_guard_hook
 from .prompt import DEFAULT_TOOL_NAMES, PromptAssembly, build_system_prompt
 from .questions import (
     MAX_OPTIONS,
@@ -313,6 +314,8 @@ __all__ = [
     "effect_digest",
     "default_database_path",
     "default_storage_root",
+    "FileReadTracker",
+    "create_read_guard_hook",
     "format_skills_index",
     "format_memories_for_prompt",
     "inspect_memories",

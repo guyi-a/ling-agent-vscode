@@ -9,6 +9,7 @@ const SKILLS = [
   "inline-visualization",
   "browser-bridge",
   "frontend-design",
+  "ling-self",
 ];
 
 const scriptDir = dirname(fileURLToPath(import.meta.url));

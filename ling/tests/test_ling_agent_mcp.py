@@ -181,6 +181,25 @@ async def _oauth_server_needs_authorization(root: Path) -> None:
         assert status.servers[0].state == "needs-auth"
         assert status.servers[0].auth == "oauth"
         assert status.servers[0].authorized is False
+
+        test_tool = next(
+            tool
+            for tool in tools
+            if tool.definition.name == "mcp_test_server"
+        )
+        result = await test_tool.handler(
+            ToolCall(
+                id="test-oauth",
+                name="mcp_test_server",
+                arguments={"name": "oauth"},
+            ),
+            ToolContext(step=1),
+        )
+        assert not result.is_error
+        payload = json.loads(result.output)
+        assert payload["ok"] is True
+        assert payload["state"] == "needs-auth"
+        assert "mcp_authorize_server" in payload["message"]
     finally:
         await manager.close()
 

@@ -1,5 +1,26 @@
 # Changelog
 
+## 1.1.0
+
+- Add a repository README and reposition Ling as a local agent harness for
+  VS Code: tools, approvals, skills, and context without leaving the editor.
+- Add the `ling-self` built-in skill describing Ling's product model,
+  capabilities, storage, and overall release process.
+- Require `read_file` before editing an existing file. Read state is tracked
+  per session, updated after tool writes, and invalidated when the file
+  changes on disk.
+- Keep grouped tools at their original position when assistant text appears
+  between calls, instead of collecting them across the whole run.
+- Show the MCP management operation in tool cards (`add`, `test`,
+  `authorize`, and so on) instead of repeating only the server name.
+- Report an OAuth-required MCP connection test as `needs-auth` instead of a
+  failed tool call.
+- Rework the approval card with numbered keyboard options: allow once, allow
+  edits for the session or remember a command in `.agents/settings.local.json`,
+  deny, and deny with feedback for the model. Compound commands are split into
+  per-subcommand allow rules, each of which must match.
+- Use bundler module resolution in the extension typecheck config.
+
 ## 1.0.1
 
 - Load user skills from `~/.agents/skills`, with builtin > global > workspace

@@ -8,6 +8,7 @@ from typing import Sequence
 from ling_ai.types import Tool, ToolCall
 from ling_core import AgentTool, ToolContext, ToolExecution
 
+from ..file_state import FileReadTracker
 from ..workspace import Workspace, WorkspaceError
 from .formatting import join_limited
 
@@ -34,23 +35,30 @@ def create_file_tools(
     workspace: Workspace,
     *,
     extra_read_roots: Sequence[Path] = (),
+    file_reads: FileReadTracker | None = None,
 ) -> list[AgentTool]:
     def read_file(call: ToolCall, context: ToolContext) -> str:
         path = _string_arg(call, "path")
         start_line = _positive_optional_int(call, "start_line") or 1
         line_limit = _positive_optional_int(call, "line_limit")
         if Path(path).is_absolute():
-            return workspace.read_absolute_text(
+            resolved = Path(path).expanduser().resolve()
+            output = workspace.read_absolute_text(
                 path,
                 allowed_roots=extra_read_roots,
                 start_line=start_line,
                 line_limit=line_limit,
             )
-        return workspace.read_text(
-            path,
-            start_line=start_line,
-            line_limit=line_limit,
-        )
+        else:
+            resolved = workspace.resolve(path)
+            output = workspace.read_text(
+                path,
+                start_line=start_line,
+                line_limit=line_limit,
+            )
+        if file_reads is not None:
+            file_reads.mark_read(resolved)
+        return output
 
     def list_files(call: ToolCall, context: ToolContext) -> str:
         path = _string_arg(call, "path", ".")
@@ -104,15 +112,26 @@ def create_file_tools(
     ]
 
 
-def create_mutation_tools(workspace: Workspace) -> list[AgentTool]:
+def create_mutation_tools(
+    workspace: Workspace,
+    *,
+    file_reads: FileReadTracker | None = None,
+) -> list[AgentTool]:
     def write_file(
         call: ToolCall,
         context: ToolContext,
     ) -> ToolExecution:
         path = _string_arg(call, "path")
         content = _string_arg(call, "content")
+        resolved = workspace.resolve(path)
+        if file_reads is not None and resolved.exists():
+            issue = file_reads.check_editable(resolved, label=path)
+            if issue is not None:
+                return ToolExecution(output=issue, is_error=True)
         previous, existed = _previous_content(workspace, path)
         output = workspace.write_text(path, content)
+        if file_reads is not None:
+            file_reads.mark_written(resolved)
         return ToolExecution(
             output=output,
             details={
@@ -130,8 +149,15 @@ def create_mutation_tools(workspace: Workspace) -> list[AgentTool]:
         path = _string_arg(call, "path")
         old_text = _string_arg(call, "old_text")
         new_text = _string_arg(call, "new_text")
+        resolved = workspace.resolve(path)
+        if file_reads is not None:
+            issue = file_reads.check_editable(resolved, label=path)
+            if issue is not None:
+                return ToolExecution(output=issue, is_error=True)
         start_line = _find_start_line(workspace, path, old_text)
         output = workspace.replace_text(path, old_text, new_text)
+        if file_reads is not None:
+            file_reads.mark_written(resolved)
         return ToolExecution(
             output=output,
             details={"kind": "edit", "startLine": start_line},
@@ -143,6 +169,7 @@ def create_mutation_tools(workspace: Workspace) -> list[AgentTool]:
                 name="write_file",
                 description=(
                     "Create or replace a UTF-8 text file inside the workspace. "
+                    "Replacing an existing file requires reading it first. "
                     "Requires approval."
                 ),
                 parameters={
@@ -162,7 +189,7 @@ def create_mutation_tools(workspace: Workspace) -> list[AgentTool]:
                 name="edit_file",
                 description=(
                     "Replace one exact text occurrence in a workspace file. "
-                    "Requires approval."
+                    "The file must be read first. Requires approval."
                 ),
                 parameters={
                     "type": "object",

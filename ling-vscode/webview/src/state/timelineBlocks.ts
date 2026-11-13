@@ -123,6 +123,15 @@ function groupContentEntries(
   let activeSegmentKey = "";
   for (const entry of entries) {
     if (entry.kind !== "tool") {
+      if (
+        (entry.kind === "message" &&
+          entry.message.content.trim()) ||
+        entry.kind === "compaction"
+      ) {
+        // A visible message or compaction boundary keeps tool groups in
+        // their original position instead of collecting them across text.
+        activeSegmentKey = "";
+      }
       continue;
     }
     const category = classifyToolCategory(entry.tool);

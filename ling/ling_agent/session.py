@@ -779,6 +779,7 @@ class SessionApprovalHandler:
     ) -> None:
         self._session = session
         self._handler = handler
+        self._feedback: dict[str, str] = {}
 
     async def request(self, request: ApprovalRequest) -> ApprovalDecision:
         approval_id = await self._session.commit_approval_requested(request)
@@ -809,14 +810,31 @@ class SessionApprovalHandler:
             result = ApprovalDecision.DENY
         if request.cancel_event is not None and request.cancel_event.is_set():
             result = ApprovalDecision.DENY
+        feedback: str | None = None
+        if result is ApprovalDecision.DENY:
+            getter = getattr(self._handler, "feedback_for", None)
+            if callable(getter):
+                feedback = getter(request.approval_id)
+            if feedback:
+                self._feedback[request.approval_id] = feedback
         await self._session.commit_approval_resolved(
             approval_id,
             request,
             result,
         )
         if result is ApprovalDecision.DENY:
-            await self._session.commit_denied_tool_result(request)
+            await self._session.commit_denied_tool_result(
+                request,
+                reason=(
+                    f"User denied the tool call: {feedback}"
+                    if feedback
+                    else "Permission denied"
+                ),
+            )
         return result
+
+    def feedback_for(self, approval_id: str) -> str | None:
+        return self._feedback.pop(approval_id, None)
 
 
 __all__ = [

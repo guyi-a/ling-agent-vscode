@@ -9,3 +9,4 @@ resources/skills/
 .agents/mcp.json
 .agents/mcp-cache.json
 .agents/mcp-auth/
+.agents/settings.local.json

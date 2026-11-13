@@ -116,6 +116,8 @@ export type WebviewToHostMessage =
       approvalId: string;
       effectDigest: string;
       approved: boolean;
+      remember?: boolean;
+      feedback?: string;
     }
   | {
       type: "question.answer";
@@ -398,7 +400,11 @@ export function isWebviewToHostMessage(
       return (
         typeof value.approvalId === "string" &&
         typeof value.effectDigest === "string" &&
-        typeof value.approved === "boolean"
+        typeof value.approved === "boolean" &&
+        (value.remember === undefined ||
+          typeof value.remember === "boolean") &&
+        (value.feedback === undefined ||
+          typeof value.feedback === "string")
       );
     case "question.answer":
       return (
@@ -882,8 +888,23 @@ function isApprovalRequest(value: unknown): value is ApprovalRequest {
     typeof value.reason === "string" &&
     (value.arguments === undefined || isRecord(value.arguments)) &&
     typeof value.effectDigest === "string" &&
-    isStringArray(value.details)
+    isStringArray(value.details) &&
+    (value.allowAlways === undefined ||
+      isApprovalAllowAlways(value.allowAlways))
   );
+}
+
+function isApprovalAllowAlways(value: unknown): boolean {
+  if (!isRecord(value)) {
+    return false;
+  }
+  if (typeof value.label !== "string") {
+    return false;
+  }
+  if (value.kind === "mode") {
+    return isApprovalMode(value.mode);
+  }
+  return value.kind === "command";
 }
 
 function isToolCall(value: unknown): value is ToolCall {

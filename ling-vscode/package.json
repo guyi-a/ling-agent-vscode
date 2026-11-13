@@ -1,8 +1,8 @@
 {
   "name": "ling-agent",
   "displayName": "Ling",
-  "description": "A focused coding agent for VS Code with skills, diff review, and inline diagrams.",
-  "version": "1.0.1",
+  "description": "Harness your workflow without leaving VS Code. A local agent harness for VS Code.",
+  "version": "1.1.0",
   "publisher": "ling-agent",
   "repository": {
     "type": "git",
@@ -12,7 +12,7 @@
   "icon": "media/icon.png",
   "keywords": [
     "ai",
-    "coding agent",
+    "agent harness",
     "deepseek",
     "ling",
     "skills"

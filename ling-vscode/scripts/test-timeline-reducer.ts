@@ -1647,7 +1647,14 @@ const exploreGroup = categorizedTools.find(
 );
 assert.deepEqual(
   categorizedTools.map((block) => block.kind),
-  ["entry", "tool-group", "entry", "tool-group", "tools"],
+  [
+    "entry",
+    "tools",
+    "entry",
+    "tool-group",
+    "tool-group",
+    "tools",
+  ],
 );
 assert.equal(
   exploreGroup?.kind === "tool-group"
@@ -1659,7 +1666,7 @@ assert.equal(
   exploreGroup?.kind === "tool-group"
     ? exploreGroup.tools.length
     : undefined,
-  4,
+  3,
 );
 const browserGroup = categorizedTools.find(
   (block) => block.kind === "tool-group" &&
@@ -1671,14 +1678,16 @@ assert.equal(
     : undefined,
   1,
 );
-const activeTools = categorizedTools.find(
+const plainToolBlocks = categorizedTools.filter(
   (block) => block.kind === "tools",
 );
 assert.deepEqual(
-  activeTools?.kind === "tools"
-    ? activeTools.tools.map((tool) => tool.id)
-    : undefined,
-  ["active-read"],
+  plainToolBlocks.map((block) =>
+    block.kind === "tools"
+      ? block.tools.map((tool) => tool.id)
+      : [],
+  ),
+  [["read-a"], ["active-read"]],
 );
 
 const editGroupBlocks = groupTimelineEntries([

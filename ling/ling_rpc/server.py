@@ -676,11 +676,19 @@ class JsonRpcServer:
                 raise JsonRpcError(-32602, "effectDigest must be a string")
             if not isinstance(approved, bool):
                 raise JsonRpcError(-32602, "approved must be a boolean")
+            feedback = params.get("feedback")
+            if feedback is not None and not isinstance(feedback, str):
+                raise JsonRpcError(-32602, "feedback must be a string")
+            remember = params.get("remember", False)
+            if not isinstance(remember, bool):
+                raise JsonRpcError(-32602, "remember must be a boolean")
             return {
                 "resolved": await self._sessions.resolve_approval(
                     approval_id,
                     effect_digest,
                     approved,
+                    remember=remember,
+                    feedback=feedback,
                 )
             }
 

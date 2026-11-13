@@ -1845,6 +1845,8 @@ class ChatViewProvider implements vscode.WebviewViewProvider {
           approvalId: message.approvalId,
           effectDigest: message.effectDigest,
           approved: message.approved,
+          ...(message.remember ? { remember: true } : {}),
+          ...(message.feedback ? { feedback: message.feedback } : {}),
         },
       );
       if (!result.resolved) {

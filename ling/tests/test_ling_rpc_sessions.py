@@ -2453,6 +2453,188 @@ class LingRpcSessionTests(unittest.IsolatedAsyncioTestCase):
             )
             self.assertIn("ui.event", [m.get("method") for m in rpc_messages(stdout)])
 
+    async def test_rpc_approval_remembers_command(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            workspace = root / "workspace"
+            workspace.mkdir()
+            stdout = io.StringIO()
+            stderr = io.StringIO()
+            server_ref: JsonRpcServer | None = None
+
+            async def emit(event: dict[str, Any]) -> None:
+                if server_ref is None:
+                    raise AssertionError("server was not initialized")
+                await server_ref._emit_ui_event(event)
+
+            streams = ScriptedStreams(
+                [
+                    _assistant(
+                        [
+                            ToolCall(
+                                id="run-rpc",
+                                name="run_command",
+                                arguments={
+                                    "command": (
+                                        'python -c "print(1)"; echo done'
+                                    )
+                                },
+                            )
+                        ],
+                        stop_reason="tool_use",
+                    ),
+                    _assistant([TextContent("RPC complete.")]),
+                ]
+            )
+            service = SessionService(
+                emit,
+                model=MODEL,
+                stream_fn=streams,
+                storage_root=root / "state",
+            )
+            server = JsonRpcServer(
+                stdout=stdout,
+                stderr=stderr,
+                sessions=service,
+            )
+            server_ref = server
+
+            try:
+                started = await server.handle_message(
+                    {
+                        "jsonrpc": "2.0",
+                        "id": 10,
+                        "method": "session.start",
+                        "params": {
+                            "prompt": "Run a command",
+                            "workspaceRoot": str(workspace),
+                        },
+                    }
+                )
+                self.assertEqual(started["result"], {"accepted": True})
+
+                await _wait_for(
+                    lambda: any(
+                        message.get("method") == "ui.event"
+                        and message["params"]["event"]["snapshot"].get(
+                            "pendingApprovals"
+                        )
+                        for message in rpc_messages(stdout)
+                    )
+                )
+                messages = rpc_messages(stdout)
+                pending_event = next(
+                    message["params"]["event"]
+                    for message in reversed(messages)
+                    if message.get("method") == "ui.event"
+                    and message["params"]["event"]["snapshot"].get(
+                        "pendingApprovals"
+                    )
+                )
+                approval = pending_event["snapshot"]["pendingApprovals"][0]
+                self.assertEqual(
+                    approval["allowAlways"]["kind"],
+                    "command",
+                )
+
+                resolved = await server.handle_message(
+                    {
+                        "jsonrpc": "2.0",
+                        "id": 11,
+                        "method": "approval.resolve",
+                        "params": {
+                            "approvalId": approval["id"],
+                            "effectDigest": approval["effectDigest"],
+                            "approved": True,
+                            "remember": True,
+                        },
+                    }
+                )
+                self.assertEqual(resolved["result"], {"resolved": True})
+                await asyncio.wait_for(service.wait_for_idle(), timeout=10)
+            finally:
+                await service.close()
+
+            settings = json.loads(
+                (
+                    workspace / ".agents" / "settings.local.json"
+                ).read_text(encoding="utf-8")
+            )
+            self.assertIn(
+                "python:*",
+                settings["permissions"]["allowCommands"],
+            )
+            self.assertIn(
+                "echo:*",
+                settings["permissions"]["allowCommands"],
+            )
+
+    async def test_rpc_approval_feedback_reaches_tool_result(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            workspace = root / "workspace"
+            workspace.mkdir()
+            stdout = io.StringIO()
+            stderr = io.StringIO()
+
+            async def emit(event: dict[str, Any]) -> None:
+                return None
+
+            streams = ScriptedStreams(
+                [
+                    _assistant(
+                        [
+                            ToolCall(
+                                id="run-feedback",
+                                name="run_command",
+                                arguments={"command": "echo hello"},
+                            )
+                        ],
+                        stop_reason="tool_use",
+                    ),
+                    _assistant([TextContent("RPC complete.")]),
+                ]
+            )
+            service = SessionService(
+                emit,
+                model=MODEL,
+                stream_fn=streams,
+                storage_root=root / "state",
+            )
+            try:
+                await service.start(
+                    "Run a command",
+                    str(workspace),
+                )
+                snapshot = None
+                for _ in range(100):
+                    snapshot = await service.snapshot()
+                    if snapshot["pendingApprovals"]:
+                        break
+                    await asyncio.sleep(0.02)
+                assert snapshot is not None
+                approval = snapshot["pendingApprovals"][0]
+                resolved = await service.resolve_approval(
+                    approval["id"],
+                    approval["effectDigest"],
+                    False,
+                    feedback="use pnpm instead",
+                )
+                self.assertTrue(resolved)
+                await asyncio.wait_for(service.wait_for_idle(), timeout=10)
+                final = await service.snapshot()
+            finally:
+                await service.close()
+
+            tool = next(
+                entry["tool"]
+                for entry in final["entries"]
+                if entry.get("kind") == "tool"
+            )
+            joined = "\n".join(tool["details"])
+            self.assertIn("use pnpm instead", joined)
+
+
 def rpc_messages(stream: io.StringIO) -> list[dict[str, Any]]:
     messages: list[dict[str, Any]] = []
     for line in stream.getvalue().splitlines():

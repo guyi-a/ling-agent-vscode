@@ -18,6 +18,7 @@ from ling_agent import (
     CodingAgent,
     CompactionApplied,
     HarnessConfig,
+    ProcessExecEffect,
     RunChangesCommitted,
     RunStarted,
     RunStopped,
@@ -31,6 +32,10 @@ from ling_agent import (
 )
 from ling_agent.browser_bridge import BrowserBridge
 from ling_agent.compaction import CompactionConfig, SummarizeFn
+from ling_agent.local_settings import (
+    LocalSettingsStore,
+    command_allow_patterns,
+)
 from ling_agent.mcp import McpConfigStore, McpManager
 from ling_agent.skill_sync import sync_bundled_skills
 from ling_agent.skills import global_skills_root
@@ -46,6 +51,7 @@ from .ui_events import EmitUiEvent, RpcEventSink, UiEvent, snapshot_to_ui
 class _PendingApproval:
     effect_digest: str
     future: asyncio.Future[ApprovalDecision]
+    request: ApprovalRequest | None = None
 
 
 class RpcApprovalHandler:
@@ -53,6 +59,7 @@ class RpcApprovalHandler:
 
     def __init__(self) -> None:
         self._pending: dict[str, _PendingApproval] = {}
+        self._feedback: dict[str, str] = {}
 
     async def request(self, request: ApprovalRequest) -> ApprovalDecision:
         future: asyncio.Future[ApprovalDecision] = (
@@ -61,6 +68,7 @@ class RpcApprovalHandler:
         self._pending[request.approval_id] = _PendingApproval(
             effect_digest=request.effect_digest,
             future=future,
+            request=request,
         )
         try:
             return await future
@@ -72,18 +80,31 @@ class RpcApprovalHandler:
         approval_id: str,
         effect_digest: str,
         approved: bool,
+        feedback: str | None = None,
     ) -> bool:
         pending = self._pending.get(approval_id)
         if pending is None or pending.future.done():
             return False
         if pending.effect_digest != effect_digest:
             return False
+        if not approved and feedback:
+            self._feedback[approval_id] = feedback
         pending.future.set_result(
             ApprovalDecision.ALLOW_ONCE
             if approved
             else ApprovalDecision.DENY
         )
         return True
+
+    def pending_request(
+        self,
+        approval_id: str,
+    ) -> ApprovalRequest | None:
+        pending = self._pending.get(approval_id)
+        return pending.request if pending is not None else None
+
+    def feedback_for(self, approval_id: str) -> str | None:
+        return self._feedback.pop(approval_id, None)
 
 
 @dataclass(slots=True)
@@ -283,13 +304,38 @@ class SessionService:
         approval_id: str,
         effect_digest: str,
         approved: bool,
+        *,
+        remember: bool = False,
+        feedback: str | None = None,
     ) -> bool:
         if self._approvals is None:
             return False
+        request = self._approvals.pending_request(approval_id)
+        if approved and remember and request is not None:
+            command = request.arguments.get("command")
+            effect = request.effect
+            if (
+                request.tool_name == "run_command"
+                and isinstance(command, str)
+                and isinstance(effect, ProcessExecEffect)
+                and effect.classification != "destructive"
+            ):
+                patterns = command_allow_patterns(command)
+                if patterns:
+                    try:
+                        LocalSettingsStore(
+                            request.workspace_root
+                        ).allow_commands(patterns)
+                    except (OSError, ValueError) as exc:
+                        print(
+                            f"unable to save command allow rule: {exc}",
+                            file=sys.stderr,
+                        )
         return await self._approvals.resolve(
             approval_id,
             effect_digest,
             approved,
+            feedback=feedback,
         )
 
     async def resolve_question(

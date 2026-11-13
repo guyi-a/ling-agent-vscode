@@ -1,11 +1,11 @@
 # Ling — 项目说明
 
-Ling 是一个 VS Code coding agent（侧边栏聊天 + 工具调用 + 审批 diff）。仓库由两半组成：
-TypeScript 扩展负责 UI 与 VS Code 集成，Python sidecar 负责 agent、工具、检索与持久化。
+Ling 是一套本地运行的 agent harness，通过 VS Code 扩展交付。它负责工具、审批、技能和上下文，让用户留在编辑器里继续工作。仓库由两半组成：
+TypeScript 扩展是 VS Code 前端，Python sidecar 是 harness 本体，负责 agent、工具、检索与持久化。
 
 - `ling-vscode/`：VS Code 扩展（`extension.ts`）+ React 19 webview + 打包脚本。
 - `ling/`：Python 包（sidecar）。**没有 pyproject / ruff / mypy 配置**，依赖在 `requirements.txt`，包括 `httpx`、`mcp`、`pypdf`、`websockets`。
-- `.agents/skills/`：内置技能的**唯一源**（`pdf`、`pptx`、`docx`、`inline-visualization`、`browser-bridge`、`frontend-design`），构建时复制到 `ling-vscode/resources/skills/`（该目录被 gitignore）。
+- `.agents/skills/`：内置技能的**唯一源**（`pdf`、`pptx`、`docx`、`inline-visualization`、`browser-bridge`、`frontend-design`、`ling-self`），构建时复制到 `ling-vscode/resources/skills/`（该目录被 gitignore）。
 - `.agents/{memory,code-index,plans,attachments}/`：运行时状态，只有 `skills` 和 `memory` 应纳入版本控制。
 - `~/.agents/skills/`：用户全局技能库。插件启动时把内置技能同步到这里（SKILL.md 标 `source: ling`），升级只覆盖未本地修改的托管技能；加载优先级为内置 > 全局无来源 > 工作区。
 
@@ -53,6 +53,8 @@ npm run sync:skills    # .agents/skills -> resources/skills（vscode:prepublish 
 - TypeScript：prettier 风格（双引号、行尾逗号、100 列左右），无 lint 步骤，靠 `npm run typecheck` 把关。
 - 用户可见文案（README、CHANGELOG、UI 字符串）用中文；代码注释用英文。
 - 任何写文件 / 执行命令都必须经过 `ling_agent/approvals.py` 的策略，不要在工具里直接落盘。
+- 命令白名单在 `.agents/settings.local.json`（本地、gitignored）；审批 UI 的“以后不再问”写入 `permissions.allowCommands`，危险命令永远不适用。
+- 修改已有文件前必须先 `read_file`；`edit_file` 和覆盖已有文件的 `write_file` 会校验会话内读取记录和文件 mtime/size，外部修改后要求重读。
 - 工具输出上限：超过 12,000 字符写入 `.agents/spills/`，单条结果上限 50,000 字符。
 - 版本号同时更新 `ling-vscode/package.json` 和 `CHANGELOG.md`。
 

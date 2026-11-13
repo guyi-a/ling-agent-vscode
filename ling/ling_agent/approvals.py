@@ -28,6 +28,7 @@ from .effects import (
     effect_digest,
     plan_mode_denial,
 )
+from .local_settings import LocalSettingsStore
 from .workspace import Workspace
 
 
@@ -254,6 +255,7 @@ def create_approval_hook(
     manager: ApprovalManager | None = None,
     timeout_seconds: float = 120.0,
     effect_resolver: Callable[[ToolCall], Effect | None] | None = None,
+    local_settings: LocalSettingsStore | None = None,
 ) -> HookCallback:
     if timeout_seconds <= 0:
         raise ValueError("timeout_seconds must be positive")
@@ -283,6 +285,13 @@ def create_approval_hook(
         reason = approval_reason(effect, mode_now, event.call)
         if reason is None:
             return None
+        if (
+            local_settings is not None
+            and isinstance(effect, ProcessExecEffect)
+            and effect.classification != "destructive"
+            and local_settings.allows_command(effect.command)
+        ):
+            return PreToolUseDecision(allowed=True)
         if handler is None:
             return _deny("Approval required but no handler is configured")
 
@@ -345,6 +354,11 @@ def create_approval_hook(
 
         if result is ApprovalDecision.ALLOW_ONCE:
             return PreToolUseDecision(allowed=True)
+        feedback_getter = getattr(handler, "feedback_for", None)
+        if callable(feedback_getter):
+            feedback = feedback_getter(request.approval_id)
+            if feedback:
+                denial_reason = f"User denied the tool call: {feedback}"
         return _deny(denial_reason or "Permission denied")
 
     setattr(approval_hook, "approval_manager", approval_manager)

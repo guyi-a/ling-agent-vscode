@@ -5,11 +5,19 @@ from __future__ import annotations
 import tempfile
 from pathlib import Path
 
-from ling_agent import ToolTimelineItem, Workspace
+from ling_agent import (
+    ApprovalKind,
+    ApprovalRequest,
+    ApprovalTimelineItem,
+    FilesystemWriteEffect,
+    ProcessExecEffect,
+    ToolTimelineItem,
+    Workspace,
+)
 from ling_agent.tools.files import create_mutation_tools
 from ling_ai.types import ToolCall
 from ling_core import ToolContext, ToolExecution
-from ling_rpc.ui_events import _tool_entry
+from ling_rpc.ui_events import _approval_request, _tool_entry
 
 
 def _tool(tools: list, name: str):
@@ -36,6 +44,122 @@ def _item(
         output=output,
         details=details,
     )
+
+
+def test_mcp_management_targets_show_operation() -> None:
+    cases = [
+        ("mcp_add_server", {"name": "klingai"}, "add klingai"),
+        ("mcp_test_server", {"name": "klingai"}, "test klingai"),
+        (
+            "mcp_authorize_server",
+            {"name": "klingai"},
+            "authorize klingai",
+        ),
+        ("mcp_remove_server", {"name": "klingai"}, "remove klingai"),
+        (
+            "mcp_revoke_server_auth",
+            {"name": "klingai"},
+            "revoke auth klingai",
+        ),
+        (
+            "mcp_set_enabled",
+            {"name": "klingai", "enabled": True},
+            "enable klingai",
+        ),
+        (
+            "mcp_set_enabled",
+            {"name": "klingai", "enabled": False},
+            "disable klingai",
+        ),
+        ("mcp_list_servers", {}, "server inventory"),
+        ("mcp_reload", {}, "reload manifests"),
+    ]
+    for name, arguments, expected in cases:
+        entry = _tool_entry(
+            _item(name, arguments),
+            waiting_for_approval=False,
+        )
+        assert entry["tool"]["action"] == "MCP"
+        assert entry["tool"]["target"] == expected
+
+
+def _approval_payload(
+    tool_name: str,
+    arguments: dict,
+    effect,
+    root: Path,
+) -> dict:
+    request = ApprovalRequest(
+        kind=ApprovalKind.COMMAND
+        if tool_name == "run_command"
+        else ApprovalKind.EDIT,
+        tool_name=tool_name,
+        arguments=arguments,
+        reason="test",
+        workspace_root=root,
+        effect=effect,
+        effect_digest="digest",
+    )
+    item = ApprovalTimelineItem(
+        id="approval-1",
+        run_id="run-1",
+        turn_id="turn-1",
+        created_seq=1,
+        call_id="call-1",
+        request=request,
+    )
+    return _approval_request(item)
+
+
+def test_approval_allow_always_metadata() -> None:
+    with tempfile.TemporaryDirectory() as temp:
+        root = Path(temp)
+        edit = _approval_payload(
+            "edit_file",
+            {"path": "a.py"},
+            FilesystemWriteEffect(operation="edit", path=root / "a.py"),
+            root,
+        )
+        assert edit["allowAlways"]["kind"] == "mode"
+        assert edit["allowAlways"]["mode"] == "accept-write"
+
+        command = _approval_payload(
+            "run_command",
+            {"command": "npm install"},
+            ProcessExecEffect(
+                command="npm install",
+                cwd=root,
+                classification="normal",
+            ),
+            root,
+        )
+        assert command["allowAlways"]["kind"] == "command"
+        assert 'npm' in command["allowAlways"]["label"]
+
+        destructive = _approval_payload(
+            "run_command",
+            {"command": "Remove-Item -Recurse -Force build"},
+            ProcessExecEffect(
+                command="Remove-Item -Recurse -Force build",
+                cwd=root,
+                classification="destructive",
+            ),
+            root,
+        )
+        assert "allowAlways" not in destructive
+
+        shell = _approval_payload(
+            "run_command",
+            {"command": "git status && npm test"},
+            ProcessExecEffect(
+                command="git status && npm test",
+                cwd=root,
+                classification="normal",
+            ),
+            root,
+        )
+        assert shell["allowAlways"]["kind"] == "command"
+        assert "2 commands" in shell["allowAlways"]["label"]
 
 
 def test_edit_tool_entry_has_diff_detail() -> None:

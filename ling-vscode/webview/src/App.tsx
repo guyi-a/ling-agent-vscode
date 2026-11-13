@@ -414,7 +414,10 @@ export function App() {
             ? truncate(firstUserText.message.content, 34)
             : workspaceName));
 
-  function resolve(approved: boolean) {
+  function resolve(
+    approved: boolean,
+    options?: { remember?: boolean; feedback?: string },
+  ) {
     if (!request) {
       return;
     }
@@ -448,8 +451,22 @@ export function App() {
       approvalId: request.id,
       effectDigest: request.effectDigest,
       approved,
+      ...(options?.remember ? { remember: true } : {}),
+      ...(options?.feedback ? { feedback: options.feedback } : {}),
     });
     setNotice("");
+  }
+
+  function allowAlways() {
+    if (!request?.allowAlways) {
+      return;
+    }
+    if (request.allowAlways.kind === "mode") {
+      changeMode(request.allowAlways.mode);
+      resolve(true);
+      return;
+    }
+    resolve(true, { remember: true });
   }
 
   function answerQuestion(answers: AskUserAnswer[]) {
@@ -938,6 +955,7 @@ export function App() {
             index={approvalIndex}
             total={approvalTotal}
             onResolve={resolve}
+            onAllowAlways={allowAlways}
             onCancelRun={cancelRun}
           />
         ) : question ? (

@@ -151,6 +151,9 @@ async def create_mcp_tools(
     ) -> ToolExecution:
         try:
             name = _string_arg(call, "name")
+        except Exception as exc:
+            return _error_execution("mcp", str(exc))
+        try:
             status = await manager.test_server(name)
             return ToolExecution(
                 output=json.dumps(
@@ -161,6 +164,44 @@ async def create_mcp_tools(
                     "kind": "io",
                     "input": name,
                     "output": _status_summary((status,)),
+                },
+            )
+        except McpNeedsAuthorization:
+            try:
+                runtime = await manager.status()
+                server_status = next(
+                    (
+                        server
+                        for server in runtime.servers
+                        if server.name == name
+                    ),
+                    None,
+                )
+            except Exception:
+                server_status = None
+            message = (
+                f"MCP server {name!r} requires OAuth authorization. "
+                "Use mcp_authorize_server to complete the browser flow, "
+                "then test again."
+            )
+            return ToolExecution(
+                output=json.dumps(
+                    {
+                        "ok": True,
+                        "state": "needs-auth",
+                        "server": (
+                            _status_json(server_status)
+                            if server_status is not None
+                            else name
+                        ),
+                        "message": message,
+                    },
+                    ensure_ascii=False,
+                ),
+                details={
+                    "kind": "io",
+                    "input": name,
+                    "output": message,
                 },
             )
         except Exception as exc:
@@ -341,7 +382,11 @@ async def create_mcp_tools(
         AgentTool(
             definition=Tool(
                 name="mcp_test_server",
-                description="Connect to one configured MCP server and list its tools.",
+                description=(
+                    "Connect to one configured MCP server and list its tools. "
+                    "Returns state=needs-auth when OAuth authorization is "
+                    "required."
+                ),
                 parameters=_object_schema(
                     {"name": {"type": "string"}},
                     required=["name"],
