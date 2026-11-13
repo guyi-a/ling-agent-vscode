@@ -34,17 +34,12 @@ class McpTokenStore(TokenStorage):
 
     def __init__(
         self,
-        root: Path,
+        auth_root: Path,
         server: McpServerConfig,
     ) -> None:
         identity = f"{server.name}\n{server.url or ''}".encode("utf-8")
         digest = hashlib.sha256(identity).hexdigest()
-        self.path = (
-            root.resolve()
-            / ".agents"
-            / "mcp-auth"
-            / f"{digest}.bin"
-        )
+        self.path = auth_root.resolve() / f"{digest}.bin"
         self._lock = asyncio.Lock()
 
     async def get_tokens(self) -> OAuthToken | None:

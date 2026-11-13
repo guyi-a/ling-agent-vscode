@@ -618,11 +618,7 @@ export function SettingsPanel({
                         {skill.name}
                       </span>
                       <span className="settings-skill-source">
-                        {skill.source === "workspace"
-                          ? skill.overridesBuiltin
-                            ? "workspace · overrides builtin"
-                            : "workspace"
-                          : "builtin"}
+                        {skill.source}
                       </span>
                     </div>
                     <span

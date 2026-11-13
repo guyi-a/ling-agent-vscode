@@ -1,5 +1,18 @@
 # Changelog
 
+## 1.0.1
+
+- Load user skills from `~/.agents/skills`, with builtin > global > workspace
+  precedence; bundled skills can no longer be shadowed by a same-name skill.
+- Mirror bundled skills into the global library with a `source: ling`
+  marker. Updates compare a per-skill tree hash so locally modified copies are
+  preserved.
+- Parse YAML block scalar (`>-` / `|`) skill descriptions.
+- Move MCP configuration to `%APPDATA%\Ling\mcp.json`, and MCP credentials and
+  tool caches to `%LOCALAPPDATA%\ling-agent\`; the config is shared by all
+  workspaces and no longer lives under the project `.agents` directory.
+- Remove stale `.agents/notes` references from the documentation.
+
 ## 1.0.0
 
 - Promote Ling to a stable release with a complete MCP client supporting

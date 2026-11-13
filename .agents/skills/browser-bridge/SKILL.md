@@ -1,6 +1,7 @@
 ---
 name: browser-bridge
 description: 用用户真实 Edge 浏览器完成网页任务。任何浏览器场景先调用 browser_bridge(action='extension_status')；ready=true 才继续，ready=false 就停下来让用户打开 Kro Browser Bridge 扩展并连接。适用工具：browser_bridge。
+source: ling
 ---
 
 # Skill: browser-bridge

@@ -1,6 +1,7 @@
 ---
 name: docx
 description: "Word 文档（.docx）的日常处理：md → docx（生成简历/报告）、docx → PDF/图片（分享预览）、.doc → .docx（老格式升级）。触发场景：用户说\"生成 Word 版\" / \"做份 Word 简历\" / \"把这份报告转 Word\" / \"这份 .doc 打不开\" / \"docx 转 PDF\" 等。读 docx 内容走 agent 已有的 extract_document_text 工具，不走本 skill。编辑现有 docx / 修订跟踪 / 批注这些重工作流本 skill 不支持。"
+source: ling
 ---
 
 # Skill: docx（Word 文档轻量工具箱）

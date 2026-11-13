@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import os
+import sys
 import uuid
 from dataclasses import dataclass
 from pathlib import Path
@@ -31,6 +32,8 @@ from ling_agent import (
 from ling_agent.browser_bridge import BrowserBridge
 from ling_agent.compaction import CompactionConfig, SummarizeFn
 from ling_agent.mcp import McpConfigStore, McpManager
+from ling_agent.skill_sync import sync_bundled_skills
+from ling_agent.skills import global_skills_root
 from ling_ai.stream import StreamFunction
 from ling_ai.types import Model, TextContent
 
@@ -137,6 +140,22 @@ class SessionService:
         self._builtin_skills_root = (
             Path(skills_root).expanduser() if skills_root else None
         )
+        self._global_skills_root = (
+            global_skills_root()
+            if self._builtin_skills_root is not None
+            else None
+        )
+        self._skill_sync = (
+            sync_bundled_skills(
+                self._builtin_skills_root,
+                self._global_skills_root,
+            )
+            if self._global_skills_root is not None
+            else None
+        )
+        if self._skill_sync is not None:
+            for message in self._skill_sync.diagnostics:
+                print(f"skill sync: {message}", file=sys.stderr)
         self._history_store = SQLiteSessionStore(
             default_database_path(resolved_storage_root)
         )
@@ -948,6 +967,7 @@ class SessionService:
             event_sink=sink,
             summarize_fn=self._summarize_fn,
             builtin_skills_root=self._builtin_skills_root,
+            global_skills_root=self._global_skills_root,
             questions=self._questions,
             embedder=self._embedder,
             subagent_trace_sink=self._emit_subagent_trace,

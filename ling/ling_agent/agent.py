@@ -148,6 +148,7 @@ class CodingAgent:
         event_sink: EventSink | None = None,
         summarize_fn: SummarizeFn | None = None,
         builtin_skills_root: str | Path | None = None,
+        global_skills_root: str | Path | None = None,
         questions: QuestionHandler | None = None,
         embedder: "Embedder | None" = None,
         subagent_trace_sink: TraceSink | None = None,
@@ -190,9 +191,15 @@ class CodingAgent:
             if builtin_skills_root is not None
             else None
         )
+        self._global_skills_root = (
+            Path(global_skills_root).expanduser().resolve()
+            if global_skills_root is not None
+            else None
+        )
         skill_result = load_skills(
             self._builtin_skills_root,
             self.workspace.root,
+            global_root=self._global_skills_root,
         )
         self.skills: tuple[Skill, ...] = skill_result.skills
         self.skill_diagnostics = skill_result.diagnostics
@@ -200,6 +207,7 @@ class CodingAgent:
             root
             for root in (
                 self._builtin_skills_root,
+                self._global_skills_root,
                 workspace_skills_root(self.workspace.root),
             )
             if root is not None and root.is_dir()

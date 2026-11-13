@@ -6,7 +6,8 @@ TypeScript 扩展负责 UI 与 VS Code 集成，Python sidecar 负责 agent、�
 - `ling-vscode/`：VS Code 扩展（`extension.ts`）+ React 19 webview + 打包脚本。
 - `ling/`：Python 包（sidecar）。**没有 pyproject / ruff / mypy 配置**，依赖在 `requirements.txt`，包括 `httpx`、`mcp`、`pypdf`、`websockets`。
 - `.agents/skills/`：内置技能的**唯一源**（`pdf`、`pptx`、`docx`、`inline-visualization`、`browser-bridge`、`frontend-design`），构建时复制到 `ling-vscode/resources/skills/`（该目录被 gitignore）。
-- `.agents/{memory,notes,code-index,plans,attachments}/`：运行时状态，只有 `skills` 和 `memory` 应纳入版本控制。
+- `.agents/{memory,code-index,plans,attachments}/`：运行时状态，只有 `skills` 和 `memory` 应纳入版本控制。
+- `~/.agents/skills/`：用户全局技能库。插件启动时把内置技能同步到这里（SKILL.md 标 `source: ling`），升级只覆盖未本地修改的托管技能；加载优先级为内置 > 全局无来源 > 工作区。
 
 ## 分层
 
@@ -63,4 +64,4 @@ npm run sync:skills    # .agents/skills -> resources/skills（vscode:prepublish 
 - **`run_command` 的改动不产生 diff**，只有 `write_file` / `edit_file` 走审批 diff。
 - `.agents/` 是点目录，`glob` / `grep` 之类的检索工具可能跳过它，看这些文件用 `read_file` 或 `run_command`。
 - 审批模式（Manual / Edit automatically / Auto / Plan）按会话保存，Plan 模式只允许只读工具并把计划写到 `.agents/plans/`。
-- MCP 配置在 `.agents/mcp.json`，工具清单缓存在 `.agents/mcp-cache.json`，OAuth 凭证在 `.agents/mcp-auth/`；三者都是本机状态并已加入 gitignore。MCP 支持 stdio、Streamable HTTP、SSE fallback、静态 headers 和 PKCE OAuth；Windows 凭证使用 DPAPI 加密。
+- MCP 是用户级配置：`%APPDATA%\Ling\mcp.json`；工具清单缓存和 OAuth 凭证在 `%LOCALAPPDATA%\ling-agent\`（`mcp-cache.json`、`mcp-auth/`）。MCP 支持 stdio、Streamable HTTP、SSE fallback、静态 headers 和 PKCE OAuth；Windows 凭证使用 DPAPI 加密。

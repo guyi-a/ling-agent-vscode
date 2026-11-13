@@ -682,10 +682,10 @@ function isSkillStatus(value: unknown): boolean {
   return (
     isRecord(value) &&
     typeof value.name === "string" &&
-    (value.source === "builtin" || value.source === "workspace") &&
-    typeof value.path === "string" &&
-    (value.overridesBuiltin === undefined ||
-      typeof value.overridesBuiltin === "boolean")
+    (value.source === "builtin" ||
+      value.source === "global" ||
+      value.source === "workspace") &&
+    typeof value.path === "string"
   );
 }
 

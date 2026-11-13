@@ -2252,40 +2252,51 @@ class LingRpcSessionTests(unittest.IsolatedAsyncioTestCase):
             async def emit(_event: dict[str, Any]) -> None:
                 return None
 
-            service = SessionService(
-                emit,
-                model=MODEL,
-                stream_fn=ScriptedStreams([]),
-                storage_root=workspace / "state",
-            )
-            server = JsonRpcServer(
-                io.StringIO(),
-                io.StringIO(),
-                sessions=service,
-            )
-            try:
-                status = await server.handle_message(
-                    {
-                        "jsonrpc": "2.0",
-                        "id": 1,
-                        "method": "mcp.status",
-                        "params": {
-                            "workspaceRoot": str(workspace),
-                        },
-                    }
+            with patch.dict(
+                os.environ,
+                {
+                    "LING_MCP_CONFIG": str(config_path),
+                    "LING_MCP_STATE_ROOT": str(
+                        workspace / "mcp-state"
+                    ),
+                },
+            ):
+                service = SessionService(
+                    emit,
+                    model=MODEL,
+                    stream_fn=ScriptedStreams([]),
+                    storage_root=workspace / "state",
                 )
-                self.assertIsNotNone(status)
-                assert status is not None
-                self.assertEqual(
-                    status["result"]["servers"][0]["name"],
-                    "fixture",
+                server = JsonRpcServer(
+                    io.StringIO(),
+                    io.StringIO(),
+                    sessions=service,
                 )
-                self.assertEqual(
-                    Path(status["result"]["configPath"]).resolve(),
-                    config_path.resolve(),
-                )
-            finally:
-                await service.close()
+                try:
+                    status = await server.handle_message(
+                        {
+                            "jsonrpc": "2.0",
+                            "id": 1,
+                            "method": "mcp.status",
+                            "params": {
+                                "workspaceRoot": str(workspace),
+                            },
+                        }
+                    )
+                    self.assertIsNotNone(status)
+                    assert status is not None
+                    self.assertEqual(
+                        status["result"]["servers"][0]["name"],
+                        "fixture",
+                    )
+                    self.assertEqual(
+                        Path(
+                            status["result"]["configPath"]
+                        ).resolve(),
+                        config_path.resolve(),
+                    )
+                finally:
+                    await service.close()
 
     async def test_harness_config_from_env(self) -> None:
         with tempfile.TemporaryDirectory() as temp:

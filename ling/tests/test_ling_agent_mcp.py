@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 import socket
 import sys
 import tempfile
@@ -33,6 +34,19 @@ from ling_agent.mcp.manager import unique_mcp_tool_name
 from ling_core import ToolContext
 
 
+def _manager(root: Path, **kwargs: Any) -> McpManager:
+    return McpManager(
+        root,
+        config_path=root / ".agents" / "mcp.json",
+        state_root=root / ".agents",
+        **kwargs,
+    )
+
+
+def _auth_root(root: Path) -> Path:
+    return root / ".agents" / "mcp-auth"
+
+
 def test_mcp_config_parses_stdio_and_http() -> None:
     with tempfile.TemporaryDirectory() as temp:
         root = Path(temp)
@@ -59,7 +73,7 @@ def test_mcp_config_parses_stdio_and_http() -> None:
             encoding="utf-8",
         )
 
-        config = load_mcp_config(root)
+        config = load_mcp_config(root, path=path)
 
         assert [server.name for server in config.servers] == [
             "local",
@@ -74,6 +88,47 @@ def test_mcp_config_parses_stdio_and_http() -> None:
         )
         assert len(config.issues) == 1
         assert config.issues[0].name == "broken"
+
+
+def test_mcp_paths_are_user_level_and_ignore_project_config() -> None:
+    with tempfile.TemporaryDirectory() as temp:
+        root = Path(temp)
+        config_path = root / "config" / "mcp.json"
+        state_root = root / "state"
+        workspace = root / "workspace"
+        project_config = workspace / ".agents" / "mcp.json"
+        project_config.parent.mkdir(parents=True)
+        project_config.write_text(
+            json.dumps(
+                {
+                    "mcpServers": {
+                        "project-only": {
+                            "url": "https://example.com/mcp",
+                        }
+                    }
+                }
+            ),
+            encoding="utf-8",
+        )
+        with patch.dict(
+            os.environ,
+            {
+                "LING_MCP_CONFIG": str(config_path),
+                "LING_MCP_STATE_ROOT": str(state_root),
+            },
+        ):
+            first = McpManager(workspace)
+            second = McpManager(root / "other")
+            try:
+                assert first.config.path == config_path.resolve()
+                assert first.config.servers == ()
+                assert first.cache_path == state_root / "mcp-cache.json"
+                assert first.cache_path == second.cache_path
+                assert first.auth_root == state_root / "mcp-auth"
+                assert first.auth_root == second.auth_root
+            finally:
+                asyncio.run(first.close())
+                asyncio.run(second.close())
 
 
 def test_mcp_tool_names_are_ascii_bounded_and_unique() -> None:
@@ -113,7 +168,7 @@ async def _oauth_server_needs_authorization(root: Path) -> None:
         ),
         encoding="utf-8",
     )
-    manager = McpManager(root)
+    manager = _manager(root)
     try:
         from ling_agent.mcp.tools import create_mcp_tools
 
@@ -153,11 +208,11 @@ async def _remove_oauth_server_clears_credentials(root: Path) -> None:
         ),
         encoding="utf-8",
     )
-    manager = McpManager(root)
+    manager = _manager(root)
     try:
         server = manager.config.get("oauth")
         assert server is not None
-        store = McpTokenStore(root, server)
+        store = McpTokenStore(_auth_root(root), server)
         await store.set_tokens(
             OAuthToken(
                 access_token="old-access",
@@ -201,7 +256,7 @@ async def _credential_store_round_trip(root: Path) -> None:
         url="https://example.com/mcp",
         auth="oauth",
     )
-    store = McpTokenStore(root, server)
+    store = McpTokenStore(_auth_root(root), server)
     token = OAuthToken(
         access_token="secret-access-token",
         refresh_token="secret-refresh-token",
@@ -349,7 +404,7 @@ async def _oauth_pkce_round_trip(root: Path) -> None:
     loopback = OAuthLoopback(timeout_seconds=10)
     await loopback.start()
     store = McpTokenStore(
-        root,
+        _auth_root(root),
         McpServerConfig(
             name="oauth",
             kind="http",
@@ -431,7 +486,7 @@ async def _stdio_round_trip(root: Path) -> None:
         ),
         encoding="utf-8",
     )
-    manager = McpManager(root, idle_ttl_seconds=0.2)
+    manager = _manager(root, idle_ttl_seconds=0.2)
     try:
         from ling_agent.mcp.tools import create_mcp_tools
 
@@ -496,7 +551,7 @@ async def _streamable_http_round_trip(root: Path) -> None:
         ),
         encoding="utf-8",
     )
-    manager = McpManager(root, idle_ttl_seconds=0.2)
+    manager = _manager(root, idle_ttl_seconds=0.2)
     try:
         connected = False
         for _ in range(50):

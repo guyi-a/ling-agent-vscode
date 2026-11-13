@@ -27,6 +27,7 @@ from ling_ai.types import (
 from .approvals import ApprovalDecision, ApprovalKind, ApprovalRequest
 from .attachments import UserAttachment
 from .changes import RunChange
+from .paths import default_state_root
 from .selections import UserSelection
 from .effects import (
     ApprovalMode,
@@ -90,14 +91,7 @@ class SessionRecord:
 
 
 def default_storage_root() -> Path:
-    if os.name == "nt":
-        base = os.environ.get("LOCALAPPDATA") or os.environ.get("APPDATA")
-        if base:
-            return Path(base) / "ling-agent"
-        return Path.home() / "AppData" / "Local" / "ling-agent"
-    if os.environ.get("XDG_STATE_HOME"):
-        return Path(os.environ["XDG_STATE_HOME"]) / "ling-agent"
-    return Path.home() / ".local" / "state" / "ling-agent"
+    return default_state_root()
 
 
 def default_database_path(storage_root: str | Path | None = None) -> Path:

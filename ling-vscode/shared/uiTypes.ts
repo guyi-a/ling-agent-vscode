@@ -326,9 +326,8 @@ export type DiffView = "inline" | "sideBySide";
 
 export interface SkillStatus {
   name: string;
-  source: "builtin" | "workspace";
+  source: "builtin" | "global" | "workspace";
   path: string;
-  overridesBuiltin?: boolean;
 }
 
 export type MemoryScope = "workspace" | "global";

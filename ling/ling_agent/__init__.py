@@ -114,12 +114,16 @@ from .session import (
     SessionStateError,
     SessionTurn,
 )
+from .skill_sync import sync_bundled_skills
 from .skills import (
     SKILL_FILE,
+    SOURCE_LING,
     Skill,
     SkillLoadResult,
     format_skills_index,
+    global_skills_root,
     load_skills,
+    read_skill_source,
     workspace_skills_root,
 )
 from .subagents import (
@@ -315,6 +319,10 @@ __all__ = [
     "load_memories",
     "default_global_memory_root",
     "load_skills",
+    "global_skills_root",
+    "read_skill_source",
+    "sync_bundled_skills",
+    "SOURCE_LING",
     "question_request_to_dict",
     "workspace_skills_root",
     "workspace_memory_root",

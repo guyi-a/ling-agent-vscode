@@ -1,6 +1,7 @@
 ---
 name: pdf
 description: "PDF 相关的所有操作：从零生成（reportlab / pypdf）、格式转化（md/html → PDF）、修改（合并 / 拆分 / 旋转 / 加水印 / 提图片 / 元数据）、读内容（pdfplumber / extract_document_text）、OCR 扫描件、加密解密。触发场景：用户说\"生成 PDF\" / \"做份 PDF 简历\" / \"合并这几份 PDF\" / \"给 PDF 加水印\" / \"这份扫描 PDF 转文字\" / \"提取 PDF 表格\" / \"精调 PDF 样式\"等一切跟 .pdf 文件相关的活。这个 skill 是工具箱：说明书 + 预置可执行脚本 + 命令模板。冷门场景看 REFERENCE.md。"
+source: ling
 ---
 
 # Skill: pdf (PDF 全能工具箱)

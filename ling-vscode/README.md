@@ -17,7 +17,7 @@ Ling 在侧边栏里和你对话：它可以读文件、搜索代码、修改文
 - **计划模式**：只用只读工具调研，把实施计划写到 `.agents/plans/`。可以在编辑器里查看计划，用文件上的 `Build plan…` CodeLens 或聊天卡片的 Build 按钮选择模式执行。
 - **注释生成**：在函数/方法/类上方点击 `Generate comment`，生成 Python docstring 或 TS/JS JSDoc。已有注释会一起发给模型做查漏补缺，生成后替换原注释。
 - **上下文**：编辑器/终端选区、图片、文件、PDF/DOCX/PPTX。
-- **Skills**：内置 `pdf`、`pptx`、`docx`、`inline-visualization`，工作区可以覆盖。
+- **Skills**：内置 `pdf`、`pptx`、`docx`、`inline-visualization`、`browser-bridge`、`frontend-design`，并加载全局 `~/.agents/skills` 和工作区技能；内置优先。
 - **交互提问**：模型拿不定主意时，会弹出选项卡让你选择。
 - **历史**：按工作区隔离，支持搜索、删除、单条消息删除和重新生成；重新打开面板时会自动恢复上一次会话。
 - **无文件夹也能用**：没有打开任何文件夹时，Ling 使用一个固定的 scratch 工作区。
@@ -99,6 +99,16 @@ Ling 可以直接驱动你正在使用的 Edge 浏览器。需要先在 Edge 安
 - 点击、输入、打开/关闭标签页等操作需要审批；`execute_script` 始终需要审批；
 - Plan 模式只允许 `extension_status`、`list_pages`、`read_state`、`extract` 等只读动作。
 
+### MCP
+
+MCP 服务器是用户级配置，所有工作区共享：
+
+- 配置：`%APPDATA%\Ling\mcp.json`
+- OAuth 凭证：`%LOCALAPPDATA%\ling-agent\mcp-auth\`
+- 工具清单缓存：`%LOCALAPPDATA%\ling-agent\mcp-cache.json`
+
+支持 stdio、Streamable HTTP、SSE fallback、静态 headers 和 PKCE OAuth；Windows 凭证使用 DPAPI 加密。Settings → MCP 可以打开配置文件、启用/停用服务器或重新授权。
+
 ### 审批模式
 
 输入框右下角的模式按钮里可以切换，也可以直接按 **Shift+Tab** 循环切换四种模式：
@@ -158,7 +168,7 @@ Low · Medium · High · Extra high · Max
 - 其他文件：不复制，单文件最大 25 MB；Ling 在需要时通过工具读取。
 - 纯图片消息也可以发送。
 
-建议将 `.agents/attachments/`、`.agents/spills/`、`.agents/code-index/`、`.agents/notes/` 加入项目的 `.gitignore`；`.agents/memory/` 和 `.agents/skills/` 可以纳入版本控制。
+建议将 `.agents/attachments/`、`.agents/spills/`、`.agents/code-index/` 加入项目的 `.gitignore`；`.agents/memory/` 和 `.agents/skills/` 可以纳入版本控制。
 
 ### 文档读取
 
@@ -173,14 +183,17 @@ Low · Medium · High · Extra high · Max
 
 ## Skills
 
-Ling 从两个位置加载技能：
+Ling 从三个位置加载技能，优先级从高到低：
 
 - 插件内置：`<extension>/resources/skills/<name>/SKILL.md`
-- 工作区覆盖：`<workspace>/.agents/skills/<name>/SKILL.md`
+- 全局用户技能：`~/.agents/skills/<name>/SKILL.md` 中没有 `source: ling` 的技能
+- 工作区技能：`<workspace>/.agents/skills/<name>/SKILL.md`
 
-同名技能以工作区版本为准。Ling 只会把技能的 `name` 和 `description` 放进上下文；模型判断需要时调用 `load_skill` 读取完整内容，再用 `skill_path` / `scripts_path` 执行脚本。
+内置技能优先级最高，同名的工作区或全局技能不会覆盖它。插件启动时会把内置技能同步到全局库，并在 `SKILL.md` 里标记 `source: ling`；升级只覆盖这些托管技能，而且会先比对 hash，用户改过的副本保持不动。未标记的目录永远不碰。要定制内置技能，请复制一份并改成不同的 `name`。
 
-内置技能：`pdf`、`pptx`、`docx`、`inline-visualization`。
+Ling 只会把技能的 `name` 和 `description` 放进上下文；模型判断需要时调用 `load_skill` 读取完整内容，再用 `skill_path` / `scripts_path` 执行脚本。
+
+内置技能：`pdf`、`pptx`、`docx`、`inline-visualization`、`browser-bridge`、`frontend-design`。
 
 PDF/PPTX/DOCX 的生成和转换脚本依赖外部工具（如 `uv`、pandoc、LibreOffice、Chrome）。缺少这些工具时，命令会返回明确的失败信息，不影响技能加载。
 

@@ -78,20 +78,117 @@ def test_load_skills_parses_frontmatter_and_body() -> None:
         assert not skill.disable_model_invocation
 
 
-def test_workspace_skill_overrides_builtin() -> None:
+def test_builtin_skill_wins_over_global_and_workspace() -> None:
     with tempfile.TemporaryDirectory() as temp:
         builtin = Path(temp) / "builtin"
+        global_root = Path(temp) / "global"
         workspace_root = Path(temp) / "workspace"
         _write_skill(builtin, "pdf", description="bundled")
+        _write_skill(global_root, "pdf", description="global")
         _write_skill(
             workspace_skills_root(workspace_root),
             "pdf",
             description="project",
         )
 
-        result = load_skills(builtin, workspace_root)
-        assert [skill.description for skill in result.skills] == ["project"]
-        assert any("overrides" in item for item in result.diagnostics)
+        result = load_skills(
+            builtin,
+            workspace_root,
+            global_root=global_root,
+        )
+        assert [skill.description for skill in result.skills] == ["bundled"]
+        assert not result.diagnostics
+
+
+def test_global_untagged_skill_loads_and_managed_copy_is_skipped() -> None:
+    with tempfile.TemporaryDirectory() as temp:
+        builtin = Path(temp) / "builtin"
+        global_root = Path(temp) / "global"
+        workspace_root = Path(temp) / "workspace"
+        _write_skill(builtin, "pdf", description="bundled")
+        _write_skill(global_root, "review", description="user global")
+        _write_skill(
+            global_root,
+            "mirror",
+            description="managed mirror",
+            extra="source: ling\n",
+        )
+
+        result = load_skills(
+            builtin,
+            workspace_root,
+            global_root=global_root,
+        )
+        descriptions = {
+            skill.name: skill.description for skill in result.skills
+        }
+        assert descriptions == {
+            "pdf": "bundled",
+            "review": "user global",
+        }
+
+
+def test_global_skill_wins_over_workspace() -> None:
+    with tempfile.TemporaryDirectory() as temp:
+        workspace_root = Path(temp) / "workspace"
+        global_root = Path(temp) / "global"
+        _write_skill(global_root, "review", description="global")
+        _write_skill(
+            workspace_skills_root(workspace_root),
+            "review",
+            description="project",
+        )
+
+        result = load_skills(
+            None,
+            workspace_root,
+            global_root=global_root,
+        )
+        assert [skill.description for skill in result.skills] == ["global"]
+
+
+def test_frontmatter_parses_block_scalars_and_source() -> None:
+    with tempfile.TemporaryDirectory() as temp:
+        root = Path(temp) / "skills"
+        _write_skill(
+            root,
+            "review",
+            raw=(
+                "---\n"
+                "name: review\n"
+                "description: >-\n"
+                "  Review code changes with the\n"
+                "  security subagent.\n"
+                "source: ling\n"
+                "metadata:\n"
+                "  surface: ide\n"
+                "---\n\n"
+                "Body\n"
+            ),
+        )
+        _write_skill(
+            root,
+            "canvas",
+            raw=(
+                "---\n"
+                "name: canvas\n"
+                "description: |\n"
+                "  Line one.\n"
+                "  Line two.\n"
+                "---\n\n"
+                "Body\n"
+            ),
+        )
+
+        result = load_skills(root, Path(temp) / "workspace")
+        by_name = {skill.name: skill for skill in result.skills}
+        assert (
+            by_name["review"].description
+            == "Review code changes with the security subagent."
+        )
+        assert by_name["review"].source == "ling"
+        assert by_name["canvas"].description == "Line one.\nLine two."
+        assert by_name["canvas"].source is None
 
 
 def test_invalid_workspace_skill_does_not_shadow_builtin() -> None:

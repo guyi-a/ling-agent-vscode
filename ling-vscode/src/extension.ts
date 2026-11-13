@@ -74,6 +74,30 @@ const CHAT_VIEW_ID = "ling.chat";
 const WEBVIEW_ROOT = ["media", "webview"] as const;
 let activeSidecar: SidecarClient | undefined;
 
+function resolveGlobalSkillsRoot(): string {
+  const override = process.env.LING_GLOBAL_SKILLS_ROOT?.trim();
+  if (override) {
+    return path.resolve(override);
+  }
+  return path.join(homedir(), ".agents", "skills");
+}
+
+function defaultMcpConfigPath(): string {
+  const override = process.env.LING_MCP_CONFIG?.trim();
+  if (override) {
+    return path.resolve(override);
+  }
+  const appData = process.env.APPDATA?.trim();
+  if (appData) {
+    return path.join(appData, "Ling", "mcp.json");
+  }
+  const xdgConfig = process.env.XDG_CONFIG_HOME?.trim();
+  if (xdgConfig) {
+    return path.join(xdgConfig, "ling-agent", "mcp.json");
+  }
+  return path.join(homedir(), ".config", "ling-agent", "mcp.json");
+}
+
 function browserBridgePortFromEnv(): number | undefined {
   const raw = process.env.LING_BROWSER_BRIDGE_PORT?.trim();
   if (!raw) {
@@ -281,8 +305,7 @@ class ChatViewProvider implements vscode.WebviewViewProvider {
   private memoryDiagnostics: string[] = [];
   private mcpServers: McpServerStatus[] = [];
   private mcpIssues: McpIssue[] = [];
-  private mcpConfigPath =
-    path.join(this.workspaceRootForMcp(), ".agents", "mcp.json");
+  private mcpConfigPath = defaultMcpConfigPath();
   private readonly mcpWatcher: vscode.FileSystemWatcher;
   private mcpWatchTimer: NodeJS.Timeout | undefined;
 
@@ -295,7 +318,10 @@ class ChatViewProvider implements vscode.WebviewViewProvider {
     private readonly diffController: DiffController,
   ) {
     this.mcpWatcher = vscode.workspace.createFileSystemWatcher(
-      "**/.agents/mcp.json",
+      new vscode.RelativePattern(
+        path.dirname(this.mcpConfigPath),
+        path.basename(this.mcpConfigPath),
+      ),
     );
     const refreshMcp = () => {
       if (this.mcpWatchTimer) {
@@ -1143,22 +1169,18 @@ class ChatViewProvider implements vscode.WebviewViewProvider {
     };
   }
 
-  private workspaceRootForMcp(): string {
-    return (
-      vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ??
-      this.scratchRoot ??
-      process.cwd()
-    );
-  }
-
   private skillStatuses(): SkillStatus[] {
     const roots: Array<{
-      source: "builtin" | "workspace";
+      source: "builtin" | "global" | "workspace";
       root: string;
     }> = [];
     const builtin = resolveSkillsRoot(this.extensionUri.fsPath);
     if (builtin) {
       roots.push({ source: "builtin", root: builtin });
+    }
+    const globalRoot = resolveGlobalSkillsRoot();
+    if (existsSync(globalRoot)) {
+      roots.push({ source: "global", root: globalRoot });
     }
     const workspaceRoot =
       vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ??
@@ -1190,15 +1212,7 @@ class ChatViewProvider implements vscode.WebviewViewProvider {
         if (!existsSync(path.join(skillDir, "SKILL.md"))) {
           continue;
         }
-        const existing = found.get(entry.name);
-        if (existing && source === "workspace") {
-          found.set(entry.name, {
-            name: entry.name,
-            source,
-            path: skillDir,
-            overridesBuiltin: true,
-          });
-        } else if (!existing) {
+        if (!found.has(entry.name)) {
           found.set(entry.name, {
             name: entry.name,
             source,
@@ -1355,15 +1369,11 @@ class ChatViewProvider implements vscode.WebviewViewProvider {
         "mcp.ensureConfig",
         { workspaceRoot: this.sessionWorkspaceRoot() },
       );
-      const expectedDirectory = path.resolve(
-        this.sessionWorkspaceRoot(),
-        ".agents",
-      );
       if (
-        !isPathInside(expectedDirectory, result.path) ||
+        !pathsEqual(result.path, this.mcpConfigPath) ||
         path.basename(result.path).toLowerCase() !== "mcp.json"
       ) {
-        throw new Error("MCP config path escaped .agents.");
+        throw new Error("MCP config path is not the global config.");
       }
       await this.refreshMcpStatuses();
       this.postToWebview({
@@ -2165,6 +2175,14 @@ function stripPlanFrontmatter(text: string): string {
     return normalized;
   }
   return normalized.slice(closing + 4).replace(/^\s+/, "");
+}
+
+function pathsEqual(left: string, right: string): boolean {
+  const a = path.resolve(left);
+  const b = path.resolve(right);
+  return process.platform === "win32"
+    ? a.toLowerCase() === b.toLowerCase()
+    : a === b;
 }
 
 function isPathInside(root: string, candidate: string): boolean {

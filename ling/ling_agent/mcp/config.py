@@ -1,4 +1,4 @@
-"""Tolerant MCP configuration stored at .agents/mcp.json."""
+"""Tolerant user-level MCP configuration for all workspaces."""
 
 from __future__ import annotations
 
@@ -10,7 +10,8 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
 
-MCP_CONFIG_RELATIVE_PATH = ".agents/mcp.json"
+from ..paths import default_mcp_config_path
+
 MAX_SERVER_NAME_CHARS = 64
 
 
@@ -110,18 +111,26 @@ class McpConfig:
         )
 
 
-def load_mcp_config(root: Path) -> McpConfig:
-    path = root.resolve() / MCP_CONFIG_RELATIVE_PATH
-    if not path.exists():
-        return McpConfig(path=path)
+def load_mcp_config(
+    root: Path,
+    *,
+    path: str | Path | None = None,
+) -> McpConfig:
+    config_path = (
+        Path(path).expanduser().resolve()
+        if path is not None
+        else default_mcp_config_path().expanduser().resolve()
+    )
+    if not config_path.exists():
+        return McpConfig(path=config_path)
     try:
-        raw = json.loads(path.read_text(encoding="utf-8"))
+        raw = json.loads(config_path.read_text(encoding="utf-8"))
     except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
         return McpConfig(
-            path=path,
+            path=config_path,
             issues=(
                 McpConfigIssue(
-                    message=f"Unable to parse {MCP_CONFIG_RELATIVE_PATH}: {exc}"
+                    message=f"Unable to parse {config_path}: {exc}"
                 ),
             ),
         )
@@ -131,7 +140,7 @@ def load_mcp_config(root: Path) -> McpConfig:
         dict,
     ):
         return McpConfig(
-            path=path,
+            path=config_path,
             issues=(
                 McpConfigIssue(
                     message=(
@@ -168,18 +177,27 @@ def load_mcp_config(root: Path) -> McpConfig:
 
     servers.sort(key=lambda server: server.name.casefold())
     return McpConfig(
-        path=path,
+        path=config_path,
         servers=tuple(servers),
         issues=tuple(issues),
     )
 
 
 class McpConfigStore:
-    """Read and atomically update the workspace MCP config file."""
+    """Read and atomically update the global MCP config file."""
 
-    def __init__(self, root: str | Path) -> None:
+    def __init__(
+        self,
+        root: str | Path,
+        *,
+        path: str | Path | None = None,
+    ) -> None:
         self.root = Path(root).expanduser().resolve()
-        self.path = self.root / MCP_CONFIG_RELATIVE_PATH
+        self.path = (
+            Path(path).expanduser().resolve()
+            if path is not None
+            else default_mcp_config_path().expanduser().resolve()
+        )
 
     def ensure_file(self) -> Path:
         if self.path.exists():
@@ -188,7 +206,7 @@ class McpConfigStore:
         return self.path
 
     def load(self) -> McpConfig:
-        return load_mcp_config(self.root)
+        return load_mcp_config(self.root, path=self.path)
 
     def upsert(self, server: McpServerConfig) -> None:
         document = self._read_document()
@@ -228,7 +246,7 @@ class McpConfigStore:
             document = json.loads(self.path.read_text(encoding="utf-8"))
         except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
             raise ValueError(
-                f"Unable to parse {MCP_CONFIG_RELATIVE_PATH}: {exc}"
+                f"Unable to parse {self.path}: {exc}"
             ) from exc
         if not isinstance(document, dict):
             raise ValueError("The MCP config must be a JSON object.")
@@ -436,7 +454,6 @@ def _string_map(
 
 
 __all__ = [
-    "MCP_CONFIG_RELATIVE_PATH",
     "MAX_SERVER_NAME_CHARS",
     "McpConfig",
     "McpConfigIssue",

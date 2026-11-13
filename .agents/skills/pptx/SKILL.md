@@ -1,6 +1,7 @@
 ---
 name: pptx
 description: "PowerPoint 幻灯片（.pptx / .potx）的所有操作：从零生成（pptxgenjs Node 库）、基于模板编辑（unpack XML → 改 → clean → pack）、格式转化（pptx → PDF / 图片、.ppt → .pptx）、读取分析。触发场景：用户说\"做份 PPT\" / \"生成幻灯片\" / \"演讲 slide\" / \"培训材料\" / \"项目汇报\" / \"给我这个模板换内容\" / \"pptx 转 PDF\" / \".ppt 打不开\" 等一切跟 .pptx / .potx 文件相关的活。这个 skill 特别强调**设计感**和**视觉 QA**：不做白底 + 子弹点的无聊 PPT。深入路径见 editing.md（编辑模板）和 pptxgenjs.md（从零生成）。"
+source: ling
 ---
 
 # Skill: pptx（幻灯片全能工具箱）

@@ -22,6 +22,7 @@ from mcp.client.streamable_http import streamable_http_client
 from mcp.shared.exceptions import McpError
 
 from ..effects import McpEffect, is_private_web_target
+from ..paths import default_mcp_state_root
 from .auth import (
     McpCredentialError,
     McpTokenStore,
@@ -29,7 +30,6 @@ from .auth import (
     create_oauth_provider,
 )
 from .config import (
-    MCP_CONFIG_RELATIVE_PATH,
     McpConfig,
     McpConfigIssue,
     McpConfigStore,
@@ -391,14 +391,23 @@ class McpManager:
         workspace_root: str | Path,
         *,
         idle_ttl_seconds: float = _DEFAULT_IDLE_TTL_SECONDS,
+        config_path: str | Path | None = None,
+        state_root: str | Path | None = None,
     ) -> None:
         self.workspace_root = Path(workspace_root).expanduser().resolve()
         self.idle_ttl_seconds = idle_ttl_seconds
-        self.store = McpConfigStore(self.workspace_root)
-        self.config: McpConfig = self.store.load()
-        self.cache_path = (
-            self.workspace_root / ".agents" / "mcp-cache.json"
+        self.state_root = (
+            Path(state_root).expanduser().resolve()
+            if state_root is not None
+            else default_mcp_state_root().expanduser().resolve()
         )
+        self.auth_root = self.state_root / "mcp-auth"
+        self.store = McpConfigStore(
+            self.workspace_root,
+            path=config_path,
+        )
+        self.config: McpConfig = self.store.load()
+        self.cache_path = self.state_root / "mcp-cache.json"
         self._cache = _load_cache(self.cache_path)
         self._connections: dict[str, _McpConnection] = {}
         self._connect_locks: dict[str, asyncio.Lock] = {}
@@ -859,7 +868,7 @@ class McpManager:
         )
 
     def _credential_store(self, server: McpServerConfig) -> McpTokenStore:
-        return McpTokenStore(self.workspace_root, server)
+        return McpTokenStore(self.auth_root, server)
 
     def _cleanup_orphaned_credentials(self) -> None:
         if self.config.issues:
@@ -869,7 +878,7 @@ class McpManager:
             for server in self.config.servers
             if server.kind == "http" and server.auth == "oauth"
         }
-        directory = self.workspace_root / ".agents" / "mcp-auth"
+        directory = self.auth_root
         if not directory.is_dir():
             return
         for path in directory.glob("*.bin"):

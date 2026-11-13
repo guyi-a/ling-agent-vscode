@@ -353,7 +353,8 @@ async def create_mcp_tools(
             definition=Tool(
                 name="mcp_add_server",
                 description=(
-                    "Add or replace one MCP server in .agents/mcp.json. "
+                    "Add or replace one MCP server in the global Ling "
+                    "MCP config. "
                     "Provide exactly one of url (HTTP) or command (stdio). "
                     "For an HTTP OAuth server set auth=oauth, then call "
                     "mcp_authorize_server after saving. "
