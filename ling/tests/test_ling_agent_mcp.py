@@ -93,8 +93,8 @@ def test_mcp_config_parses_stdio_and_http() -> None:
 def test_mcp_paths_are_user_level_and_ignore_project_config() -> None:
     with tempfile.TemporaryDirectory() as temp:
         root = Path(temp)
-        config_path = root / "config" / "mcp.json"
-        state_root = root / "state"
+        config_path = (root / "config" / "mcp.json").resolve()
+        state_root = (root / "state").resolve()
         workspace = root / "workspace"
         project_config = workspace / ".agents" / "mcp.json"
         project_config.parent.mkdir(parents=True)
