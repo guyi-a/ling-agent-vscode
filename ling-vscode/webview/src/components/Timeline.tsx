@@ -307,11 +307,12 @@ export function Timeline({
               streaming={entry.message.streaming}
             />
             {!entry.message.streaming &&
-            entry.message.content ? (
+            entry.message.content &&
+            block.copyText ? (
               <MessageActions
-                text={block.copyText ?? entry.message.content}
+                text={block.copyText}
                 disabled={actionsDisabled}
-                showCopy={Boolean(block.copyText)}
+                showCopy
                 onCopy={onCopyMessage}
                 onDelete={() =>
                   onDeleteMessage(entry.message.id)

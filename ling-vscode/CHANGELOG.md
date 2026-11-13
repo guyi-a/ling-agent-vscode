@@ -1,5 +1,16 @@
 # Changelog
 
+## 1.2.1
+
+- Show the Copy, Delete, and Regenerate actions only on the final assistant
+  answer. Intermediate assistant paragraphs no longer show a lone Delete
+  button in the middle of a run.
+- Add an **Expand** action for inline visualizations. The diagram opens in a
+  full-screen overlay with Escape/backdrop close, and the inline iframe now
+  measures its content more accurately after load, resize, and streaming.
+- Update the `ling-self` skill: MCP is a user-level global configuration,
+  document the actual config/credential paths, and clarify skill precedence.
+
 ## 1.2.0
 
 - Add background explore subagents. `spawn_subagent` accepts

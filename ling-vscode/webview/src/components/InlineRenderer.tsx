@@ -5,6 +5,7 @@ import {
   useRef,
   useState,
 } from "react";
+import { createPortal } from "react-dom";
 import { rendererCodeBlock } from "./markdownRenderer";
 
 interface InlineRendererProps {
@@ -29,21 +30,25 @@ const BLOCKED_TAGS = new Set([
   "script",
 ]);
 
+const MIN_FRAME_HEIGHT = 40;
+const MAX_FRAME_HEIGHT = 1400;
+const MAX_EXPANDED_HEIGHT = 4000;
+
 export function InlineRenderer({
   html,
   streaming,
 }: InlineRendererProps) {
   const wrapperRef = useRef<HTMLDivElement>(null);
-  const iframeRef = useRef<HTMLIFrameElement>(null);
+  const closeButtonRef = useRef<HTMLButtonElement>(null);
   const [theme, setTheme] = useState<Theme>({
     color: "#e9edf5",
     fontFamily: "inherit",
     fontSize: "14px",
   });
   const [rendered, setRendered] = useState(html);
-  const [height, setHeight] = useState(60);
   const [copied, setCopied] = useState(false);
   const [showSource, setShowSource] = useState(false);
+  const [expanded, setExpanded] = useState(false);
   const copyTimer = useRef<number | undefined>(undefined);
 
   useEffect(() => {
@@ -89,38 +94,30 @@ export function InlineRenderer({
     [],
   );
 
+  useEffect(() => {
+    if (!expanded) {
+      return;
+    }
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        setExpanded(false);
+      }
+    };
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    window.addEventListener("keydown", onKeyDown);
+    closeButtonRef.current?.focus();
+    return () => {
+      window.removeEventListener("keydown", onKeyDown);
+      document.body.style.overflow = previousOverflow;
+    };
+  }, [expanded]);
+
   const documentContent = useMemo(
     () => buildDocument(rendered, theme),
     [rendered, theme],
   );
-
-  const measure = useCallback(() => {
-    const document = iframeRef.current?.contentDocument;
-    if (!document) {
-      return;
-    }
-    const next = Math.max(
-      document.documentElement?.scrollHeight ?? 0,
-      document.body?.scrollHeight ?? 0,
-    );
-    setHeight(Math.min(Math.max(next, 40), 1400));
-  }, []);
-
-  useEffect(() => {
-    const element = wrapperRef.current;
-    if (!element) {
-      return;
-    }
-    let lastWidth = element.clientWidth;
-    const observer = new ResizeObserver(() => {
-      if (element.clientWidth !== lastWidth) {
-        lastWidth = element.clientWidth;
-        measure();
-      }
-    });
-    observer.observe(element);
-    return () => observer.disconnect();
-  }, [measure]);
 
   async function copySource(): Promise<void> {
     const codeBlock = rendererCodeBlock(html);
@@ -148,21 +145,24 @@ export function InlineRenderer({
           <code>{html}</code>
         </pre>
       ) : (
-        <iframe
-          ref={iframeRef}
+        <RendererFrame
+          document={documentContent}
           className="inline-renderer-frame"
-          title="Inline visualization"
-          sandbox="allow-same-origin"
-          srcDoc={documentContent}
-          style={{ height }}
-          onLoad={() => {
-            measure();
-            window.setTimeout(measure, 50);
-          }}
         />
       )}
 
       <div className="inline-renderer-toolbar">
+        {showSource ? null : (
+          <button
+            className="inline-renderer-action"
+            type="button"
+            aria-haspopup="dialog"
+            title="Expand diagram"
+            onClick={() => setExpanded(true)}
+          >
+            Expand
+          </button>
+        )}
         <button
           className="inline-renderer-action"
           type="button"
@@ -179,8 +179,149 @@ export function InlineRenderer({
           {showSource ? "Hide source" : "Source"}
         </button>
       </div>
+
+      {expanded
+        ? createPortal(
+            <div
+              className="inline-renderer-overlay"
+              role="dialog"
+              aria-modal="true"
+              aria-label="Expanded diagram"
+              onClick={(event) => {
+                if (event.target === event.currentTarget) {
+                  setExpanded(false);
+                }
+              }}
+            >
+              <div className="inline-renderer-expanded">
+                <div className="inline-renderer-expanded-bar">
+                  <span className="inline-renderer-expanded-label">
+                    Diagram
+                  </span>
+                  <button
+                    ref={closeButtonRef}
+                    className="inline-renderer-action"
+                    type="button"
+                    onClick={() => setExpanded(false)}
+                  >
+                    Close
+                  </button>
+                </div>
+                <div className="inline-renderer-expanded-stage">
+                  <RendererFrame
+                    document={documentContent}
+                    className="inline-renderer-expanded-frame"
+                    maxHeight={MAX_EXPANDED_HEIGHT}
+                  />
+                </div>
+              </div>
+            </div>,
+            document.body,
+          )
+        : null}
     </div>
   );
+}
+
+interface RendererFrameProps {
+  document: string;
+  className: string;
+  maxHeight?: number;
+}
+
+/**
+ * Render sandboxed markup and keep the iframe exactly as tall as the content.
+ *
+ * The frame is re-measured after load, after the srcDoc changes and whenever
+ * its width changes, because an SVG's rendered height depends on the width
+ * the drawing is laid out at.
+ */
+function RendererFrame({
+  document: documentContent,
+  className,
+  maxHeight = MAX_FRAME_HEIGHT,
+}: RendererFrameProps) {
+  const frameRef = useRef<HTMLIFrameElement>(null);
+  const timers = useRef<number[]>([]);
+  const [height, setHeight] = useState(MIN_FRAME_HEIGHT);
+
+  const measure = useCallback(() => {
+    const next = frameContentHeight(frameRef.current);
+    if (next <= 0) {
+      return;
+    }
+    setHeight(Math.min(Math.max(next, MIN_FRAME_HEIGHT), maxHeight));
+  }, [maxHeight]);
+
+  const measureSoon = useCallback(() => {
+    for (const timer of timers.current) {
+      window.clearTimeout(timer);
+    }
+    timers.current = [
+      window.setTimeout(measure, 0),
+      window.setTimeout(measure, 80),
+      window.setTimeout(measure, 260),
+    ];
+  }, [measure]);
+
+  useEffect(() => {
+    const frame = frameRef.current;
+    if (!frame) {
+      return;
+    }
+    let lastWidth = frame.clientWidth;
+    const observer = new ResizeObserver(() => {
+      if (frame.clientWidth === lastWidth) {
+        return;
+      }
+      lastWidth = frame.clientWidth;
+      measure();
+    });
+    observer.observe(frame);
+    return () => observer.disconnect();
+  }, [measure]);
+
+  useEffect(
+    () => () => {
+      for (const timer of timers.current) {
+        window.clearTimeout(timer);
+      }
+    },
+    [],
+  );
+
+  useEffect(measureSoon, [documentContent, measureSoon]);
+
+  return (
+    <iframe
+      ref={frameRef}
+      className={className}
+      title="Inline visualization"
+      sandbox="allow-same-origin"
+      srcDoc={documentContent}
+      style={{ height }}
+      onLoad={measureSoon}
+    />
+  );
+}
+
+function frameContentHeight(frame: HTMLIFrameElement | null): number {
+  const contentDocument = frame?.contentDocument;
+  const body = contentDocument?.body;
+  if (!contentDocument || !body) {
+    return 0;
+  }
+  // `scrollHeight` on <html> and <body> never drops below the iframe viewport,
+  // so measuring it makes the frame grow-only and leaves dead space under the
+  // drawing. Measure the body box and its children instead.
+  let height = body.getBoundingClientRect().height;
+  for (const child of Array.from(body.children)) {
+    const rect = child.getBoundingClientRect();
+    if (rect.bottom > height) {
+      height = rect.bottom;
+    }
+  }
+  return Math.ceil(height);
 }
 
 function buildDocument(html: string, theme: Theme): string {
@@ -201,6 +342,7 @@ function buildDocument(html: string, theme: Theme): string {
     `font-size:${safeCss(theme.fontSize)};line-height:1.5;` +
     "overflow:auto;}" +
     "svg{max-width:100%;height:auto;}" +
+    "body>svg{display:block;margin:0 auto;}" +
     "a{color:inherit;text-decoration:none;}" +
     "*{box-sizing:border-box;}" +
     "</style>";

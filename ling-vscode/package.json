@@ -2,7 +2,7 @@
   "name": "ling-agent",
   "displayName": "Ling",
   "description": "Harness your workflow without leaving VS Code. A local agent harness for VS Code.",
-  "version": "1.2.0",
+  "version": "1.2.1",
   "publisher": "ling-agent",
   "repository": {
     "type": "git",

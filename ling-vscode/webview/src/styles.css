@@ -3988,3 +3988,59 @@ button:disabled {
   line-height: 1.55;
   white-space: pre-wrap;
 }
+
+.inline-renderer-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: rgba(0, 0, 0, 0.62);
+}
+
+.inline-renderer-expanded {
+  display: flex;
+  flex-direction: column;
+  width: min(1400px, 100%);
+  max-height: 100%;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--canvas);
+  box-shadow: 0 18px 48px rgba(0, 0, 0, 0.45);
+}
+
+.inline-renderer-expanded-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 6px 6px 6px 12px;
+  border-bottom: 1px solid var(--line);
+  background: var(--panel);
+}
+
+.inline-renderer-expanded-label {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.inline-renderer-expanded-stage {
+  flex: 1;
+  min-height: 0;
+  padding: 12px;
+  overflow: auto;
+}
+
+.inline-renderer-expanded-frame {
+  display: block;
+  width: 100%;
+  min-height: 40px;
+  border: 0;
+  background: transparent;
+}
