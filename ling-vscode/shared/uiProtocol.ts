@@ -2,6 +2,7 @@ import type {
   ApprovalRequest,
   AskUserAnswer,
   BackgroundTaskView,
+  ControlSessionView,
   QueuedMessage,
   QuestionRequest,
   SessionSnapshot,
@@ -73,6 +74,11 @@ export type UiEvent =
   | {
       type: "background.updated";
       task: BackgroundTaskView;
+    }
+  | {
+      type: "computer.session.updated";
+      session: ControlSessionView | null;
+      reason: string;
     }
   | {
       type: "run.cancelled";

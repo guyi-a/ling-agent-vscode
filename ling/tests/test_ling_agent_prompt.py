@@ -49,6 +49,28 @@ def test_prompt_has_size_limit() -> None:
         assert prompt.system_prompt.endswith("[prompt truncated]")
 
 
+def test_computer_policy_points_to_skill() -> None:
+    with tempfile.TemporaryDirectory() as temp:
+        workspace = Workspace(Path(temp))
+        prompt = build_system_prompt(
+            workspace,
+            tool_names=(
+                "computer_list",
+                "computer_observe",
+                "computer_screenshot",
+                "computer_act",
+            ),
+        )
+
+    assert 'load_skill(name="computer-use")' in prompt.system_prompt
+    start = prompt.system_prompt.index("## Computer use")
+    end = prompt.system_prompt.find("\n## ", start + 1)
+    section = prompt.system_prompt[
+        start : end if end != -1 else None
+    ]
+    assert len(section) < 1200
+
+
 def test_prompt_emphasizes_inline_visualization() -> None:
     with tempfile.TemporaryDirectory() as temp:
         workspace = Workspace(Path(temp))
@@ -73,5 +95,6 @@ def test_prompt_emphasizes_inline_visualization() -> None:
 if __name__ == "__main__":
     test_prompt_includes_workspace_and_agents_file()
     test_prompt_has_size_limit()
+    test_computer_policy_points_to_skill()
     test_prompt_emphasizes_inline_visualization()
     print("all ling_agent prompt tests passed")

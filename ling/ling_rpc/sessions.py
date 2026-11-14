@@ -18,6 +18,8 @@ from ling_agent import (
     AssistantMessageCommitted,
     CodingAgent,
     CompactionApplied,
+    ComputerService,
+    ComputerUseConfig,
     HarnessConfig,
     ProcessExecEffect,
     RunChangesCommitted,
@@ -180,6 +182,17 @@ class SessionService:
                 self._config.browser_bridge_command_timeout_seconds
             ),
         )
+        self._computer = (
+            ComputerService(
+                self._config.computer_use,
+                on_updated=self._emit_computer_updated,
+            )
+            if (
+                sys.platform == "win32"
+                and self._config.computer_use.enabled
+            )
+            else None
+        )
         resolved_storage_root = (
             storage_root
             or os.environ.get("LING_STORAGE_ROOT")
@@ -231,6 +244,10 @@ class SessionService:
         self._recovery_done = False
         self._closed = False
 
+    @property
+    def computer_enabled(self) -> bool:
+        return self._computer is not None
+
     async def _ensure_recovered(self) -> None:
         if self._recovery_done:
             return
@@ -252,6 +269,19 @@ class SessionService:
             workspace=workspace,
             config=self._config,
             embedder=self._embedder,
+        )
+
+    async def _emit_computer_updated(
+        self,
+        session: dict[str, Any] | None,
+        reason: str,
+    ) -> None:
+        await self._emit_event(
+            {
+                "type": "computer.session.updated",
+                "session": session,
+                "reason": reason,
+            }
         )
 
     async def _emit_background_updated(
@@ -1175,6 +1205,22 @@ class SessionService:
             }
         )
 
+    def _computer_view(self) -> dict[str, Any] | None:
+        if self._computer is None:
+            return None
+        return self._computer.status()
+
+    async def computer_status(self) -> dict[str, Any]:
+        return {
+            "enabled": self._computer is not None,
+            "session": self._computer_view(),
+        }
+
+    async def computer_stop(self, reason: str = "user") -> bool:
+        if self._computer is None:
+            return False
+        return await self._computer.stop(reason)
+
     async def snapshot(self) -> dict[str, Any]:
         if self._closed:
             raise RuntimeError("Session service is closed")
@@ -1193,6 +1239,7 @@ class SessionService:
                     ),
                     queued_messages=self.queue_view(),
                     background_tasks=await self.background_list(),
+                    computer_session=self._computer_view(),
                 )
         if self._session_id is not None:
             return await self._project_history(
@@ -1206,6 +1253,7 @@ class SessionService:
             "pendingQuestions": [],
             "queuedMessages": [],
             "backgroundTasks": [],
+            "computerSession": None,
             "error": None,
             "readOnly": False,
             "approvalMode": self._approval_mode.value,
@@ -1228,6 +1276,9 @@ class SessionService:
             projector.snapshot(),
             approval_mode=record.approval_mode.value,
             background_tasks=await self.background_list(session_id),
+            computer_session=(
+                None if read_only else self._computer_view()
+            ),
         )
         snapshot["sessionId"] = session_id
         snapshot["readOnly"] = read_only
@@ -1246,6 +1297,8 @@ class SessionService:
                 await self._background_schedule_task
         await self._dispose_agent()
         await self._background_tasks.close()
+        if self._computer is not None:
+            await self._computer.close(timeout=0.4)
         await self._browser_bridge.stop()
         await self._history_store.close()
 
@@ -1275,6 +1328,7 @@ class SessionService:
             approval_mode=lambda: self._approval_mode.value,
             queued_messages=self.queue_view,
             background_tasks=self.background_list,
+            computer_session=self._computer_view,
         )
         model, stream_fn = self._resolve_model()
         self._agent = CodingAgent(
@@ -1292,6 +1346,7 @@ class SessionService:
             embedder=self._embedder,
             subagent_trace_sink=self._emit_subagent_trace,
             browser_bridge=self._browser_bridge,
+            computer_service=self._computer,
             web_client=resolve_web_client(model),
             global_memory_root=default_global_memory_root(),
             background_tasks=self._background_tasks,
@@ -1508,6 +1563,8 @@ class SessionService:
         )
 
     async def _dispose_agent(self) -> None:
+        if self._computer is not None:
+            await self._computer.stop("session_changed")
         task = self._task
         self._task = None
         agent = self._agent
@@ -1619,6 +1676,22 @@ def _config_from_env() -> HarnessConfig:
             return default
         return value if minimum <= value <= maximum else default
 
+    def bool_env(name: str, default: bool) -> bool:
+        raw = os.environ.get(name, "").strip().lower()
+        if not raw:
+            return default
+        return raw not in ("0", "false", "no", "off")
+
+    def list_env(name: str) -> tuple[str, ...]:
+        raw = os.environ.get(name, "").strip()
+        if not raw:
+            return ()
+        return tuple(
+            part.strip()
+            for part in raw.replace(";", ",").split(",")
+            if part.strip()
+        )
+
     return HarnessConfig(
         agent_max_steps=int_env("LING_MAX_STEPS", 50, 1, 100),
         agent_max_parallel_tools=int_env(
@@ -1646,5 +1719,40 @@ def _config_from_env() -> HarnessConfig:
             keep_last_user_turns=int_env(
                 "LING_KEEP_LAST_USER_TURNS", 5, 0, 50
             ),
+        ),
+        computer_use=ComputerUseConfig(
+            enabled=bool_env("LING_COMPUTER_ENABLED", True),
+            helper_path=os.environ.get(
+                "LING_COMPUTER_HELPER_PATH", ""
+            ).strip(),
+            helper_init_timeout_seconds=float_env(
+                "LING_COMPUTER_INIT_TIMEOUT_SECONDS", 10.0, 1.0, 120.0
+            ),
+            helper_call_timeout_seconds=float_env(
+                "LING_COMPUTER_CALL_TIMEOUT_SECONDS", 30.0, 1.0, 300.0
+            ),
+            list_max_windows=int_env(
+                "LING_COMPUTER_LIST_MAX_WINDOWS", 100, 1, 500
+            ),
+            session_ttl_seconds=float_env(
+                "LING_COMPUTER_SESSION_TTL_SECONDS",
+                600.0,
+                30.0,
+                3600.0,
+            ),
+            session_idle_seconds=float_env(
+                "LING_COMPUTER_SESSION_IDLE_SECONDS",
+                90.0,
+                10.0,
+                3600.0,
+            ),
+            audit_enabled=bool_env(
+                "LING_COMPUTER_AUDIT_ENABLED",
+                True,
+            ),
+            audit_root=os.environ.get(
+                "LING_COMPUTER_AUDIT_ROOT", ""
+            ).strip(),
+            denied_apps=list_env("LING_COMPUTER_DENIED_APPS"),
         ),
     )

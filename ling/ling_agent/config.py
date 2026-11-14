@@ -9,6 +9,49 @@ from .compaction import CompactionConfig
 
 
 @dataclass(slots=True, frozen=True)
+class ComputerUseConfig:
+    enabled: bool = True
+    helper_path: str = ""
+    helper_init_timeout_seconds: float = 10.0
+    helper_call_timeout_seconds: float = 30.0
+    list_max_windows: int = 100
+    session_ttl_seconds: float = 600.0
+    session_idle_seconds: float = 90.0
+    max_tree_nodes: int = 300
+    max_tree_chars: int = 30_000
+    audit_enabled: bool = True
+    audit_root: str = ""
+    denied_apps: tuple[str, ...] = ()
+
+    def __post_init__(self) -> None:
+        if self.helper_init_timeout_seconds <= 0:
+            raise ValueError(
+                "helper_init_timeout_seconds must be positive"
+            )
+        if self.helper_call_timeout_seconds <= 0:
+            raise ValueError(
+                "helper_call_timeout_seconds must be positive"
+            )
+        if not 1 <= self.list_max_windows <= 500:
+            raise ValueError("list_max_windows must be between 1 and 500")
+        if self.session_ttl_seconds <= 0:
+            raise ValueError("session_ttl_seconds must be positive")
+        if self.session_idle_seconds <= 0:
+            raise ValueError("session_idle_seconds must be positive")
+        if self.max_tree_nodes < 1:
+            raise ValueError("max_tree_nodes must be at least 1")
+        if self.max_tree_chars < 1:
+            raise ValueError("max_tree_chars must be at least 1")
+        if not all(
+            isinstance(value, str) and value.strip()
+            for value in self.denied_apps
+        ):
+            raise ValueError(
+                "denied_apps must contain non-empty executable names"
+            )
+
+
+@dataclass(slots=True, frozen=True)
 class HarnessConfig:
     max_read_lines: int = 400
     max_read_chars: int = 50_000
@@ -41,6 +84,9 @@ class HarnessConfig:
     browser_bridge_command_timeout_seconds: float = 30.0
     compaction: CompactionConfig = field(
         default_factory=CompactionConfig
+    )
+    computer_use: ComputerUseConfig = field(
+        default_factory=ComputerUseConfig
     )
 
     def __post_init__(self) -> None:
@@ -100,4 +146,4 @@ class HarnessConfig:
             )
 
 
-__all__ = ["HarnessConfig"]
+__all__ = ["ComputerUseConfig", "HarnessConfig"]

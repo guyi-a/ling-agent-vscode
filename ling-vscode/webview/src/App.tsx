@@ -10,6 +10,7 @@ import { ApprovalTakeover } from "./components/ApprovalTakeover";
 import { BootScreen } from "./components/BootScreen";
 import { ChatSelectionButton } from "./components/ChatSelectionButton";
 import { Composer } from "./components/Composer";
+import { ControlSessionBanner } from "./components/ControlSessionBanner";
 import { EmptyState } from "./components/EmptyState";
 import { Header } from "./components/Header";
 import { HistoryPanel } from "./components/HistoryPanel";
@@ -992,6 +993,13 @@ export function App() {
       />
 
       <footer className="bottom-slot">
+        {state.computerSession ? (
+          <ControlSessionBanner
+            session={state.computerSession}
+            onStop={() => host.postMessage({ type: "control.stop" })}
+          />
+        ) : null}
+
         {!readOnly && queuedMessages.length > 0 ? (
           <div className="composer-queue" aria-label="Queued messages">
             <p className="composer-queue-title">

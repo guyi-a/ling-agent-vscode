@@ -24,6 +24,7 @@ export function createEmptyTimelineState(): TimelineState {
     readOnly: false,
     subagentTraces: {},
     backgroundTasks: [],
+    computerSession: null,
   };
 }
 
@@ -103,6 +104,12 @@ export function timelineReducer(
         ),
       };
 
+    case "computer.session.updated":
+      return {
+        ...state,
+        computerSession: action.session,
+      };
+
     case "run.cancelled":
       return cancelRun(state);
 
@@ -150,6 +157,7 @@ function fromSnapshot(
     backgroundTasks: (snapshot.backgroundTasks ?? []).map((task) => ({
       ...task,
     })),
+    computerSession: snapshot.computerSession ?? null,
     error: snapshot.error ?? null,
     sessionId: snapshot.sessionId,
     readOnly: snapshot.readOnly ?? false,

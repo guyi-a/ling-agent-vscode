@@ -23,6 +23,7 @@ from ling_ai.events import (
 from ling_ai.types import (
     AssistantMessage,
     Context,
+    ImageContent,
     TextContent,
     ToolCall,
     ToolResultMessage,
@@ -469,6 +470,19 @@ class Session:
 
     async def commit_tool_result(self, result: ToolResultMessage) -> None:
         turn = self._require_tool_turn()
+        if result.tool_name == "computer_screenshot" and any(
+            isinstance(block, ImageContent) for block in result.content
+        ):
+            # Keep large screenshots out of SQLite; the model still gets
+            # the image in the live context.
+            result = replace(
+                result,
+                content=[
+                    block
+                    for block in result.content
+                    if not isinstance(block, ImageContent)
+                ],
+            )
         await self._commit(
             ToolResultCommitted(result=result),
             step=turn.step,

@@ -8,6 +8,7 @@ export type ToolAction =
   | "Plan"
   | "Subagent"
   | "Browser"
+  | "Computer"
   | "Web"
   | "Memory"
   | "MCP";
@@ -74,6 +75,39 @@ export type ToolDetail =
   | {
       kind: "text";
       text: string;
+    }
+  | {
+      kind: "computer";
+      operation:
+        | "list"
+        | "observe"
+        | "screenshot"
+        | "launch"
+        | "focus"
+        | "act"
+        | "stop";
+      windowId?: string;
+      title?: string;
+      app?: string;
+      pid?: number;
+      timedOut?: boolean;
+      reused?: boolean;
+      foreground?: boolean;
+      restored?: boolean;
+      observationId?: string;
+      captureId?: string;
+      width?: number;
+      height?: number;
+      scale?: number;
+      method?: string;
+      snapshotId?: string;
+      nodeCount?: number;
+      complete?: boolean;
+      truncated?: boolean;
+      windowCount?: number;
+      displayCount?: number;
+      preview?: string;
+      error?: string;
     }
   | {
       kind: "plan";
@@ -147,6 +181,13 @@ export type ApprovalAllowAlways =
   | { kind: "mode"; mode: ApprovalMode; label: string }
   | { kind: "command"; label: string };
 
+export interface ComputerTakeoverInfo {
+  app?: string;
+  windowId?: string;
+  windowTitle?: string;
+  firstAction?: string;
+}
+
 export interface ApprovalRequest {
   id: string;
   tool: string;
@@ -157,6 +198,8 @@ export interface ApprovalRequest {
   effectDigest: string;
   details: string[];
   allowAlways?: ApprovalAllowAlways;
+  kind?: "computer-takeover";
+  computer?: ComputerTakeoverInfo;
 }
 
 export interface ApprovalResult {
@@ -337,6 +380,16 @@ export type RunPhase =
   | "cancelled"
   | "failed";
 
+export interface ControlSessionView {
+  id: string;
+  app: string;
+  windowTitle: string;
+  windowId?: string;
+  startedAt: number;
+  expiresAt: number;
+  idleExpiresAt: number;
+}
+
 export interface SessionSnapshot {
   phase: RunPhase;
   entries: TimelineEntry[];
@@ -345,6 +398,7 @@ export interface SessionSnapshot {
   pendingQuestions?: QuestionRequest[];
   queuedMessages?: QueuedMessage[];
   backgroundTasks?: BackgroundTaskView[];
+  computerSession?: ControlSessionView | null;
   error?: string | null;
   sessionId?: string;
   readOnly?: boolean;
@@ -444,6 +498,11 @@ export interface SettingsView {
   embeddingModel: string;
   embeddingBaseUrl: string;
   embeddingApiKey: string;
+  computerUseEnabled: boolean;
+  computerSessionTtlSeconds: number;
+  computerSessionIdleSeconds: number;
+  computerDeniedApps: string;
+  computerAuditEnabled: boolean;
   skills: SkillStatus[];
   memories: MemoryStatus[];
   memoryDiagnostics: string[];

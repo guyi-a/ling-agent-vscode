@@ -28,6 +28,11 @@ interface SettingsInput {
   embeddingModel: string;
   embeddingBaseUrl: string;
   embeddingApiKey: string;
+  computerUseEnabled: boolean;
+  computerSessionTtlSeconds: number;
+  computerSessionIdleSeconds: number;
+  computerDeniedApps: string;
+  computerAuditEnabled: boolean;
 }
 
 interface SettingsPanelProps {
@@ -83,6 +88,12 @@ export function SettingsPanel({
   const [embeddingModel, setEmbeddingModel] = useState("");
   const [embeddingBaseUrl, setEmbeddingBaseUrl] = useState("");
   const [embeddingApiKey, setEmbeddingApiKey] = useState("");
+  const [computerUseEnabled, setComputerUseEnabled] = useState(true);
+  const [computerTtl, setComputerTtl] = useState("600");
+  const [computerIdle, setComputerIdle] = useState("90");
+  const [computerDeniedApps, setComputerDeniedApps] = useState("");
+  const [computerAuditEnabled, setComputerAuditEnabled] =
+    useState(true);
   const [showKey, setShowKey] = useState(false);
   const [showEmbeddingKey, setShowEmbeddingKey] = useState(false);
 
@@ -104,6 +115,11 @@ export function SettingsPanel({
     setEmbeddingModel(settings.embeddingModel);
     setEmbeddingBaseUrl(settings.embeddingBaseUrl);
     setEmbeddingApiKey(settings.embeddingApiKey);
+    setComputerUseEnabled(settings.computerUseEnabled);
+    setComputerTtl(String(settings.computerSessionTtlSeconds));
+    setComputerIdle(String(settings.computerSessionIdleSeconds));
+    setComputerDeniedApps(settings.computerDeniedApps);
+    setComputerAuditEnabled(settings.computerAuditEnabled);
     setShowKey(false);
     setShowEmbeddingKey(false);
   }, [settings]);
@@ -124,6 +140,11 @@ export function SettingsPanel({
       embeddingModel: embeddingModel.trim(),
       embeddingBaseUrl: embeddingBaseUrl.trim(),
       embeddingApiKey: embeddingApiKey.trim(),
+      computerUseEnabled,
+      computerSessionTtlSeconds: Number(computerTtl),
+      computerSessionIdleSeconds: Number(computerIdle),
+      computerDeniedApps: computerDeniedApps.trim(),
+      computerAuditEnabled,
     };
   }
 
@@ -158,7 +179,9 @@ export function SettingsPanel({
       isNumberInRange(commandTimeout, 1, 3600) &&
       isNumberInRange(approvalTimeout, 1, 3600) &&
       isIntegerInRange(contextWindow, 1024, 10_000_000) &&
-      isIntegerInRange(keepTurns, 0, 50)
+      isIntegerInRange(keepTurns, 0, 50) &&
+      isIntegerInRange(computerTtl, 30, 3600) &&
+      isIntegerInRange(computerIdle, 10, 3600)
     );
   }
 
@@ -524,6 +547,93 @@ export function SettingsPanel({
                 />
               </label>
             </div>
+
+            <p className="settings-section">Computer use</p>
+
+            <label className="settings-field settings-checkbox">
+              <input
+                type="checkbox"
+                checked={computerUseEnabled}
+                onChange={(event) =>
+                  setComputerUseEnabled(event.target.checked)
+                }
+              />
+              <span className="settings-label">
+                Allow Ling to control native Windows applications
+              </span>
+            </label>
+            <p className="settings-hint">
+              One takeover approval covers the whole desktop until Stop,
+              timeout, or you touch the mouse or keyboard. Terminals,
+              password managers, UAC, and elevated windows stay blocked.
+            </p>
+
+            <div className="settings-grid">
+              <label className="settings-field">
+                <span className="settings-label">
+                  Control session TTL (s)
+                </span>
+                <input
+                  className="settings-input"
+                  type="number"
+                  min={30}
+                  max={3600}
+                  value={computerTtl}
+                  onChange={(event) =>
+                    setComputerTtl(event.target.value)
+                  }
+                />
+              </label>
+
+              <label className="settings-field">
+                <span className="settings-label">
+                  Idle timeout (s)
+                </span>
+                <input
+                  className="settings-input"
+                  type="number"
+                  min={10}
+                  max={3600}
+                  value={computerIdle}
+                  onChange={(event) =>
+                    setComputerIdle(event.target.value)
+                  }
+                />
+              </label>
+            </div>
+
+            <label className="settings-field">
+              <span className="settings-label">
+                Blocked applications (optional)
+              </span>
+              <input
+                className="settings-input"
+                value={computerDeniedApps}
+                placeholder="slack.exe, discord.exe"
+                spellCheck={false}
+                autoComplete="off"
+                onChange={(event) =>
+                  setComputerDeniedApps(event.target.value)
+                }
+              />
+              <p className="settings-hint">
+                Comma-separated executable names. These windows can never
+                be controlled, even after takeover.
+              </p>
+            </label>
+
+            <label className="settings-field settings-checkbox">
+              <input
+                type="checkbox"
+                checked={computerAuditEnabled}
+                onChange={(event) =>
+                  setComputerAuditEnabled(event.target.checked)
+                }
+              />
+              <span className="settings-label">
+                Write a local JSONL audit trail
+              </span>
+            </label>
 
             <p className="settings-section">Context</p>
 

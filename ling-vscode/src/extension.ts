@@ -21,6 +21,7 @@ import type { UiEvent } from "../shared/uiProtocol";
 import type {
   ApprovalMode,
   BackgroundTaskView,
+  ControlSessionView,
   EffortLevel,
   HistorySession,
   IndexBuildStats,
@@ -125,6 +126,11 @@ function sidecarSettings(settings: LingSettings): SidecarSettings {
     embeddingModel: settings.embeddingModel || undefined,
     embeddingBaseUrl: settings.embeddingBaseUrl || undefined,
     embeddingApiKey: settings.embeddingApiKey || undefined,
+    computerUseEnabled: settings.computerUseEnabled,
+    computerSessionTtlSeconds: settings.computerSessionTtlSeconds,
+    computerSessionIdleSeconds: settings.computerSessionIdleSeconds,
+    computerDeniedApps: settings.computerDeniedApps || undefined,
+    computerAuditEnabled: settings.computerAuditEnabled,
   };
 }
 
@@ -234,6 +240,9 @@ export async function activate(
         );
       }
     }),
+    vscode.commands.registerCommand("ling.stopControl", async () =>
+      provider.handleControlStop(),
+    ),
     vscode.commands.registerCommand("ling.buildIndex", async () =>
       provider.buildIndexFromCommand(),
     ),
@@ -309,6 +318,7 @@ class ChatViewProvider implements vscode.WebviewViewProvider {
   private mcpConfigPath = defaultMcpConfigPath();
   private readonly mcpWatcher: vscode.FileSystemWatcher;
   private mcpWatchTimer: NodeJS.Timeout | undefined;
+  private controlStatusItem: vscode.StatusBarItem | undefined;
 
   constructor(
     private readonly extensionUri: vscode.Uri,
@@ -545,6 +555,10 @@ class ChatViewProvider implements vscode.WebviewViewProvider {
         void this.handleToolBackground(value.callId);
         break;
 
+      case "control.stop":
+        void this.handleControlStop();
+        break;
+
       case "background.openLog":
         void this.handleBackgroundOpenLog(
           value.taskId,
@@ -754,10 +768,62 @@ class ChatViewProvider implements vscode.WebviewViewProvider {
     this.output.appendLine(
       `Sidecar stopped unexpectedly (code=${info.code ?? "null"}, signal=${info.signal ?? "null"})`,
     );
+    this.updateControlStatus(null);
     this.postEvent({
       type: "run.failed",
       message: "The Ling sidecar stopped unexpectedly.",
     });
+  }
+
+  async handleControlStop(): Promise<void> {
+    if (!this.sidecar.isRunning) {
+      this.updateControlStatus(null);
+      return;
+    }
+    try {
+      await this.sidecar.call("computer.stop", { reason: "user" });
+    } catch (error) {
+      this.output.appendLine(
+        `Stop computer control failed: ${formatError(error)}`,
+      );
+      await vscode.window.showErrorMessage(
+        `Unable to stop computer control: ${formatError(error)}`,
+      );
+    }
+  }
+
+  private updateControlStatus(
+    session: ControlSessionView | null,
+  ): void {
+    if (session) {
+      if (!this.controlStatusItem) {
+        this.controlStatusItem =
+          vscode.window.createStatusBarItem(
+            vscode.StatusBarAlignment.Left,
+            100,
+          );
+        this.controlStatusItem.command = "ling.stopControl";
+      }
+      const label =
+        session.app || session.windowTitle || "desktop";
+      this.controlStatusItem.text =
+        `$(device-desktop) Ling 正在控制 ${label}`;
+      this.controlStatusItem.tooltip =
+        "Click to stop computer control";
+      this.controlStatusItem.show();
+      void vscode.commands.executeCommand(
+        "setContext",
+        "ling.controlActive",
+        true,
+      );
+      return;
+    }
+    this.controlStatusItem?.hide();
+    void vscode.commands.executeCommand(
+      "setContext",
+      "ling.controlActive",
+      false,
+    );
   }
 
   handleSidecarNotification(method: string, params: unknown): void {
@@ -787,6 +853,14 @@ class ChatViewProvider implements vscode.WebviewViewProvider {
         params.event.sessionId,
       );
       return;
+    }
+    if (params.event.type === "computer.session.updated") {
+      this.updateControlStatus(params.event.session);
+    }
+    if (params.event.type === "session.snapshot") {
+      this.updateControlStatus(
+        params.event.snapshot.computerSession ?? null,
+      );
     }
     this.postEvent(params.event);
   }
@@ -1176,6 +1250,13 @@ class ChatViewProvider implements vscode.WebviewViewProvider {
       embeddingModel: this.settings.embeddingModel,
       embeddingBaseUrl: this.settings.embeddingBaseUrl,
       embeddingApiKey: this.settings.embeddingApiKey,
+      computerUseEnabled: this.settings.computerUseEnabled,
+      computerSessionTtlSeconds:
+        this.settings.computerSessionTtlSeconds,
+      computerSessionIdleSeconds:
+        this.settings.computerSessionIdleSeconds,
+      computerDeniedApps: this.settings.computerDeniedApps,
+      computerAuditEnabled: this.settings.computerAuditEnabled,
       skills: this.skillStatuses(),
       memories: this.memories,
       memoryDiagnostics: this.memoryDiagnostics,
@@ -1633,6 +1714,11 @@ class ChatViewProvider implements vscode.WebviewViewProvider {
       embeddingModel,
       embeddingBaseUrl,
       embeddingApiKey,
+      computerUseEnabled: value.computerUseEnabled,
+      computerSessionTtlSeconds: value.computerSessionTtlSeconds,
+      computerSessionIdleSeconds: value.computerSessionIdleSeconds,
+      computerDeniedApps: value.computerDeniedApps.trim(),
+      computerAuditEnabled: value.computerAuditEnabled,
     };
 
     try {
@@ -1662,6 +1748,17 @@ class ChatViewProvider implements vscode.WebviewViewProvider {
       this.output.appendLine(
         `Unable to update diff view setting: ${formatError(error)}`,
       );
+    }
+
+    if (this.sidecar.isRunning) {
+      try {
+        await this.sidecar.call("computer.stop", {
+          reason: "settings",
+        });
+      } catch {
+        // Older sidecars may not implement computer.stop.
+      }
+      this.updateControlStatus(null);
     }
 
     this.sidecar.setSettings(sidecarSettings(this.settings));

@@ -81,6 +81,24 @@ class BrowserEffect:
 
 
 @dataclass(slots=True, frozen=True)
+class ComputerEffect:
+    operation: Literal[
+        "list",
+        "observe",
+        "screenshot",
+        "focus",
+        "act",
+        "launch",
+        "stop",
+    ]
+    classification: Literal["readonly", "mutating", "launch"]
+    window_id: str = ""
+    app: str = ""
+    action: str = ""
+    kind: Literal["computer_use"] = "computer_use"
+
+
+@dataclass(slots=True, frozen=True)
 class McpEffect:
     server: str
     tool: str
@@ -115,6 +133,7 @@ Effect: TypeAlias = (
     | MetaEffect
     | SubagentEffect
     | BrowserEffect
+    | ComputerEffect
     | McpEffect
     | McpAdminEffect
     | UnknownEffect
@@ -226,6 +245,70 @@ def derive_effect(call: ToolCall, workspace: Workspace) -> Effect:
 
     if call.name in ("load_skill", "ask_user", "mcp_list_servers"):
         return MetaEffect(operation=call.name)
+
+    if call.name in (
+        "computer_list",
+        "computer_observe",
+        "computer_screenshot",
+        "computer_focus",
+        "computer_act",
+        "computer_launch",
+        "computer_stop",
+    ):
+        operation = call.name.removeprefix("computer_")
+        if operation in ("list", "stop"):
+            return ComputerEffect(
+                operation=operation,
+                classification="readonly",
+            )
+        window_id = arguments.get("window_id")
+        if operation in ("observe", "screenshot", "focus", "act") and (
+            not isinstance(window_id, str) or not window_id.strip()
+        ):
+            return UnknownEffect(
+                note="computer window_id is missing or invalid"
+            )
+        if operation in ("observe", "screenshot"):
+            return ComputerEffect(
+                operation=operation,
+                classification="readonly",
+                window_id=window_id,
+            )
+        if operation == "focus":
+            return ComputerEffect(
+                operation="focus",
+                classification="mutating",
+                window_id=window_id,
+                action="focus",
+            )
+        if operation == "act":
+            actions = arguments.get("actions")
+            if not isinstance(actions, list) or not actions:
+                return UnknownEffect(
+                    note="computer actions are missing or invalid"
+                )
+            first = actions[0]
+            action = (
+                first.get("type", "")
+                if isinstance(first, dict)
+                else ""
+            )
+            return ComputerEffect(
+                operation="act",
+                classification="mutating",
+                window_id=window_id,
+                action=action if isinstance(action, str) else "",
+            )
+        app = arguments.get("app")
+        if not isinstance(app, str) or not app.strip():
+            return UnknownEffect(
+                note="computer app is missing or invalid"
+            )
+        return ComputerEffect(
+            operation="launch",
+            classification="launch",
+            app=app,
+        )
 
     if call.name == "memory_list":
         return MetaEffect(operation="memory_list")
@@ -413,6 +496,11 @@ def _sensitive_reason(effect: Effect, call: ToolCall | None) -> str | None:
 
 def plan_mode_denial(effect: Effect) -> str | None:
     """Return a denial message when plan mode blocks an effect."""
+    if isinstance(effect, ComputerEffect) and effect.classification != "readonly":
+        return (
+            "Plan mode is read-only. Computer actions that control the "
+            "desktop are blocked; use computer_list or computer_observe."
+        )
     if isinstance(effect, BrowserEffect) and effect.classification != "readonly":
         return (
             "Plan mode is read-only. Browser actions that change the page "
@@ -457,6 +545,11 @@ def approval_reason(
 ) -> str | None:
     if isinstance(effect, (MetaEffect, SubagentEffect)):
         return None
+    if isinstance(effect, ComputerEffect):
+        if effect.classification == "readonly":
+            return None
+        target = effect.app or effect.window_id or "desktop"
+        return f"computer {effect.operation} ({target})"
     if isinstance(effect, BrowserEffect):
         if effect.classification == "readonly":
             return None
@@ -518,6 +611,7 @@ __all__ = [
     "CommandClassification",
     "ApprovalMode",
     "BrowserEffect",
+    "ComputerEffect",
     "Effect",
     "FilesystemReadEffect",
     "FilesystemWriteEffect",

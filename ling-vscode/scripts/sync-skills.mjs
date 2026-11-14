@@ -9,6 +9,7 @@ const SKILLS = [
   "inline-visualization",
   "browser-bridge",
   "frontend-design",
+  "computer-use",
   "ling-self",
 ];
 

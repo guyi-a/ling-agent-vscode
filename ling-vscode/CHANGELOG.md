@@ -1,5 +1,28 @@
 # Changelog
 
+## 2.0.0
+
+- Add Windows computer use through UI Automation: `computer_list`, `computer_observe`, `computer_act`, and `computer_stop`, with a desktop-wide takeover approval, a blue control border, status-bar/banner Stop, and a global stop hotkey.
+- Add `computer_launch`, which resolves Windows system paths/App Paths, launches an app, waits for its window, and returns the window id. This avoids Git/PATH shims and the command approvals that previously interrupted control.
+- Add a helper fast path so `ping`, `control.end`, and `control.status` respond while UI Automation or input work is in flight; active actions abort at the next step when the session stops.
+- Emit `helper_lost` when the helper exits unexpectedly and limit helper restarts to two per minute.
+- Add UIA pattern actions plus `SendInput` fallbacks and readback for click, set value, type, key presses, focus, toggle, expand/collapse, selection, scrolling, and dragging.
+- Add hard denies for terminals, password managers, UAC/secure desktop, the lock screen, elevated windows, and user-configured executables. Elevated windows are observe-only with redacted values.
+- Coalesce parallel takeover approvals into one card and carry the grant through the first action, so later computer actions never prompt again in any mode.
+- Computer tool cards now show the operation, window/app title, node/window counts, and failure codes instead of a bare window id; grouped desktop summaries also count launch, act, and stop calls.
+- `computer_launch` now reuses an already-running app's existing window, including a window hidden to the tray, instead of starting a second instance. This prevents duplicate-instance login windows (for example WeChat) and avoids false login-state conclusions.
+- Add `computer_focus`, a window-level restore/foreground action with the Win32 `AttachThreadInput` foreground fallback. It needs no UIA snapshot and is covered by the takeover approval.
+- Add `computer_screenshot`: capture a window to PNG, save it locally, and return the image to the model. Read-only, no takeover approval; terminals, password managers, lock screens, and elevated windows are blocked. Screenshot images are not persisted in SQLite.
+- Add coordinate actions to `computer_act`: `click_at`, `scroll_at`, `drag_at`, and `type` with x/y. Coordinates are bound to a screenshot's `capture_id` and converted to physical screen pixels; moved windows and expired captures return `STALE_CAPTURE`. This makes Qt/Electron/custom-drawn apps usable when the UIA tree is empty.
+- Make `computer_observe` return one unified observation with a screenshot, UIA refs, focused element, and document text. `computer_act` now performs one action per observation and returns a fresh observation; no-effect validation errors preserve the takeover session.
+- Preserve screenshot width across a `computer_act` refresh so consecutive coordinate observations keep the same scale, and expand the takeover overlay with a light outer halo, centered HUD, and physical-Esc stop.
+- Type through the helper's clipboard without shell commands: text clipboard content is saved and restored, non-text content is replaced only when typing needs it and is reported back. `press_key` no longer requires a UIA ref, so Enter and Ctrl+V go to the focused control.
+- End computer control automatically when an agent run finishes, so the border and banner disappear as soon as Ling is done and the user can take the desktop back without waiting for the TTL. Make the control border 5px at full opacity so the takeover state is obvious.
+- Add the built-in `computer-use` skill with the UIA ref workflow, screenshot-coordinate recipe for Qt/Electron/custom-drawn apps, clipboard and key input rules, window launch/reuse behavior, error table, and control-session lifecycle.
+- Resolve a bare executable name against already-running windows, so `computer_launch("Weixin.exe")` finds the installed path without a failed retry.
+- Add control-session TTL/idle expiry, JSONL audit logs with input redaction and approval ids, explicit `UIPI_BLOCKED` detection, and Computer use settings.
+- Package `comtypes` and the generated UIAutomation client into the sidecar.
+
 ## 1.2.2
 
 - Fix the broken README logo in the extension details page by referencing the

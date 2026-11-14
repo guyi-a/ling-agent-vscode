@@ -626,6 +626,166 @@ assert.equal(
   "mcp",
 );
 assert.equal(
+  classifyToolCategory({
+    id: "tool-computer",
+    name: "computer_observe",
+    action: "Computer",
+    target: "w-1",
+    status: "Completed",
+    details: [],
+  }),
+  "computer",
+);
+assert.equal(
+  isUiEvent({
+    type: "tool.updated",
+    tool: {
+      id: "tool-computer",
+      action: "Computer",
+      target: "w-1",
+      status: "Completed",
+      details: [],
+      detail: {
+        kind: "computer",
+        operation: "observe",
+        windowId: "w-1",
+        title: "Untitled - Notepad",
+        app: "notepad.exe",
+        snapshotId: "snap-test",
+        nodeCount: 3,
+        complete: true,
+        truncated: false,
+        preview: 'window "Untitled - Notepad"',
+      },
+    },
+  }),
+  true,
+);
+assert.equal(
+  isUiEvent({
+    type: "tool.updated",
+    tool: {
+      id: "tool-computer-screenshot",
+      action: "Computer",
+      target: "w-1",
+      status: "Completed",
+      details: [],
+      detail: {
+        kind: "computer",
+        operation: "screenshot",
+        windowId: "w-1",
+        title: "Untitled - Notepad",
+        app: "notepad.exe",
+        captureId: "cap-test",
+        width: 1280,
+        height: 720,
+        scale: 0.5,
+        method: "printwindow",
+      },
+    },
+  }),
+  true,
+);
+assert.equal(
+  isUiEvent({
+    type: "tool.updated",
+    tool: {
+      id: "tool-computer-focus",
+      action: "Computer",
+      target: "w-1",
+      status: "Completed",
+      details: [],
+      detail: {
+        kind: "computer",
+        operation: "focus",
+        windowId: "w-1",
+        title: "Untitled - Notepad",
+        app: "notepad.exe",
+        foreground: false,
+        restored: true,
+        preview: "Focused Notepad",
+      },
+    },
+  }),
+  true,
+);
+assert.equal(
+  isUiEvent({
+    type: "tool.updated",
+    tool: {
+      id: "tool-computer-launch",
+      action: "Computer",
+      target: "notepad.exe",
+      status: "Completed",
+      details: [],
+      detail: {
+        kind: "computer",
+        operation: "launch",
+        app: "notepad.exe",
+        windowId: "w-9",
+        pid: 4321,
+        timedOut: false,
+        reused: false,
+        preview: "Launched notepad.exe",
+      },
+    },
+  }),
+  true,
+);
+const controlState = apply(createEmptyTimelineState(), {
+  type: "computer.session.updated",
+  session: {
+    id: "control-1",
+    app: "notepad.exe",
+    windowTitle: "Untitled - Notepad",
+    windowId: "w-1",
+    startedAt: 1,
+    expiresAt: 2,
+    idleExpiresAt: 3,
+  },
+  reason: "started",
+});
+assert.equal(controlState.computerSession?.id, "control-1");
+const clearedControlState = apply(controlState, {
+  type: "computer.session.updated",
+  session: null,
+  reason: "user",
+});
+assert.equal(clearedControlState.computerSession, null);
+assert.equal(
+  isUiEvent({
+    type: "computer.session.updated",
+    session: null,
+    reason: "user",
+  }),
+  true,
+);
+assert.equal(
+  isWebviewToHostMessage({ type: "control.stop" }),
+  true,
+);
+assert.equal(
+  isUiEvent({
+    type: "approval.requested",
+    request: {
+      id: "approval-computer",
+      tool: "computer_act",
+      action: "Computer",
+      target: "w-1",
+      reason: "computer act (w-1)",
+      arguments: {},
+      effectDigest: "digest",
+      details: [],
+      kind: "computer-takeover",
+      computer: {
+        windowId: "w-1",
+        firstAction: "click",
+      },
+    },
+  }),
+  true,
+);
+assert.equal(
   isUiEvent({
     type: "tool.updated",
     tool: {
@@ -1142,6 +1302,11 @@ assert.equal(
     embeddingModel: "",
     embeddingBaseUrl: "",
     embeddingApiKey: "",
+    computerUseEnabled: true,
+    computerSessionTtlSeconds: 600,
+    computerSessionIdleSeconds: 90,
+    computerDeniedApps: "",
+    computerAuditEnabled: true,
   }),
   true,
 );

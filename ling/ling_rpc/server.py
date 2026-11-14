@@ -189,6 +189,7 @@ class JsonRpcServer:
                     "ping": True,
                     "sessions": True,
                     "comments": True,
+                    "computerUse": self._sessions.computer_enabled,
                 },
             }
 
@@ -201,6 +202,17 @@ class JsonRpcServer:
         if method == "shutdown":
             self.running = False
             return None
+
+        if method == "computer.status":
+            return await self._sessions.computer_status()
+
+        if method == "computer.stop":
+            reason = params.get("reason", "user")
+            if not isinstance(reason, str):
+                raise JsonRpcError(-32602, "reason must be a string")
+            return {
+                "stopped": await self._sessions.computer_stop(reason)
+            }
 
         if method == "memory.list":
             workspace_root = _required_workspace_root(params)
@@ -1072,6 +1084,11 @@ def error_response(
 
 
 def main() -> None:
+    if sys.platform == "win32":
+        from ling_agent.computer.helper.main import maybe_run_helper
+
+        if maybe_run_helper(sys.argv[1:]):
+            return
     if hasattr(sys.stdin, "reconfigure"):
         sys.stdin.reconfigure(encoding="utf-8")
     if hasattr(sys.stdout, "reconfigure"):

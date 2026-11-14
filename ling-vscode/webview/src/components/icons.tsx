@@ -252,6 +252,16 @@ export function ToolIcon({
     );
   }
 
+  if (action === "Computer") {
+    return (
+      <IconBase {...props}>
+        <rect x="3.5" y="5" width="17" height="11" rx="1.5" />
+        <path d="M8 20h8M12 16v4" />
+        <path d="M7 9h5M7 12h8" />
+      </IconBase>
+    );
+  }
+
   if (action === "MCP") {
     return (
       <IconBase {...props}>

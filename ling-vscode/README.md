@@ -17,9 +17,10 @@ Requires **Windows x64** and **VS Code 1.96+**.
 - **Chat and tools**: streaming replies, tool cards, file reads and edits, search, and command execution.
 - **Approvals and diffs**: native diffs before writes; normal commands and sensitive operations require approval by default.
 - **Plan mode**: read-only exploration that writes an implementation plan to `.agents/plans/`. Open the plan in the editor, then use the `Build plan…` CodeLens or the Build button on the chat card.
+- **Computer use (Windows)**: observe and operate native applications through unified screenshot/UI Automation observations. One action is allowed per observation and returns a fresh state. A takeover approval covers the desktop for the current agent run, with a blue frame, light outer halo, centered HUD, physical-Esc stop, and an always-available Stop control.
 - **Comment generation**: click `Generate comment` above a function, method, or class to generate a Python docstring or TS/JS JSDoc. Existing comments are included so the model can keep what is correct and fill in what is missing.
 - **Context**: editor and terminal selections, images, files, PDF/DOCX/PPTX.
-- **Skills**: built-in `pdf`, `pptx`, `docx`, `inline-visualization`, `browser-bridge`, `frontend-design`, and `ling-self`, plus user-global `~/.agents/skills` and workspace skills. Built-ins take precedence.
+- **Skills**: built-in `pdf`, `pptx`, `docx`, `inline-visualization`, `browser-bridge`, `frontend-design`, `computer-use`, and `ling-self`, plus user-global `~/.agents/skills` and workspace skills. Built-ins take precedence.
 - **Questions**: when the model needs a decision, it shows an interactive question card.
 - **History**: isolated per workspace, with search, delete, single-message delete, and regenerate; the last conversation is restored when the panel reopens.
 - **Works without a folder**: with no folder open, Ling uses a fixed scratch workspace.
@@ -118,6 +119,22 @@ Ling can drive the Edge browser you are already using. Install the **Kro Browser
 - The model checks `extension_status` first. If the extension is not connected, it stops and asks you to fix it; it does not silently fall back to another browser.
 - Clicking, typing, and opening/closing tabs require approval; `execute_script` always requires approval.
 - Plan mode allows only read-only actions such as `extension_status`, `list_pages`, `read_state`, and `extract`.
+
+### Computer use (Windows)
+
+Ling can inspect and operate native Windows applications through UI Automation. This is for app windows that are not covered by the Kro Bridge, not for web pages.
+
+- `computer_list` shows windows and monitors; `computer_observe` returns one point-in-time `observation_id` with a screenshot, UIA refs, focused element, and document text; `computer_launch` opens an app and waits for its window; `computer_focus` restores and foregrounds an existing window; `computer_stop` ends control.
+- `computer_act` performs exactly one action from the latest observation and immediately returns a fresh observation. UIA actions (`click`, `set_value`, `type`, `press_key`, `focus`, `toggle`, `expand`/`collapse`, `select`, `scroll`, `drag`) use refs from that observation. Coordinate actions (`click_at`, `scroll_at`, `drag_at`, and `type` with x/y) use its screenshot pixels. Stale observations and captures are rejected. `type` pastes through the helper's clipboard and restores text content; it never shells out to PowerShell. `press_key` accepts both `"ctrl+s"` and `key: "s", modifiers: ["ctrl"]`.
+- `computer_observe` and `computer_screenshot` are read-only and do not need takeover. Screenshots are saved under `%LOCALAPPDATA%\ling-agent\computer\captures\` and attached to the tool result. Terminals, password managers, the lock screen, and elevated windows are blocked. Use `computer_observe` for normal work and `computer_screenshot` only when a screenshot-only compatibility call is needed; screenshots are not stored in SQLite.
+- `computer_launch` resolves Windows system paths and App Paths instead of relying on `PATH`, waits for the new window, and returns its id. If the app is already running, including a window hidden to the tray, it restores and reuses that window instead of starting a second instance. Use it for native apps; `run_command` is for shell work and has its own approvals, so it can interrupt a control session.
+- `computer_list` and `computer_observe` are read-only. The first `computer_act` opens a **takeover** approval. Approving covers the whole desktop for the control session: later actions on other windows do not ask again.
+- While controlling, every monitor gets a solid blue inner frame, a light outer halo, and a centered top HUD. Press a physical `Esc` (or `Ctrl+Alt+Shift+Backspace`), use the chat banner, or use the status bar to stop. The session also ends automatically when the agent run finishes, and on timeout (10 minutes), 90 seconds of idling, or sidecar exit; the overlay and banner disappear with it.
+- Terminals, password managers, UAC/secure desktop, the lock screen, and elevated windows are never controllable. Elevated windows can be observed, but values are redacted. Settings → Computer use can disable the feature, change TTL/idle timeouts, and add more blocked executables.
+- Actions use UIA patterns first; click/scroll/drag fall back to `SendInput`. Text input uses the clipboard when it only contains text and falls back to Unicode `SendInput`. Screenshot-coordinate clicking supports Qt, Electron, and custom-drawn apps; there is no OCR, so the model inspects the returned image directly.
+- Audit events are written to `%LOCALAPPDATA%\ling-agent\computer\audit-YYYY-MM-DD.jsonl` (30-day retention by default). Input text and values are never logged.
+
+Plan mode allows `computer_list`, `computer_observe`, `computer_screenshot`, and `computer_stop`; `computer_act` requires leaving Plan mode.
 
 ### MCP
 
@@ -239,7 +256,7 @@ Built-ins take precedence; a same-name global or workspace skill cannot override
 
 Ling puts only a skill's `name` and `description` into context. When the model decides to use one, it calls `load_skill` for the full body, then uses `skill_path` / `scripts_path` for scripts.
 
-Built-in skills: `pdf`, `pptx`, `docx`, `inline-visualization`, `browser-bridge`, `frontend-design`, `ling-self`.
+Built-in skills: `pdf`, `pptx`, `docx`, `inline-visualization`, `browser-bridge`, `frontend-design`, `computer-use`, `ling-self`.
 
 PDF/PPTX/DOCX generation and conversion scripts depend on external tools such as `uv`, pandoc, LibreOffice, and Chrome. Missing tools produce clear command errors without affecting skill loading.
 

@@ -2317,6 +2317,12 @@ class LingRpcSessionTests(unittest.IsolatedAsyncioTestCase):
                     "LING_APPROVAL_TIMEOUT_SECONDS": "45",
                     "LING_CONTEXT_WINDOW_TOKENS": "200000",
                     "LING_KEEP_LAST_USER_TURNS": "3",
+                    "LING_COMPUTER_ENABLED": "0",
+                    "LING_COMPUTER_SESSION_TTL_SECONDS": "1200",
+                    "LING_COMPUTER_SESSION_IDLE_SECONDS": "45",
+                    "LING_COMPUTER_DENIED_APPS": "slack.exe;discord.exe",
+                    "LING_COMPUTER_AUDIT_ENABLED": "0",
+                    "LING_COMPUTER_AUDIT_ROOT": str(root / "audit"),
                 },
             ):
                 service = SessionService(
@@ -2339,6 +2345,19 @@ class LingRpcSessionTests(unittest.IsolatedAsyncioTestCase):
                 self.assertEqual(
                     service._config.approval_timeout_seconds,
                     45.0,
+                )
+                computer = service._config.computer_use
+                self.assertFalse(computer.enabled)
+                self.assertEqual(computer.session_ttl_seconds, 1200.0)
+                self.assertEqual(computer.session_idle_seconds, 45.0)
+                self.assertEqual(
+                    computer.denied_apps,
+                    ("slack.exe", "discord.exe"),
+                )
+                self.assertFalse(computer.audit_enabled)
+                self.assertEqual(
+                    computer.audit_root,
+                    str(root / "audit"),
                 )
                 self.assertEqual(
                     service._config.compaction.window_nominal_tokens,

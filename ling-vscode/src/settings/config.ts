@@ -25,6 +25,11 @@ export interface LingSettings {
   embeddingModel: string;
   embeddingBaseUrl: string;
   embeddingApiKey: string;
+  computerUseEnabled: boolean;
+  computerSessionTtlSeconds: number;
+  computerSessionIdleSeconds: number;
+  computerDeniedApps: string;
+  computerAuditEnabled: boolean;
 }
 
 export interface MigrationResult {
@@ -51,6 +56,11 @@ export const DEFAULT_SETTINGS: LingSettings = {
   embeddingModel: "text-embedding-v4",
   embeddingBaseUrl: DEFAULT_EMBEDDING_BASE_URL,
   embeddingApiKey: "",
+  computerUseEnabled: true,
+  computerSessionTtlSeconds: 600,
+  computerSessionIdleSeconds: 90,
+  computerDeniedApps: "",
+  computerAuditEnabled: true,
 };
 
 const KEY_ENV_VARS = [
@@ -214,6 +224,30 @@ function normalizeSettings(value: unknown): LingSettings {
     embeddingModel,
     embeddingBaseUrl,
     embeddingApiKey,
+    computerUseEnabled: boolSetting(
+      record.computerUseEnabled,
+      true,
+    ),
+    computerSessionTtlSeconds: intSetting(
+      record.computerSessionTtlSeconds,
+      600,
+      30,
+      3600,
+    ),
+    computerSessionIdleSeconds: intSetting(
+      record.computerSessionIdleSeconds,
+      90,
+      10,
+      3600,
+    ),
+    computerDeniedApps:
+      typeof record.computerDeniedApps === "string"
+        ? record.computerDeniedApps.trim()
+        : "",
+    computerAuditEnabled: boolSetting(
+      record.computerAuditEnabled,
+      true,
+    ),
   };
 }
 
@@ -225,6 +259,10 @@ function normalizeEffort(value: unknown): EffortLevel {
     value === "max"
     ? value
     : "high";
+}
+
+function boolSetting(value: unknown, fallback: boolean): boolean {
+  return typeof value === "boolean" ? value : fallback;
 }
 
 function intSetting(

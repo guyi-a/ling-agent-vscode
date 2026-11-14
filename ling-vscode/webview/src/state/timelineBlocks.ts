@@ -50,6 +50,7 @@ export type ToolGroupCategory =
   | "edit"
   | "run"
   | "browser"
+  | "computer"
   | "web"
   | "collab"
   | "flow"
@@ -326,6 +327,9 @@ export function classifyToolCategory(
   if (name === "browser_bridge") {
     return "browser";
   }
+  if (name.startsWith("computer_")) {
+    return "computer";
+  }
   if (name === "web_search" || name === "web_fetch") {
     return "web";
   }
@@ -410,6 +414,26 @@ function summarizeToolGroup(
   }
   if (category === "browser") {
     return `浏览器操作 ${tools.length} 次`;
+  }
+  if (category === "computer") {
+    const count = (name: string) =>
+      tools.filter((tool) => toolName(tool) === name).length;
+    const listCount = count("computer_list");
+    const observeCount = count("computer_observe");
+    const launchCount = count("computer_launch");
+    const actCount = count("computer_act");
+    const stopCount = count("computer_stop");
+    return (
+      [
+        listCount > 0 ? `窗口 ${listCount} 次` : "",
+        observeCount > 0 ? `观察 ${observeCount} 次` : "",
+        launchCount > 0 ? `启动 ${launchCount} 次` : "",
+        actCount > 0 ? `操作 ${actCount} 次` : "",
+        stopCount > 0 ? `停止 ${stopCount} 次` : "",
+      ]
+        .filter(Boolean)
+        .join(" · ") || `桌面操作 ${tools.length} 次`
+    );
   }
   if (category === "web") {
     const searchCount = tools.filter(

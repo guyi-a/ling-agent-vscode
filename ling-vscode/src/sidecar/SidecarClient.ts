@@ -41,6 +41,11 @@ export interface SidecarSettings {
   embeddingModel?: string;
   embeddingBaseUrl?: string;
   embeddingApiKey?: string;
+  computerUseEnabled?: boolean;
+  computerSessionTtlSeconds?: number;
+  computerSessionIdleSeconds?: number;
+  computerDeniedApps?: string;
+  computerAuditEnabled?: boolean;
 }
 
 export interface SidecarClientOptions extends SidecarSettings {
@@ -121,6 +126,11 @@ export function buildSidecarEnv(
   delete env.LING_EMBEDDING_MODEL;
   delete env.LING_EMBEDDING_BASE_URL;
   delete env.LING_EMBEDDING_API_KEY;
+  delete env.LING_COMPUTER_ENABLED;
+  delete env.LING_COMPUTER_SESSION_TTL_SECONDS;
+  delete env.LING_COMPUTER_SESSION_IDLE_SECONDS;
+  delete env.LING_COMPUTER_DENIED_APPS;
+  delete env.LING_COMPUTER_AUDIT_ENABLED;
   env.PYTHONIOENCODING = "utf-8";
   env.PYTHONUNBUFFERED = "1";
   env.PYTHONUTF8 = "1";
@@ -176,7 +186,40 @@ export function buildSidecarEnv(
     "LING_BROWSER_BRIDGE_PORT",
     settings.browserBridgePort,
   );
+  setBooleanEnv(
+    env,
+    "LING_COMPUTER_ENABLED",
+    settings.computerUseEnabled,
+  );
+  setNumberEnv(
+    env,
+    "LING_COMPUTER_SESSION_TTL_SECONDS",
+    settings.computerSessionTtlSeconds,
+  );
+  setNumberEnv(
+    env,
+    "LING_COMPUTER_SESSION_IDLE_SECONDS",
+    settings.computerSessionIdleSeconds,
+  );
+  setBooleanEnv(
+    env,
+    "LING_COMPUTER_AUDIT_ENABLED",
+    settings.computerAuditEnabled,
+  );
+  if (settings.computerDeniedApps) {
+    env.LING_COMPUTER_DENIED_APPS = settings.computerDeniedApps;
+  }
   return env;
+}
+
+function setBooleanEnv(
+  env: NodeJS.ProcessEnv,
+  name: string,
+  value: boolean | undefined,
+): void {
+  if (value !== undefined) {
+    env[name] = value ? "1" : "0";
+  }
 }
 
 function setNumberEnv(
@@ -231,6 +274,11 @@ export class SidecarClient {
       embeddingModel: options.embeddingModel,
       embeddingBaseUrl: options.embeddingBaseUrl,
       embeddingApiKey: options.embeddingApiKey,
+      computerUseEnabled: options.computerUseEnabled,
+      computerSessionTtlSeconds: options.computerSessionTtlSeconds,
+      computerSessionIdleSeconds: options.computerSessionIdleSeconds,
+      computerDeniedApps: options.computerDeniedApps,
+      computerAuditEnabled: options.computerAuditEnabled,
     };
   }
 

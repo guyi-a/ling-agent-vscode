@@ -24,6 +24,11 @@ async function main(): Promise<void> {
     assert.equal(missing.effort, "high");
     assert.equal(missing.maxSteps, 50);
     assert.equal(missing.embeddingModel, "text-embedding-v4");
+    assert.equal(missing.computerUseEnabled, true);
+    assert.equal(missing.computerSessionTtlSeconds, 600);
+    assert.equal(missing.computerSessionIdleSeconds, 90);
+    assert.equal(missing.computerDeniedApps, "");
+    assert.equal(missing.computerAuditEnabled, true);
 
     const rawPath = join(dir, "raw.json");
     await writeFile(
@@ -40,6 +45,11 @@ async function main(): Promise<void> {
         approvalTimeoutSeconds: 45,
         contextWindowTokens: 2048,
         keepLastUserTurns: 51,
+        computerUseEnabled: "yes",
+        computerSessionTtlSeconds: 5,
+        computerSessionIdleSeconds: 99999,
+        computerDeniedApps: "  slack.exe, discord.exe  ",
+        computerAuditEnabled: null,
       }),
       "utf8",
     );
@@ -57,6 +67,14 @@ async function main(): Promise<void> {
       DEFAULT_SETTINGS.embeddingBaseUrl,
     );
     assert.equal(normalized.embeddingApiKey, "");
+    assert.equal(normalized.computerUseEnabled, true);
+    assert.equal(normalized.computerSessionTtlSeconds, 600);
+    assert.equal(normalized.computerSessionIdleSeconds, 90);
+    assert.equal(
+      normalized.computerDeniedApps,
+      "slack.exe, discord.exe",
+    );
+    assert.equal(normalized.computerAuditEnabled, true);
 
     const migrated = migrateApiKey(
       { ...DEFAULT_SETTINGS, apiKey: "" },
@@ -76,6 +94,11 @@ async function main(): Promise<void> {
         embeddingBaseUrl:
           "https://dashscope.aliyuncs.com/compatible-mode/v1///",
         embeddingApiKey: " sk-embed ",
+        computerUseEnabled: false,
+        computerSessionTtlSeconds: 1200,
+        computerSessionIdleSeconds: 45,
+        computerDeniedApps: " slack.exe, discord.exe ",
+        computerAuditEnabled: false,
       },
       configPath,
     );
@@ -91,6 +114,11 @@ async function main(): Promise<void> {
       "https://dashscope.aliyuncs.com/compatible-mode/v1",
     );
     assert.equal(loaded.embeddingApiKey, "sk-embed");
+    assert.equal(loaded.computerUseEnabled, false);
+    assert.equal(loaded.computerSessionTtlSeconds, 1200);
+    assert.equal(loaded.computerSessionIdleSeconds, 45);
+    assert.equal(loaded.computerDeniedApps, "slack.exe, discord.exe");
+    assert.equal(loaded.computerAuditEnabled, false);
 
     const raw = JSON.parse(await readFile(configPath, "utf8")) as {
       version: number;

@@ -44,6 +44,18 @@ const result = spawnSync(
     "mcp.client",
     "--collect-submodules",
     "mcp.shared",
+    ...(process.platform === "win32"
+      ? [
+          "--collect-submodules",
+          "comtypes",
+          "--hidden-import",
+          "comtypes.client",
+          "--hidden-import",
+          "comtypes.gen",
+          "--collect-all",
+          "PIL",
+        ]
+      : []),
     "--distpath",
     outputDir,
     "--workpath",

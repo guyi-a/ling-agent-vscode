@@ -80,6 +80,42 @@ async function main(): Promise<void> {
   );
   assert.equal(noBrowser.LING_BROWSER_BRIDGE_PORT, undefined);
 
+  const computer = buildSidecarEnv(
+    {
+      computerUseEnabled: false,
+      computerSessionTtlSeconds: 1200,
+      computerSessionIdleSeconds: 45,
+      computerDeniedApps: "slack.exe,discord.exe",
+      computerAuditEnabled: false,
+    },
+    { ...process.env, LING_COMPUTER_ENABLED: "1" },
+  );
+  assert.equal(computer.LING_COMPUTER_ENABLED, "0");
+  assert.equal(computer.LING_COMPUTER_SESSION_TTL_SECONDS, "1200");
+  assert.equal(computer.LING_COMPUTER_SESSION_IDLE_SECONDS, "45");
+  assert.equal(
+    computer.LING_COMPUTER_DENIED_APPS,
+    "slack.exe,discord.exe",
+  );
+  assert.equal(computer.LING_COMPUTER_AUDIT_ENABLED, "0");
+  const noComputer = buildSidecarEnv(
+    {},
+    {
+      ...process.env,
+      LING_COMPUTER_ENABLED: "1",
+      LING_COMPUTER_AUDIT_ENABLED: "1",
+    },
+  );
+  assert.equal(noComputer.LING_COMPUTER_ENABLED, undefined);
+  assert.equal(noComputer.LING_COMPUTER_AUDIT_ENABLED, undefined);
+
+  const enabledComputer = buildSidecarEnv(
+    { computerUseEnabled: true, computerAuditEnabled: true },
+    process.env,
+  );
+  assert.equal(enabledComputer.LING_COMPUTER_ENABLED, "1");
+  assert.equal(enabledComputer.LING_COMPUTER_AUDIT_ENABLED, "1");
+
   const embedded = buildSidecarEnv(
     {
       embeddingModel: "text-embedding-v4",

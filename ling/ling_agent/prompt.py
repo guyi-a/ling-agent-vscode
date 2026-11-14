@@ -28,6 +28,13 @@ DEFAULT_TOOL_NAMES = (
     "ask_user",
     "spawn_subagent",
     "browser_bridge",
+    "computer_list",
+    "computer_observe",
+    "computer_screenshot",
+    "computer_launch",
+    "computer_focus",
+    "computer_act",
+    "computer_stop",
     "web_search",
     "web_fetch",
     "memory_list",
@@ -144,6 +151,24 @@ BROWSER_POLICY = """## Browser
   screens back to the user. Do not attempt to bypass them.
 - execute_script must be a single-line IIFE returning a JSON-serialisable
   value; keep the result KB-sized."""
+
+COMPUTER_POLICY = """## Computer use
+
+- Before the first computer-use action in a task, call
+  load_skill(name="computer-use") and follow that playbook. It covers
+  UIA refs, screenshot coordinates, input, launch/reuse, errors, and the
+  control-session lifecycle.
+- Discover windows with computer_list, then get one point-in-time window
+  state with computer_observe. Perform exactly one computer_act action
+  from that observation; the result includes a fresh observation for the
+  next step. Open apps with computer_launch and foreground windows with
+  computer_focus; end control with computer_stop.
+- One takeover approval covers the desktop for the current run. Control
+  ends automatically when the run finishes; a later turn asks again.
+- Never use run_command, PowerShell, Set-Clipboard, SendKeys, or Win32
+  window scripts for desktop actions. Use browser_bridge for web pages.
+- Terminals, password managers, UAC/secure desktop, the lock screen, and
+  elevated windows are never controllable; do not try to bypass them."""
 
 WEB_POLICY = """## Web
 
@@ -334,6 +359,10 @@ def build_system_prompt(
     if "browser_bridge" in names:
         sections.append(BROWSER_POLICY)
         sources.append("browser")
+
+    if {"computer_list", "computer_observe"} & set(names):
+        sections.append(COMPUTER_POLICY)
+        sources.append("computer")
 
     if {"web_search", "web_fetch"} & set(names):
         sections.append(WEB_POLICY)

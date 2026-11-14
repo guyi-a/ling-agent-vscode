@@ -57,6 +57,7 @@ from .background_tasks import (
     background_notification_message,
 )
 from .command_calls import CommandCallRegistry
+from .computer.service import ComputerService
 from .config import HarnessConfig
 from .effects import ApprovalMode
 from .events import (
@@ -96,6 +97,7 @@ from .web import WebClient
 from .tools import (
     create_browser_tools,
     create_command_tools,
+    create_computer_tools,
     create_document_tools,
     create_file_tools,
     create_mutation_tools,
@@ -166,6 +168,7 @@ class CodingAgent:
         embedder: "Embedder | None" = None,
         subagent_trace_sink: TraceSink | None = None,
         browser_bridge: BrowserBridge | None = None,
+        computer_service: ComputerService | None = None,
         web_client: WebClient | None = None,
         global_memory_root: str | Path | None = None,
         background_tasks: BackgroundTaskManager | None = None,
@@ -188,6 +191,7 @@ class CodingAgent:
         self.questions = questions
         self.embedder = embedder
         self.browser_bridge = browser_bridge
+        self.computer_service = computer_service
         self.web_client = web_client
         self.global_memory_root = (
             Path(global_memory_root).expanduser().resolve()
@@ -372,6 +376,16 @@ class CodingAgent:
                     self.config,
                 )
             )
+        if (
+            self.computer_service is not None
+            and self.config.computer_use.enabled
+        ):
+            tools.extend(
+                create_computer_tools(
+                    self.computer_service,
+                    self.config,
+                )
+            )
         if self.web_client is not None:
             tools.extend(
                 create_web_tools(
@@ -394,6 +408,10 @@ class CodingAgent:
                 "todo_write",
                 "spawn_subagent",
                 "browser_bridge",
+                "computer_list",
+                "computer_observe",
+                "computer_screenshot",
+                "computer_stop",
                 "web_search",
                 "web_fetch",
                 "memory_list",
@@ -435,6 +453,8 @@ class CodingAgent:
             ),
         )
         session.register_hooks(hooks)
+        if self.computer_service is not None:
+            self.computer_service.bind_session(session.session_id)
         hooks.register(
             PreToolUse,
             create_read_guard_hook(self.workspace, self.file_reads),
@@ -449,6 +469,24 @@ class CodingAgent:
                 timeout_seconds=self.config.approval_timeout_seconds,
                 effect_resolver=lambda call: (
                     self.mcp_manager.effect_for_tool(call.name)
+                ),
+                deny_checker=lambda effect, call: (
+                    self.computer_service.deny_reason(effect)
+                    if self.computer_service is not None
+                    else None
+                ),
+                grant_checker=lambda effect, call: (
+                    self.computer_service.is_covered(effect)
+                    if self.computer_service is not None
+                    else False
+                ),
+                on_grant=lambda effect, approval_id: (
+                    self.computer_service.note_approval_granted(
+                        effect,
+                        approval_id,
+                    )
+                    if self.computer_service is not None
+                    else None
                 ),
                 local_settings=self.local_settings,
             ),
@@ -838,6 +876,11 @@ class CodingAgent:
             await self._command_calls.end_run()
             if self.questions is not None:
                 await self.questions.cancel_all("Run finished")
+            if self.computer_service is not None:
+                try:
+                    await self.computer_service.stop("run_finished")
+                except Exception:
+                    pass
 
         if result.stop_reason == "error" and has_attachments:
             result.error_message = friendly_provider_error(

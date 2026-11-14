@@ -18,6 +18,7 @@ from ling_core import AgentFatalError, HookCallback, PreToolUse, PreToolUseDecis
 from .effects import (
     ApprovalMode,
     BrowserEffect,
+    ComputerEffect,
     Effect,
     FilesystemWriteEffect,
     McpAdminEffect,
@@ -39,6 +40,7 @@ class ApprovalKind(str, Enum):
     BROWSER = "browser"
     UNKNOWN = "unknown"
     MCP = "mcp"
+    COMPUTER = "computer"
 
 
 class ApprovalDecision(str, Enum):
@@ -238,6 +240,8 @@ def _kind_for_effect(effect: Effect) -> ApprovalKind:
         return ApprovalKind.COMMAND
     if isinstance(effect, BrowserEffect):
         return ApprovalKind.BROWSER
+    if isinstance(effect, ComputerEffect):
+        return ApprovalKind.COMPUTER
     if isinstance(effect, (McpEffect, McpAdminEffect)):
         return ApprovalKind.MCP
     return ApprovalKind.UNKNOWN
@@ -255,6 +259,9 @@ def create_approval_hook(
     manager: ApprovalManager | None = None,
     timeout_seconds: float = 120.0,
     effect_resolver: Callable[[ToolCall], Effect | None] | None = None,
+    deny_checker: Callable[[Effect, ToolCall], str | None] | None = None,
+    grant_checker: Callable[[Effect, ToolCall], bool] | None = None,
+    on_grant: Callable[[Effect, str], None] | None = None,
     local_settings: LocalSettingsStore | None = None,
 ) -> HookCallback:
     if timeout_seconds <= 0:
@@ -282,6 +289,15 @@ def create_approval_hook(
             denial = plan_mode_denial(effect)
             if denial is not None:
                 return _deny(denial)
+        if deny_checker is not None:
+            denial = deny_checker(effect, event.call)
+            if denial:
+                return _deny(denial)
+        if grant_checker is not None and grant_checker(
+            effect,
+            event.call,
+        ):
+            return PreToolUseDecision(allowed=True)
         reason = approval_reason(effect, mode_now, event.call)
         if reason is None:
             return None
@@ -294,6 +310,33 @@ def create_approval_hook(
             return PreToolUseDecision(allowed=True)
         if handler is None:
             return _deny("Approval required but no handler is configured")
+        if (
+            isinstance(effect, ComputerEffect)
+            and effect.classification != "readonly"
+        ):
+            pending_computer = next(
+                (
+                    pending
+                    for pending in approval_manager.pending()
+                    if pending.kind is ApprovalKind.COMPUTER
+                ),
+                None,
+            )
+            if pending_computer is not None:
+                result = await approval_manager.wait(
+                    pending_computer.approval_id,
+                    cancel_event=event.context.cancel_event,
+                    timeout_seconds=timeout_seconds,
+                )
+                if result is ApprovalDecision.ALLOW_ONCE:
+                    if on_grant is not None:
+                        with suppress(Exception):
+                            on_grant(
+                                effect,
+                                pending_computer.approval_id,
+                            )
+                    return PreToolUseDecision(allowed=True)
+                return _deny("Permission denied")
 
         request = approval_manager.open(
             call_id=event.call.id,
@@ -353,6 +396,9 @@ def create_approval_hook(
                     await present_task
 
         if result is ApprovalDecision.ALLOW_ONCE:
+            if on_grant is not None:
+                with suppress(Exception):
+                    on_grant(effect, request.approval_id)
             return PreToolUseDecision(allowed=True)
         feedback_getter = getattr(handler, "feedback_for", None)
         if callable(feedback_getter):

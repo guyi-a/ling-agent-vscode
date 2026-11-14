@@ -15,6 +15,7 @@ from ling_agent import (
     BackgroundTaskNoticeItem,
     CompactionTimelineItem,
     CommittedEventEnvelope,
+    ComputerEffect,
     ProcessExecEffect,
     QuestionRequest,
     StreamFrameEnvelope,
@@ -39,6 +40,7 @@ def snapshot_to_ui(
     pending_questions: Sequence[QuestionRequest] | None = None,
     queued_messages: Sequence[dict[str, Any]] | None = None,
     background_tasks: Sequence[dict[str, Any]] | None = None,
+    computer_session: dict[str, Any] | None = None,
 ) -> UiEvent:
     pending: list[dict[str, Any]] = []
     entries: list[dict[str, Any]] = []
@@ -185,6 +187,7 @@ def snapshot_to_ui(
         ],
         "queuedMessages": list(queued_messages or ()),
         "backgroundTasks": list(background_tasks or ()),
+        "computerSession": computer_session,
         "error": _run_error(snapshot) if phase == "failed" else None,
         "sessionId": snapshot.session_id,
         "runs": [
@@ -242,11 +245,15 @@ class RpcEventSink:
         background_tasks: (
             Callable[[], Awaitable[list[dict[str, Any]]]] | None
         ) = None,
+        computer_session: (
+            Callable[[], dict[str, Any] | None] | None
+        ) = None,
     ) -> None:
         self._emit = emit
         self._approval_mode = approval_mode
         self._queued_messages = queued_messages
         self._background_tasks = background_tasks
+        self._computer_session = computer_session
         self._projector: TimelineProjector | None = None
         self._session_id: str | None = None
 
@@ -276,6 +283,11 @@ class RpcEventSink:
             approval_mode=mode,
             queued_messages=queued,
             background_tasks=tasks,
+            computer_session=(
+                self._computer_session()
+                if self._computer_session is not None
+                else None
+            ),
         )
         await self._emit(
             {
@@ -412,7 +424,11 @@ def _tool_entry(
         "id": item.id,
         "name": item.name,
         "action": _tool_action(item.name),
-        "target": _tool_target(item.name, item.arguments),
+        "target": (
+            _computer_tool_target(item)
+            if item.name.startswith("computer_")
+            else _tool_target(item.name, item.arguments)
+        ),
         "status": (
             "Waiting"
             if waiting_for_approval
@@ -443,6 +459,9 @@ def _tool_detail(item: ToolTimelineItem) -> dict[str, Any] | None:
         "memory_delete",
     ):
         return _memory_tool_detail(item)
+
+    if item.name.startswith("computer_"):
+        return _computer_tool_detail(item)
 
     if item.name.startswith("mcp_"):
         return {
@@ -869,6 +888,29 @@ def _diff_rows(
 
 def _approval_request(item: ApprovalTimelineItem) -> dict[str, Any]:
     request = item.request
+    extra: dict[str, Any] = {}
+    effect = request.effect
+    if isinstance(effect, ComputerEffect):
+        arguments = request.arguments
+        actions = arguments.get("actions")
+        first_action = effect.action
+        if not first_action and isinstance(actions, list) and actions:
+            first = actions[0]
+            if isinstance(first, dict):
+                action_type = first.get("type")
+                if isinstance(action_type, str):
+                    first_action = action_type
+        computer: dict[str, Any] = {}
+        if effect.window_id:
+            computer["windowId"] = effect.window_id
+        if effect.app:
+            computer["app"] = effect.app
+        if first_action:
+            computer["firstAction"] = first_action
+        extra = {
+            "kind": "computer-takeover",
+            "computer": computer,
+        }
     return {
         "id": item.id,
         "tool": request.tool_name,
@@ -887,6 +929,7 @@ def _approval_request(item: ApprovalTimelineItem) -> dict[str, Any]:
             if (allow_always := _approval_allow_always(request)) is not None
             else {}
         ),
+        **extra,
     }
 
 
@@ -938,6 +981,7 @@ def _tool_action(
     "Plan",
     "Subagent",
     "Browser",
+    "Computer",
     "Web",
     "Memory",
     "MCP",
@@ -948,6 +992,8 @@ def _tool_action(
         return "Subagent"
     if name == "browser_bridge":
         return "Browser"
+    if name.startswith("computer_"):
+        return "Computer"
     if name in ("web_search", "web_fetch"):
         return "Web"
     if name in (
@@ -971,6 +1017,156 @@ def _tool_action(
     if name in ("write_file", "edit_file"):
         return "Edit"
     return "Run"
+
+
+def _computer_tool_target(item: ToolTimelineItem) -> str:
+    arguments = item.arguments if isinstance(item.arguments, dict) else {}
+    metadata = item.details if isinstance(item.details, dict) else {}
+    title = metadata.get("title")
+    title = title[:50] if isinstance(title, str) else ""
+    app = metadata.get("app")
+    app = app[:60] if isinstance(app, str) else ""
+    window_id = arguments.get("window_id")
+    if not isinstance(window_id, str) or not window_id:
+        fallback_id = metadata.get("windowId")
+        window_id = fallback_id if isinstance(fallback_id, str) else ""
+    if item.name == "computer_list":
+        label = "List windows"
+        query = arguments.get("query")
+        if isinstance(query, str) and query.strip():
+            label += f' · "{query.strip()[:40]}"'
+        count = metadata.get("windowCount")
+        if isinstance(count, int) and not isinstance(count, bool):
+            label += f" · {count}"
+    elif item.name == "computer_observe":
+        subject = (
+            f'"{title}"'
+            if title
+            else (app or window_id or "window")
+        )
+        label = f"Observe {subject[:62]}"
+        nodes = metadata.get("nodeCount")
+        if isinstance(nodes, int) and not isinstance(nodes, bool):
+            label += f" · {nodes} nodes"
+    elif item.name == "computer_screenshot":
+        subject = (
+            f'"{title}"'
+            if title
+            else (app or window_id or "window")
+        )
+        label = f"Screenshot {subject[:56]}"
+        width = metadata.get("width")
+        height = metadata.get("height")
+        if (
+            isinstance(width, int)
+            and not isinstance(width, bool)
+            and isinstance(height, int)
+            and not isinstance(height, bool)
+        ):
+            label += f" · {width}x{height}"
+    elif item.name == "computer_focus":
+        subject = (
+            f'"{title}"'
+            if title
+            else (app or window_id or "window")
+        )
+        label = f"Focus {subject[:62]}"
+        if metadata.get("foreground") is False:
+            label += " · not foreground"
+    elif item.name == "computer_launch":
+        target = app or arguments.get("app")
+        target = target[:60] if isinstance(target, str) else "app"
+        verb = "Reuse" if metadata.get("reused") else "Launch"
+        label = f"{verb} {target}"
+        if title:
+            label += f' -> "{title}"'
+    elif item.name == "computer_act":
+        summary = metadata.get("actionSummary")
+        summary = summary[:40] if isinstance(summary, str) else ""
+        subject = (
+            f'"{title}"'
+            if title
+            else (app or window_id or "window")
+        )
+        label = (
+            f"Act {summary} in {subject[:62]}"
+            if summary
+            else f"Act on {subject[:62]}"
+        )
+    elif item.name == "computer_stop":
+        label = "Stop control"
+    else:
+        label = _tool_target(item.name, arguments)
+    error = metadata.get("error")
+    if isinstance(error, str) and error:
+        label += f" · {error[:32]}"
+    return label
+
+
+def _computer_tool_detail(item: ToolTimelineItem) -> dict[str, Any]:
+    metadata = item.details if isinstance(item.details, dict) else {}
+    operation = metadata.get("operation")
+    if operation not in (
+        "list",
+        "observe",
+        "screenshot",
+        "launch",
+        "focus",
+        "act",
+        "stop",
+    ):
+        operation = (
+            "observe" if item.name == "computer_observe" else "list"
+        )
+    detail: dict[str, Any] = {"kind": "computer", "operation": operation}
+    for key in (
+        "windowId",
+        "title",
+        "app",
+        "observationId",
+        "snapshotId",
+        "captureId",
+        "method",
+    ):
+        value = metadata.get(key)
+        if isinstance(value, str) and value:
+            detail[key] = value[:200]
+    for key in (
+        "nodeCount",
+        "windowCount",
+        "displayCount",
+        "pid",
+        "width",
+        "height",
+    ):
+        value = metadata.get(key)
+        if isinstance(value, int) and not isinstance(value, bool):
+            detail[key] = value
+    scale = metadata.get("scale")
+    if isinstance(scale, (int, float)) and not isinstance(scale, bool):
+        detail["scale"] = float(scale)
+    for key in (
+        "complete",
+        "truncated",
+        "timedOut",
+        "reused",
+        "foreground",
+        "restored",
+    ):
+        value = metadata.get(key)
+        if isinstance(value, bool):
+            detail[key] = value
+    preview = metadata.get("preview")
+    if isinstance(preview, str) and preview:
+        detail["preview"] = preview[:1200]
+    error = metadata.get("error")
+    if isinstance(error, str) and error:
+        detail["error"] = error[:300]
+    if item.error and "error" not in detail:
+        detail["error"] = item.error[:300]
+    if "preview" not in detail and item.output:
+        detail["preview"] = item.output[:1200]
+    return detail
 
 
 def _tool_target(name: str, arguments: dict[str, object]) -> str:
@@ -1046,6 +1242,20 @@ def _tool_target(name: str, arguments: dict[str, object]) -> str:
             if isinstance(target, str)
             else label
         )
+    if name.startswith("computer_"):
+        if name == "computer_list":
+            return "windows"
+        if name == "computer_launch":
+            app = arguments.get("app")
+            return (
+                app[:60]
+                if isinstance(app, str) and app
+                else "launch"
+            )
+        window_id = arguments.get("window_id")
+        if isinstance(window_id, str) and window_id:
+            return window_id[:60]
+        return name.removeprefix("computer_")
     if name == "spawn_subagent":
         value = arguments.get("description")
         if isinstance(value, str) and value:

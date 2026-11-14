@@ -28,11 +28,13 @@ from .changes import (
     ChangeError,
     RunChange,
 )
-from .config import HarnessConfig
+from .computer.service import ComputerService
+from .config import ComputerUseConfig, HarnessConfig
 from .effects import (
     ApprovalMode,
     BrowserEffect,
     CommandClassification,
+    ComputerEffect,
     Effect,
     FilesystemReadEffect,
     FilesystemWriteEffect,
@@ -165,6 +167,7 @@ from .web import WebClient, WebClientError
 from .tools import (
     create_browser_tools,
     create_command_tools,
+    create_computer_tools,
     create_document_tools,
     create_file_tools,
     create_mutation_tools,
@@ -223,6 +226,8 @@ __all__ = [
     "EventSink",
     "FilesystemReadEffect",
     "FilesystemWriteEffect",
+    "ComputerService",
+    "ComputerUseConfig",
     "HarnessConfig",
     "MetaEffect",
     "McpAdminEffect",
@@ -269,6 +274,7 @@ __all__ = [
     "BrowserBridgeError",
     "BrowserClient",
     "BrowserEffect",
+    "ComputerEffect",
     "BrowserPage",
     "BrowserRegistry",
     "ChangeConflictError",
@@ -304,6 +310,7 @@ __all__ = [
     "create_approval_hook",
     "create_browser_tools",
     "create_command_tools",
+    "create_computer_tools",
     "create_document_tools",
     "create_file_tools",
     "create_mutation_tools",

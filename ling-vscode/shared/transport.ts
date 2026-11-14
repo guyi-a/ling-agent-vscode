@@ -6,6 +6,7 @@ import type {
   BackgroundTaskNoticeView,
   BackgroundTaskView,
   AskUserQuestion,
+  ControlSessionView,
   DiffView,
   EffortLevel,
   HistorySession,
@@ -108,6 +109,11 @@ export type WebviewToHostMessage =
       embeddingModel: string;
       embeddingBaseUrl: string;
       embeddingApiKey: string;
+      computerUseEnabled: boolean;
+      computerSessionTtlSeconds: number;
+      computerSessionIdleSeconds: number;
+      computerDeniedApps: string;
+      computerAuditEnabled: boolean;
     }
   | {
       type: "effort.change";
@@ -143,6 +149,9 @@ export type WebviewToHostMessage =
   | {
       type: "session.queued.sendNow";
       queuedId: string;
+    }
+  | {
+      type: "control.stop";
     }
   | {
       type: "run.cancel";
@@ -294,6 +303,7 @@ export function isWebviewToHostMessage(
       );
     case "session.new":
     case "history.list":
+    case "control.stop":
       return true;
     case "run.cancel":
       return true;
@@ -414,7 +424,12 @@ export function isWebviewToHostMessage(
         isNonNegativeInteger(value.keepLastUserTurns) &&
         typeof value.embeddingModel === "string" &&
         typeof value.embeddingBaseUrl === "string" &&
-        typeof value.embeddingApiKey === "string"
+        typeof value.embeddingApiKey === "string" &&
+        typeof value.computerUseEnabled === "boolean" &&
+        isPositiveInteger(value.computerSessionTtlSeconds) &&
+        isPositiveInteger(value.computerSessionIdleSeconds) &&
+        typeof value.computerDeniedApps === "string" &&
+        typeof value.computerAuditEnabled === "boolean"
       );
     case "effort.change":
       return isEffortLevel(value.effort);
@@ -615,6 +630,12 @@ export function isUiEvent(value: unknown): value is UiEvent {
       );
     case "background.updated":
       return isBackgroundTaskView(value.task);
+    case "computer.session.updated":
+      return (
+        (value.session === null ||
+          isControlSessionView(value.session)) &&
+        typeof value.reason === "string"
+      );
     case "run.cancelled":
       return true;
     case "run.failed":
@@ -666,6 +687,11 @@ function isSettingsView(value: unknown): value is SettingsView {
     typeof value.embeddingModel === "string" &&
     typeof value.embeddingBaseUrl === "string" &&
     typeof value.embeddingApiKey === "string" &&
+    typeof value.computerUseEnabled === "boolean" &&
+    isPositiveInteger(value.computerSessionTtlSeconds) &&
+    isPositiveInteger(value.computerSessionIdleSeconds) &&
+    typeof value.computerDeniedApps === "string" &&
+    typeof value.computerAuditEnabled === "boolean" &&
     Array.isArray(value.skills) &&
     value.skills.every(isSkillStatus) &&
     Array.isArray(value.memories) &&
@@ -814,6 +840,9 @@ function isSessionSnapshot(value: unknown): value is SessionSnapshot {
         value.runs.every(isTimelineRun))) &&
     Array.isArray(value.pendingApprovals) &&
     value.pendingApprovals.every(isApprovalRequest) &&
+    (value.computerSession === undefined ||
+      value.computerSession === null ||
+      isControlSessionView(value.computerSession)) &&
     (value.pendingQuestions === undefined ||
       (Array.isArray(value.pendingQuestions) &&
         value.pendingQuestions.every(isQuestionRequest))) &&
@@ -1009,7 +1038,38 @@ function isApprovalRequest(value: unknown): value is ApprovalRequest {
     typeof value.effectDigest === "string" &&
     isStringArray(value.details) &&
     (value.allowAlways === undefined ||
-      isApprovalAllowAlways(value.allowAlways))
+      isApprovalAllowAlways(value.allowAlways)) &&
+    (value.kind === undefined || value.kind === "computer-takeover") &&
+    (value.computer === undefined ||
+      isComputerTakeoverInfo(value.computer))
+  );
+}
+
+function isComputerTakeoverInfo(value: unknown): boolean {
+  return (
+    isRecord(value) &&
+    (value.app === undefined || typeof value.app === "string") &&
+    (value.windowId === undefined ||
+      typeof value.windowId === "string") &&
+    (value.windowTitle === undefined ||
+      typeof value.windowTitle === "string") &&
+    (value.firstAction === undefined ||
+      typeof value.firstAction === "string")
+  );
+}
+
+function isControlSessionView(value: unknown): value is ControlSessionView {
+  return (
+    isRecord(value) &&
+    typeof value.id === "string" &&
+    value.id.length > 0 &&
+    typeof value.app === "string" &&
+    typeof value.windowTitle === "string" &&
+    (value.windowId === undefined ||
+      typeof value.windowId === "string") &&
+    typeof value.startedAt === "number" &&
+    typeof value.expiresAt === "number" &&
+    typeof value.idleExpiresAt === "number"
   );
 }
 
@@ -1075,6 +1135,55 @@ function isToolDetail(value: unknown): value is ToolDetail {
   }
   if (value.kind === "text") {
     return typeof value.text === "string";
+  }
+  if (value.kind === "computer") {
+    return (
+      (value.operation === "list" ||
+        value.operation === "observe" ||
+        value.operation === "screenshot" ||
+        value.operation === "launch" ||
+        value.operation === "focus" ||
+        value.operation === "act" ||
+        value.operation === "stop") &&
+      (value.windowId === undefined ||
+        typeof value.windowId === "string") &&
+      (value.title === undefined || typeof value.title === "string") &&
+      (value.app === undefined || typeof value.app === "string") &&
+      (value.pid === undefined || typeof value.pid === "number") &&
+      (value.timedOut === undefined ||
+        typeof value.timedOut === "boolean") &&
+      (value.reused === undefined ||
+        typeof value.reused === "boolean") &&
+      (value.foreground === undefined ||
+        typeof value.foreground === "boolean") &&
+      (value.restored === undefined ||
+        typeof value.restored === "boolean") &&
+      (value.observationId === undefined ||
+        typeof value.observationId === "string") &&
+      (value.captureId === undefined ||
+        typeof value.captureId === "string") &&
+      (value.width === undefined || typeof value.width === "number") &&
+      (value.height === undefined ||
+        typeof value.height === "number") &&
+      (value.scale === undefined || typeof value.scale === "number") &&
+      (value.method === undefined ||
+        typeof value.method === "string") &&
+      (value.snapshotId === undefined ||
+        typeof value.snapshotId === "string") &&
+      (value.nodeCount === undefined ||
+        typeof value.nodeCount === "number") &&
+      (value.complete === undefined ||
+        typeof value.complete === "boolean") &&
+      (value.truncated === undefined ||
+        typeof value.truncated === "boolean") &&
+      (value.windowCount === undefined ||
+        typeof value.windowCount === "number") &&
+      (value.displayCount === undefined ||
+        typeof value.displayCount === "number") &&
+      (value.preview === undefined ||
+        typeof value.preview === "string") &&
+      (value.error === undefined || typeof value.error === "string")
+    );
   }
   if (value.kind === "plan") {
     return (
@@ -1279,6 +1388,7 @@ function isToolAction(value: unknown): value is ToolAction {
     value === "Plan" ||
     value === "Subagent" ||
     value === "Browser" ||
+    value === "Computer" ||
     value === "Web" ||
     value === "Memory" ||
     value === "MCP"

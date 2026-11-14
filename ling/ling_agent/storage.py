@@ -31,6 +31,7 @@ from .paths import default_state_root
 from .selections import UserSelection
 from .effects import (
     ApprovalMode,
+    ComputerEffect,
     FilesystemReadEffect,
     FilesystemWriteEffect,
     McpAdminEffect,
@@ -404,6 +405,14 @@ def _effect_from_dict(data: dict[str, Any]) -> Any:
         return MetaEffect(operation=str(data.get("operation", "meta")))
     if kind == "subagent":
         return SubagentEffect()
+    if kind == "computer_use":
+        return ComputerEffect(
+            operation=data.get("operation", "list"),
+            classification=data.get("classification", "readonly"),
+            window_id=str(data.get("window_id", "")),
+            app=str(data.get("app", "")),
+            action=str(data.get("action", "")),
+        )
     if kind == "mcp_call":
         return McpEffect(
             server=data["server"],

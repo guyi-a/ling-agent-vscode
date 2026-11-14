@@ -722,6 +722,24 @@ button:disabled {
   margin-bottom: 16px;
 }
 
+.settings-checkbox {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  cursor: pointer;
+}
+
+.settings-checkbox input {
+  width: 15px;
+  height: 15px;
+  margin: 0;
+  accent-color: var(--accent);
+}
+
+.settings-checkbox .settings-label {
+  margin: 0;
+}
+
 .settings-section {
   margin: 22px 0 12px;
   padding-top: 14px;
@@ -2295,6 +2313,45 @@ button:disabled {
   white-space: pre-wrap;
 }
 
+.tool-computer {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 9px 12px 10px;
+}
+
+.tool-computer__meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 8px;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.tool-computer__meta strong {
+  color: var(--text);
+  font-size: 11px;
+}
+
+.tool-computer__meta code {
+  font-family: var(--mono);
+  font-size: 10.5px;
+}
+
+.tool-computer__title {
+  overflow-wrap: anywhere;
+}
+
+.tool-computer__error {
+  color: var(--error);
+}
+
+.tool-computer .tool-text {
+  max-height: 320px;
+  padding: 0;
+}
+
 .tool-memory-list {
   display: grid;
   gap: 8px;
@@ -2943,6 +3000,71 @@ button:disabled {
   font-size: 11px;
   line-height: 1.5;
   white-space: pre-wrap;
+}
+
+.control-session-banner {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  max-width: 560px;
+  margin: 0 auto 8px;
+  padding: 8px 12px;
+  border: 1px solid rgba(59, 130, 246, 0.45);
+  border-radius: 8px;
+  color: var(--text);
+  background: rgba(59, 130, 246, 0.12);
+  font-size: 12px;
+}
+
+.control-session-banner__dot {
+  flex: 0 0 auto;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #3b82f6;
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.2);
+}
+
+.control-session-banner__text {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.control-session-banner__text span {
+  overflow-wrap: anywhere;
+  color: var(--muted);
+}
+
+.control-session-banner__stop {
+  flex: 0 0 auto;
+}
+
+.approval-computer {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 9px 0 0;
+  padding: 8px 9px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  color: var(--muted);
+  background: var(--canvas);
+  font-size: 11.5px;
+  line-height: 1.5;
+}
+
+.approval-computer p {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.approval-computer strong {
+  color: var(--text);
+  font-weight: 600;
 }
 
 .approval-kicker {

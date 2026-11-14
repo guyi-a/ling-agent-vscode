@@ -9,6 +9,7 @@ import type {
 } from "../types";
 import { ChevronIcon, ToolIcon } from "./icons";
 import { MarkdownMessage } from "./MarkdownMessage";
+import { ToolComputer } from "./ToolComputer";
 
 interface ToolCallCardProps {
   call: ToolCall;
@@ -132,6 +133,8 @@ export function ToolCallCard({
               <ToolMemory detail={call.detail} />
             ) : call.detail.kind === "skill" ? (
               <ToolSkill detail={call.detail} />
+            ) : call.detail.kind === "computer" ? (
+              <ToolComputer detail={call.detail} />
             ) : (
               <pre className="tool-text">{call.detail.text}</pre>
             )

@@ -25,7 +25,14 @@ export function ApprovalTakeover({
   const [detailsOpen, setDetailsOpen] = useState(false);
   const [feedback, setFeedback] = useState("");
   const feedbackRef = useRef<HTMLInputElement>(null);
-  const allowAlways = request.allowAlways;
+  const computer =
+    request.kind === "computer-takeover"
+      ? request.computer
+      : undefined;
+  const allowAlways =
+    request.kind === "computer-takeover"
+      ? undefined
+      : request.allowAlways;
 
   useEffect(() => {
     setDetailsOpen(false);
@@ -68,17 +75,21 @@ export function ApprovalTakeover({
 
   const fileName = baseName(request.target);
   const title =
-    request.tool === "write_file"
-      ? `Allow write to ${request.target}?`
-      : request.tool === "edit_file"
-        ? `Allow editing ${request.target}?`
-        : request.tool === "run_command"
-          ? "Allow running this command?"
-          : `Allow ${request.action} to ${request.target}?`;
+    request.kind === "computer-takeover"
+      ? "Allow Ling to control this computer?"
+      : request.tool === "write_file"
+        ? `Allow write to ${request.target}?`
+        : request.tool === "edit_file"
+          ? `Allow editing ${request.target}?`
+          : request.tool === "run_command"
+            ? "Allow running this command?"
+            : `Allow ${request.action} to ${request.target}?`;
   const reason =
-    request.tool === "edit_file" || request.tool === "write_file"
-      ? "Review the proposed change before applying it."
-      : request.reason;
+    request.kind === "computer-takeover"
+      ? "After approval, Ling can operate any non-sensitive app until you press Stop or the session times out. Terminals, password managers, UAC, and elevated windows stay blocked."
+      : request.tool === "edit_file" || request.tool === "write_file"
+        ? "Review the proposed change before applying it."
+        : request.reason;
 
   return (
     <section className="approval-takeover" aria-label="Approval required">
@@ -99,6 +110,24 @@ export function ApprovalTakeover({
 
       {request.tool === "run_command" ? (
         <pre className="approval-command">{request.target}</pre>
+      ) : request.kind === "computer-takeover" ? (
+        <div className="approval-computer">
+          {computer?.windowId ? (
+            <p>
+              <strong>Window:</strong> {computer.windowId}
+            </p>
+          ) : null}
+          {computer?.app ? (
+            <p>
+              <strong>App:</strong> {computer.app}
+            </p>
+          ) : null}
+          {computer?.firstAction ? (
+            <p>
+              <strong>First action:</strong> {computer.firstAction}
+            </p>
+          ) : null}
+        </div>
       ) : (
         <p className="approval-path" title={request.target}>
           {fileName}
@@ -132,7 +161,11 @@ export function ApprovalTakeover({
           onClick={() => onResolve(true)}
         >
           <span className="approval-option-key">1</span>
-          <span>Yes</span>
+          <span>
+            {request.kind === "computer-takeover"
+              ? "Start control"
+              : "Yes"}
+          </span>
         </button>
         {allowAlways ? (
           <button
