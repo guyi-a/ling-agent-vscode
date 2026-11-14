@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="media/icon.png" width="72" alt="Ling" />
+  <img src="https://raw.githubusercontent.com/guyi-a/ling-agent-vscode/main/ling-vscode/media/icon.png" width="72" alt="Ling" />
 </p>
 
 <h1 align="center">Ling</h1>

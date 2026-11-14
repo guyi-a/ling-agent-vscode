@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.2.2
+
+- Fix the broken README logo in the extension details page by referencing the
+  icon with an absolute URL.
+- Connect model and embedding requests directly instead of through the system
+  proxy, avoiding extra latency when a VPN is enabled.
+
 ## 1.2.1
 
 - Show the Copy, Delete, and Regenerate actions only on the final assistant

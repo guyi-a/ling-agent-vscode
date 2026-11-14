@@ -70,7 +70,8 @@ class OpenAIEmbedder:
         self._base_url = _endpoint(base_url)
         self._batch_size = max(1, batch_size)
         self._dimensions = dimensions
-        self._client = client or httpx.Client(timeout=timeout)
+        # Embedding requests connect directly; system proxy settings add latency.
+        self._client = client or httpx.Client(timeout=timeout, trust_env=False)
         self._cooldown_until = 0.0
 
     def embed(self, texts: Sequence[str]) -> list[list[float]]:

@@ -770,7 +770,8 @@ async def _run(
                     return
 
                 timeout = httpx.Timeout(60.0, read=300.0)
-                async with httpx.AsyncClient(timeout=timeout) as owned:
+                # Model requests connect directly; system proxy settings add latency.
+                async with httpx.AsyncClient(timeout=timeout, trust_env=False) as owned:
                     await _consume_response(
                         owned,
                         url,
