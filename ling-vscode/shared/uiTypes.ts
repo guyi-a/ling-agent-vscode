@@ -6,6 +6,7 @@ export type ToolAction =
   | "Run"
   | "Skill"
   | "Plan"
+  | "Todo"
   | "Subagent"
   | "Browser"
   | "Computer"

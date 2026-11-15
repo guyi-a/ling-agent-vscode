@@ -227,7 +227,7 @@ def test_mcp_effect_and_approval_policy() -> None:
             workspace,
         )
         assert isinstance(admin, McpAdminEffect)
-        assert approval_reason(admin, ApprovalMode.AUTO) is not None
+        assert approval_reason(admin, ApprovalMode.AUTO) is None
 
     local = McpEffect(
         server="local",
@@ -254,10 +254,7 @@ def test_mcp_effect_and_approval_policy() -> None:
         open_world=True,
         trusted_annotations=False,
     )
-    assert approval_reason(
-        destructive,
-        ApprovalMode.AUTO,
-    ) == "MCP destructive tool remote/delete"
+    assert approval_reason(destructive, ApprovalMode.AUTO) is None
 
 
 if __name__ == "__main__":

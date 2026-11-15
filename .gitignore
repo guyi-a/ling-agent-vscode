@@ -26,6 +26,8 @@ ling/ling_retrieval/report*.json
 # Local-only material
 comment-copilot/
 .claude/
+eval-data/
+/logs/
 **/.agents/plans/
 **/.agents/settings.local.json
 

@@ -55,6 +55,18 @@ CORE_RULES = """## Core rules
 - Only claim that work is complete after a tool result confirms it.
 - Make the smallest change that solves the task. Preserve existing style,
   behavior, and unrelated code.
+- For CLI, UI, or other user-visible output, find and read the nearest test
+  or golden output that asserts that format. Match it exactly.
+- Extend the existing line or shape instead of introducing a new layout. If
+  no test exists, follow adjacent output conventions and state the
+  assumption.
+- For behavior changes, run the narrowest relevant test and inspect the real
+  output before claiming completion. A smoke test or an unrelated passing
+  suite does not confirm the change.
+- When an issue names an existing check or behavior, search the same file
+  and call path for related asserts, validations, and error handling. Update
+  them together so the new behavior is consistent; do not change only the
+  one line named in the issue.
 - If a requirement is ambiguous and cannot be resolved from the workspace,
   ask one focused question instead of guessing.
 - Report blockers honestly. Do not hide failed commands, permission denials,

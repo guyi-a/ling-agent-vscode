@@ -156,11 +156,9 @@ async def _hook_modes(root: Path) -> None:
     assert await auto(command_event) is None
     assert len(auto_handler.requests) == 0
 
-    destructive = await auto(destructive_event)
-    assert destructive is not None and destructive.allowed
-    sensitive = await auto(sensitive_event)
-    assert sensitive is not None and sensitive.allowed
-    assert len(auto_handler.requests) == 2
+    assert await auto(destructive_event) is None
+    assert await auto(sensitive_event) is None
+    assert len(auto_handler.requests) == 0
 
 
 def test_approval_hook_modes() -> None:

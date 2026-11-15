@@ -550,16 +550,14 @@ def approval_reason(
             return None
         target = effect.app or effect.window_id or "desktop"
         return f"computer {effect.operation} ({target})"
+    if mode is ApprovalMode.AUTO:
+        return None
     if isinstance(effect, BrowserEffect):
         if effect.classification == "readonly":
             return None
         if effect.classification == "script":
             return "browser execute_script"
-        return (
-            None
-            if mode is ApprovalMode.AUTO
-            else f"browser {effect.action}"
-        )
+        return f"browser {effect.action}"
     if isinstance(effect, McpAdminEffect):
         target = f" {effect.server}" if effect.server else ""
         return f"MCP server {effect.operation}{target}"
@@ -567,11 +565,7 @@ def approval_reason(
         if effect.destructive:
             return f"MCP destructive tool {effect.server}/{effect.tool}"
         if effect.transport == "stdio":
-            return (
-                None
-                if mode is ApprovalMode.AUTO
-                else f"MCP stdio tool {effect.server}/{effect.tool}"
-            )
+            return f"MCP stdio tool {effect.server}/{effect.tool}"
         if effect.private_host:
             return f"MCP private network tool {effect.server}/{effect.tool}"
         return None
@@ -598,11 +592,7 @@ def approval_reason(
             return "destructive command"
         if effect.classification == "harmless":
             return None
-        return (
-            None
-            if mode is ApprovalMode.AUTO
-            else f"{effect.classification} command"
-        )
+        return f"{effect.classification} command"
 
     return None
 

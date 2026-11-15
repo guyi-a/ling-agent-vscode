@@ -242,9 +242,7 @@ def test_browser_effect_classification_and_approval() -> None:
 
         script = effect("execute_script")
         assert script.classification == "script"
-        assert approval_reason(script, ApprovalMode.AUTO) == (
-            "browser execute_script"
-        )
+        assert approval_reason(script, ApprovalMode.AUTO) is None
         assert approval_reason(script, ApprovalMode.PLAN) == (
             "browser execute_script"
         )

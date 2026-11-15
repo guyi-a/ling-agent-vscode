@@ -53,7 +53,9 @@ export type ToolGroupCategory =
   | "computer"
   | "web"
   | "collab"
-  | "flow"
+  | "skill"
+  | "plan"
+  | "todo"
   | "memory"
   | "mcp"
   | "other";
@@ -336,15 +338,14 @@ export function classifyToolCategory(
   if (name === "spawn_subagent") {
     return "collab";
   }
-  if (
-    [
-      "load_skill",
-      "create_plan",
-      "update_plan",
-      "todo_write",
-    ].includes(name)
-  ) {
-    return "flow";
+  if (name === "load_skill") {
+    return "skill";
+  }
+  if (["create_plan", "update_plan"].includes(name)) {
+    return "plan";
+  }
+  if (name === "todo_write") {
+    return "todo";
   }
   if (
     [
@@ -449,11 +450,66 @@ function summarizeToolGroup(
       .filter(Boolean)
       .join(" · ");
   }
+  if (category === "skill") {
+    const names = [
+      ...new Set(
+        tools
+          .filter((tool) => toolName(tool) === "load_skill")
+          .map((tool) => tool.target.trim())
+          .filter(Boolean),
+      ),
+    ];
+    if (names.length === 0) {
+      return `技能调用 ${tools.length} 次`;
+    }
+    const visible = names.slice(0, 2).join("、");
+    return names.length > 2
+      ? `${visible} 等 ${names.length} 个`
+      : visible;
+  }
+  if (category === "plan") {
+    const createCount = tools.filter(
+      (tool) => toolName(tool) === "create_plan",
+    ).length;
+    const updateCount = tools.filter(
+      (tool) => toolName(tool) === "update_plan",
+    ).length;
+    const names = [
+      ...new Set(
+        tools
+          .map((tool) => tool.target.trim().split(/[\\/]/).at(-1))
+          .filter((name): name is string => Boolean(name)),
+      ),
+    ];
+    const operations = [
+      createCount > 0 ? `创建 ${createCount} 次` : "",
+      updateCount > 0 ? `更新 ${updateCount} 次` : "",
+    ]
+      .filter(Boolean)
+      .join(" · ");
+    const target =
+      names.length === 1
+        ? names[0]
+        : names.length > 1
+          ? `${names.slice(0, 2).join("、")} 等 ${names.length} 个`
+          : "";
+    return [target, operations].filter(Boolean).join(" · ");
+  }
+  if (category === "todo") {
+    const itemCount = tools.reduce(
+      (count, tool) =>
+        count +
+        (tool.detail?.kind === "todo"
+          ? tool.detail.todos.length
+          : 0),
+      0,
+    );
+    return itemCount > 0
+      ? `更新 ${itemCount} 项`
+      : `更新 ${tools.length} 次`;
+  }
   if (category === "collab") {
     return `子代理 ${tools.length} 个`;
-  }
-  if (category === "flow") {
-    return `流程操作 ${tools.length} 次`;
   }
   if (category === "memory") {
     const readCount = tools.filter(

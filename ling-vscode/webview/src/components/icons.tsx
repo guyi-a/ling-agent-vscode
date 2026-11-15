@@ -222,6 +222,16 @@ export function ToolIcon({
     return <PlanIcon {...props} />;
   }
 
+  if (action === "Todo") {
+    return (
+      <IconBase {...props}>
+        <path d="M5 6h2v2H5zM9 7h10" />
+        <path d="M5 11h2v2H5zM9 12h10" />
+        <path d="M5 16h2v2H5zM9 17h10" />
+      </IconBase>
+    );
+  }
+
   if (action === "Browser") {
     return (
       <IconBase {...props}>

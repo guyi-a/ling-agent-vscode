@@ -17,7 +17,7 @@ Python 侧从下往上：
 2. `ling_core/` — 通用 `Agent` 循环（`max_steps`、并行工具、`hooks.py` 的 pre/post tool hooks、`tools.py` 的 `ToolRegistry`）。不含任何产品逻辑。
 3. `ling_agent/` — 产品层：`session.py` 开会话并提交事件、`approvals.py` 审批策略、`tools/*`（files / search / commands / documents / computer / browser / web / subagents / skills / memory / plan / spill）、`computer/` Windows 桌面控制服务与 helper（统一 observation、UIA、截图、输入、启动、控制 overlay、审计）、`command_process.py` 命令进程与输出、`command_calls.py` 前台命令转后台状态机、`background_tasks.py` 后台任务调度、`compaction/` 上下文压缩、`storage.py` SQLite 历史、`workspace.py` 路径沙箱。
 4. `ling_rpc/` — stdio 上的 NDJSON JSON-RPC（`PROTOCOL_VERSION = 1`）。`server.py` 按 method 字符串分发：`initialize` `ping` `shutdown` `session.*` `changes.*` `mcp.*` `background.*` `tool.background` `approval.resolve` `question.answer` `memory.*` `comment.generate` `index.*`；`ui_events.py` 把事件推给前端。
-5. 侧挂模块：`ling_retrieval/`（BM25 + 向量 RRF，带 `eval.py` 与评测报告）、`ling_comment/`（docstring / JSDoc 生成）。
+5. 侧挂模块：`ling_retrieval/`（BM25 + 向量 RRF，带 `eval.py` 与评测报告）、`ling_comment/`（docstring / JSDoc 生成）、`ling_eval/`（headless 评测与 SWE-bench 适配，不属于 sidecar 运行时）。
 
 TypeScript 侧：`src/extension.ts` 是入口，`src/sidecar/SidecarClient.ts` 拉起 Python 并收发 RPC，`src/diffController.ts` 负责原生 diff 审批，`webview/src/state/timelineReducer.ts` 是前端唯一的状态机。webview 构建产物在 `ling-vscode/media/webview/`（gitignore）。
 

@@ -1894,6 +1894,161 @@ assert.deepEqual(
   [["read-a"], ["active-read"]],
 );
 
+const skillGroupBlocks = groupTimelineEntries([
+  {
+    kind: "tool",
+    tool: {
+      id: "skill-ling-self",
+      name: "load_skill",
+      action: "Skill",
+      target: "ling-self",
+      status: "Completed",
+      details: [],
+    },
+  },
+  {
+    kind: "tool",
+    tool: {
+      id: "skill-inline",
+      name: "load_skill",
+      action: "Skill",
+      target: "inline-visualization",
+      status: "Completed",
+      details: [],
+    },
+  },
+  {
+    kind: "tool",
+    tool: {
+      id: "web-after-skills",
+      name: "web_search",
+      action: "Web",
+      target: "typescript",
+      status: "Completed",
+      details: [],
+    },
+  },
+] as TimelineEntry[]);
+const skillGroup = skillGroupBlocks.find(
+  (block) => block.kind === "tool-group" &&
+    block.category === "skill",
+);
+assert.equal(
+  skillGroup?.kind === "tool-group"
+    ? skillGroup.summary
+    : undefined,
+  "ling-self、inline-visualization",
+);
+assert.equal(
+  classifyToolCategory({
+    id: "plan-category",
+    name: "create_plan",
+    action: "Skill",
+    target: "plan",
+    status: "Completed",
+    details: [],
+  }),
+  "plan",
+);
+assert.equal(
+  classifyToolCategory({
+    id: "todo-category",
+    name: "todo_write",
+    action: "Todo",
+    target: "3 todos",
+    status: "Completed",
+    details: [],
+  }),
+  "todo",
+);
+
+const planningGroupBlocks = groupTimelineEntries([
+  {
+    kind: "tool",
+    tool: {
+      id: "plan-create",
+      name: "create_plan",
+      action: "Plan",
+      target: ".agents/plans/implementation.md",
+      status: "Completed",
+      details: [],
+    },
+  },
+  {
+    kind: "tool",
+    tool: {
+      id: "plan-update",
+      name: "update_plan",
+      action: "Plan",
+      target: ".agents/plans/implementation.md",
+      status: "Completed",
+      details: [],
+    },
+  },
+  {
+    kind: "tool",
+    tool: {
+      id: "todo-first",
+      name: "todo_write",
+      action: "Todo",
+      target: "2 todos",
+      status: "Completed",
+      details: [],
+      detail: {
+        kind: "todo",
+        todos: [
+          { id: "1", content: "Inspect", status: "completed" },
+          { id: "2", content: "Patch", status: "in_progress" },
+        ],
+      },
+    },
+  },
+  {
+    kind: "tool",
+    tool: {
+      id: "todo-second",
+      name: "todo_write",
+      action: "Todo",
+      target: "1 todo",
+      status: "Completed",
+      details: [],
+      detail: {
+        kind: "todo",
+        todos: [
+          { id: "3", content: "Verify", status: "pending" },
+        ],
+      },
+    },
+  },
+  {
+    kind: "tool",
+    tool: {
+      id: "web-after-planning",
+      name: "web_search",
+      action: "Web",
+      target: "typescript",
+      status: "Completed",
+      details: [],
+    },
+  },
+] as TimelineEntry[]);
+const planGroup = planningGroupBlocks.find(
+  (block) => block.kind === "tool-group" &&
+    block.category === "plan",
+);
+assert.equal(
+  planGroup?.kind === "tool-group" ? planGroup.summary : undefined,
+  "implementation.md · 创建 1 次 · 更新 1 次",
+);
+const todoGroup = planningGroupBlocks.find(
+  (block) => block.kind === "tool-group" &&
+    block.category === "todo",
+);
+assert.equal(
+  todoGroup?.kind === "tool-group" ? todoGroup.summary : undefined,
+  "更新 3 项",
+);
+
 const editGroupBlocks = groupTimelineEntries([
   {
     kind: "tool",

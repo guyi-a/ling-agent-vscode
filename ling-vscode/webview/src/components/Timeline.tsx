@@ -506,17 +506,19 @@ function getBlockKey(block: TimelineBlock): string {
 
 function categoryLabel(category: ToolGroupCategory): string {
   return {
-    explore: "探索",
-    edit: "修改",
-    run: "执行",
+    explore: "文件探索",
+    edit: "代码修改",
+    run: "命令执行",
     browser: "浏览器",
-    computer: "桌面",
-    web: "联网",
-    collab: "协作",
-    flow: "流程",
-    memory: "记忆",
-    mcp: "MCP",
-    other: "其他",
+    computer: "桌面控制",
+    web: "网页访问",
+    collab: "子代理",
+    skill: "技能调用",
+    plan: "计划",
+    todo: "待办",
+    memory: "记忆管理",
+    mcp: "MCP 工具",
+    other: "其他工具",
   }[category];
 }
 
@@ -532,7 +534,9 @@ const CATEGORY_ACTIONS: Record<ToolGroupCategory, ToolAction> = {
   computer: "Computer",
   web: "Web",
   collab: "Subagent",
-  flow: "Skill",
+  skill: "Skill",
+  plan: "Plan",
+  todo: "Todo",
   memory: "Memory",
   mcp: "MCP",
   other: "Read",

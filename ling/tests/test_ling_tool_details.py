@@ -83,6 +83,33 @@ def test_mcp_management_targets_show_operation() -> None:
         assert entry["tool"]["target"] == expected
 
 
+def test_plan_and_todo_have_distinct_actions() -> None:
+    plan = _tool_entry(
+        _item(
+            "create_plan",
+            {"plan": "# Implementation\n\nShip it."},
+        ),
+        waiting_for_approval=False,
+    )
+    todo = _tool_entry(
+        _item(
+            "todo_write",
+            {
+                "todos": [
+                    {
+                        "id": "1",
+                        "content": "Inspect",
+                        "status": "completed",
+                    }
+                ]
+            },
+        ),
+        waiting_for_approval=False,
+    )
+    assert plan["tool"]["action"] == "Plan"
+    assert todo["tool"]["action"] == "Todo"
+
+
 def _approval_payload(
     tool_name: str,
     arguments: dict,

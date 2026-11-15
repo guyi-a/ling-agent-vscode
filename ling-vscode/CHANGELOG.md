@@ -1,5 +1,14 @@
 # Changelog
 
+## 2.1.0
+
+- Change Auto mode to run every operation without prompting except a non-readonly Computer Use takeover. This includes destructive commands, sensitive file writes, browser scripts, MCP administration/tools, and unknown tools; Plan restrictions, workspace path checks, and Computer Use hard denies still apply.
+- Add distinct timeline grouping for skills, plans, and todos: skill cards list the invoked skill names, plan cards show create/update counts, todo cards show updated item counts, and the remaining tool categories get more specific labels.
+- Add the `Todo` tool action and icon so `todo_write` is no longer rendered as a plan operation.
+- Improve the agent prompt to match the nearest test or golden output, extend existing output shapes, verify behavior with the narrowest relevant test, and update related asserts, validation, and error handling together.
+- Add the internal `ling_eval` headless runner and SWE-bench adapter, including host/Docker/official-image execution, token accounting, and official grading summaries, for finding missing harness capabilities.
+- Update the built-in `ling-self` skill and README to describe Auto mode's new approval boundary.
+
 ## 2.0.0
 
 - Add Windows computer use through UI Automation: `computer_list`, `computer_observe`, `computer_act`, and `computer_stop`, with a desktop-wide takeover approval, a blue control border, status-bar/banner Stop, and a global stop hotkey.

@@ -117,7 +117,7 @@ Ling can drive the Edge browser you are already using. Install the **Kro Browser
 - In the extension, choose Port Auto detect or enter `17323`, then click Reconnect until Connected.
 - Only one bridge can own port 17323 at a time. If Claude Code's `kro-bridge` MCP is also running, stop or remove it first.
 - The model checks `extension_status` first. If the extension is not connected, it stops and asks you to fix it; it does not silently fall back to another browser.
-- Clicking, typing, and opening/closing tabs require approval; `execute_script` always requires approval.
+- In Manual and Edit automatically, browser mutations require approval; Auto allows browser mutations and `execute_script` without prompting.
 - Plan mode allows only read-only actions such as `extension_status`, `list_pages`, `read_state`, and `extract`.
 
 ### Computer use (Windows)
@@ -152,7 +152,7 @@ Switch modes from the mode button at the bottom-right of the composer, or press 
 
 - **Manual**: writes and normal commands require approval.
 - **Edit automatically**: workspace writes are allowed; normal commands still require approval.
-- **Auto**: normal operations are allowed; dangerous commands and sensitive paths/content still require approval.
+- **Auto**: every operation is allowed without prompting except non-readonly Computer Use takeover. This includes destructive commands, sensitive file writes, browser scripts, MCP administration/tools, and unknown tools. Plan-mode restrictions, workspace path checks, and Computer Use hard denies still apply.
 - **Plan**: read-only exploration; no file edits or commands. The model writes a plan to `.agents/plans/` with `create_plan`, then waits for Build.
 
 In Plan mode, a `Build plan…` CodeLens appears at the top of the plan file, and the plan card in chat also has a Build button. Build first asks for Manual / Edit automatically / Auto, then reads the current file and executes it; edits made in the editor are used as-is.
@@ -179,7 +179,7 @@ You can use the mouse or the number keys:
 }
 ```
 
-`npm:*` is a prefix match. Dangerous commands never use the allowlist and always require approval.
+`npm:*` is a prefix match. In Manual and Edit automatically, dangerous commands never use the allowlist. Auto bypasses command approvals entirely.
 
 Compound commands are split on `&&`, `||`, `;`, `|`, `|&`, `&`, and newlines. Every subcommand must match the allowlist before the command runs without a prompt. Selecting `2` saves a separate rule for each subcommand, up to five. Commands containing `$`, backticks, redirection, newlines, or unparseable syntax still offer only 1/3/4.
 
@@ -362,7 +362,7 @@ The first search builds the vector index synchronously: a few hundred chunks tak
 - With semantic search enabled, code chunk text is sent to your embedding service when indexing; without it, only local keyword search is used.
 - Ling has no cloud proxy and no telemetry.
 - Writes outside the workspace are blocked by default; `write_file` / `edit_file` only modify paths inside the workspace.
-- `run_command` can execute arbitrary PowerShell commands, subject to approval mode; dangerous commands and sensitive operations always require approval.
+- `run_command` can execute arbitrary PowerShell commands subject to approval mode. Manual and Edit automatically still gate risky operations; Auto runs them without prompting.
 - Image attachments are copied to the project's `.agents/attachments/`; conversation history is stored in `%LOCALAPPDATA%\ling-agent\sessions.db`.
 
 ## Known limitations

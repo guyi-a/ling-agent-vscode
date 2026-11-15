@@ -979,6 +979,7 @@ def _tool_action(
     "Run",
     "Skill",
     "Plan",
+    "Todo",
     "Subagent",
     "Browser",
     "Computer",
@@ -986,8 +987,10 @@ def _tool_action(
     "Memory",
     "MCP",
 ]:
-    if name in ("create_plan", "update_plan", "todo_write"):
+    if name in ("create_plan", "update_plan"):
         return "Plan"
+    if name == "todo_write":
+        return "Todo"
     if name == "spawn_subagent":
         return "Subagent"
     if name == "browser_bridge":

@@ -730,7 +730,7 @@ class ChatViewProvider implements vscode.WebviewViewProvider {
       },
       {
         label: "Auto",
-        description: "Approve safe actions, ask before risky ones",
+        description: "Allow all actions; desktop control still needs takeover",
         mode: "auto",
       },
     ];

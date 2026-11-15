@@ -1386,6 +1386,7 @@ function isToolAction(value: unknown): value is ToolAction {
     value === "Run" ||
     value === "Skill" ||
     value === "Plan" ||
+    value === "Todo" ||
     value === "Subagent" ||
     value === "Browser" ||
     value === "Computer" ||

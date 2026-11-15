@@ -27,7 +27,7 @@ const MODES: Array<{
   {
     value: "auto",
     label: "Auto",
-    title: "Allow normal operations, ask before risky operations",
+    title: "Allow every operation except desktop control approval",
   },
   {
     value: "plan",
