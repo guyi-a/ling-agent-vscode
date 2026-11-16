@@ -21,6 +21,7 @@ async function main(): Promise<void> {
   try {
     const missing = await readSettings(configPath);
     assert.deepEqual(missing, DEFAULT_SETTINGS);
+    assert.equal(missing.api, "openai-completions");
     assert.equal(missing.effort, "high");
     assert.equal(missing.maxSteps, 50);
     assert.equal(missing.embeddingModel, "text-embedding-v4");
@@ -38,6 +39,7 @@ async function main(): Promise<void> {
         apiKey: "",
         model: "deepseek-chat",
         baseUrl: "https://api.deepseek.com/v1",
+        api: "grpc",
         effort: "turbo",
         maxSteps: 0,
         maxParallelTools: 99,
@@ -54,6 +56,7 @@ async function main(): Promise<void> {
       "utf8",
     );
     const normalized = await readSettings(rawPath);
+    assert.equal(normalized.api, "openai-completions");
     assert.equal(normalized.effort, "high");
     assert.equal(normalized.maxSteps, 50);
     assert.equal(normalized.maxParallelTools, 4);
@@ -89,6 +92,7 @@ async function main(): Promise<void> {
         ...migrated.settings,
         model: " deepseek-reasoner ",
         baseUrl: "https://example.test/v1///",
+        api: "anthropic-messages",
         effort: "xhigh",
         embeddingModel: " text-embedding-v4 ",
         embeddingBaseUrl:
@@ -106,6 +110,7 @@ async function main(): Promise<void> {
     const loaded = await readSettings(configPath);
     assert.equal(loaded.model, "deepseek-reasoner");
     assert.equal(loaded.baseUrl, "https://example.test/v1");
+    assert.equal(loaded.api, "anthropic-messages");
     assert.equal(loaded.apiKey, "sk-deepseek");
     assert.equal(loaded.effort, "xhigh");
     assert.equal(loaded.embeddingModel, "text-embedding-v4");

@@ -8,6 +8,11 @@ import {
 } from "node:fs/promises";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
+import {
+  DEFAULT_API_PROTOCOL,
+  isApiProtocol,
+  type ApiProtocol,
+} from "../../shared/apiProtocol";
 import type { EffortLevel } from "../../shared/uiTypes";
 
 export interface LingSettings {
@@ -15,6 +20,7 @@ export interface LingSettings {
   apiKey: string;
   model: string;
   baseUrl: string;
+  api: ApiProtocol;
   effort: EffortLevel;
   maxSteps: number;
   maxParallelTools: number;
@@ -44,8 +50,9 @@ export const DEFAULT_EMBEDDING_BASE_URL =
 export const DEFAULT_SETTINGS: LingSettings = {
   version: 1,
   apiKey: "",
-  model: "deepseek-chat",
+  model: "deepseek-flash",
   baseUrl: "https://api.deepseek.com/v1",
+  api: DEFAULT_API_PROTOCOL,
   effort: "high",
   maxSteps: 50,
   maxParallelTools: 4,
@@ -194,6 +201,7 @@ function normalizeSettings(value: unknown): LingSettings {
     apiKey,
     model,
     baseUrl: baseUrl || DEFAULT_SETTINGS.baseUrl,
+    api: normalizeApiProtocol(record.api),
     effort: normalizeEffort(record.effort),
     maxSteps: intSetting(record.maxSteps, 50, 1, 100),
     maxParallelTools: intSetting(record.maxParallelTools, 4, 1, 16),
@@ -249,6 +257,10 @@ function normalizeSettings(value: unknown): LingSettings {
       true,
     ),
   };
+}
+
+function normalizeApiProtocol(value: unknown): ApiProtocol {
+  return isApiProtocol(value) ? value : DEFAULT_API_PROTOCOL;
 }
 
 function normalizeEffort(value: unknown): EffortLevel {

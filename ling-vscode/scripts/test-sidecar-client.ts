@@ -47,6 +47,18 @@ function testSkillsRoot(): void {
 async function main(): Promise<void> {
   testSkillsRoot();
 
+  const settingsClient = new SidecarClient({
+    extensionPath: process.cwd(),
+    api: "anthropic-messages",
+  });
+  const copiedSettings = (
+    settingsClient as unknown as {
+      settings: { api?: string };
+    }
+  ).settings;
+  assert.equal(copiedSettings.api, "anthropic-messages");
+  settingsClient.dispose();
+
   const configured = buildSidecarEnv(
     {
       apiKey: "sk-config",
@@ -68,6 +80,29 @@ async function main(): Promise<void> {
   assert.equal(configured.LING_MODEL, "deepseek-chat");
   assert.equal(configured.LING_API_BASE_URL, "https://api.deepseek.com/v1");
   assert.equal(configured.LING_EMBEDDING_MODEL, undefined);
+
+  const anthropic = buildSidecarEnv(
+    { api: "anthropic-messages" },
+    {
+      ...process.env,
+      LING_API_PROTOCOL: "openai-completions",
+      ANTHROPIC_API_KEY: "stale-key",
+      ANTHROPIC_AUTH_TOKEN: "stale-token",
+      ANTHROPIC_BASE_URL: "https://stale.test",
+      ANTHROPIC_MODEL: "stale-model",
+    },
+  );
+  assert.equal(anthropic.LING_API_PROTOCOL, "anthropic-messages");
+  assert.equal(anthropic.ANTHROPIC_API_KEY, undefined);
+  assert.equal(anthropic.ANTHROPIC_AUTH_TOKEN, undefined);
+  assert.equal(anthropic.ANTHROPIC_BASE_URL, undefined);
+  assert.equal(anthropic.ANTHROPIC_MODEL, undefined);
+
+  const noProtocol = buildSidecarEnv(
+    {},
+    { ...process.env, LING_API_PROTOCOL: "anthropic-messages" },
+  );
+  assert.equal(noProtocol.LING_API_PROTOCOL, undefined);
 
   const browser = buildSidecarEnv(
     { browserBridgePort: 17323 },

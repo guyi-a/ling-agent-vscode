@@ -6,6 +6,8 @@ import { existsSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { createInterface, type Interface } from "node:readline";
 
+import type { ApiProtocol } from "../../shared/apiProtocol";
+
 const DEFAULT_REQUEST_TIMEOUT_MS = 5_000;
 const SHUTDOWN_TIMEOUT_MS = 800;
 const TERMINATE_TIMEOUT_MS = 600;
@@ -31,6 +33,7 @@ export interface SidecarSettings {
   apiKey?: string;
   model?: string;
   baseUrl?: string;
+  api?: ApiProtocol;
   maxSteps?: number;
   maxParallelTools?: number;
   commandTimeoutSeconds?: number;
@@ -114,7 +117,12 @@ export function buildSidecarEnv(
   delete env.OPENAI_API_KEY;
   delete env.LING_MODEL;
   delete env.LING_API_BASE_URL;
+  delete env.LING_API_PROTOCOL;
   delete env.LING_PROVIDER;
+  delete env.ANTHROPIC_API_KEY;
+  delete env.ANTHROPIC_AUTH_TOKEN;
+  delete env.ANTHROPIC_BASE_URL;
+  delete env.ANTHROPIC_MODEL;
   delete env.LING_SKILLS_ROOT;
   delete env.LING_MAX_STEPS;
   delete env.LING_MAX_PARALLEL_TOOLS;
@@ -142,6 +150,9 @@ export function buildSidecarEnv(
   }
   if (settings.baseUrl) {
     env.LING_API_BASE_URL = settings.baseUrl;
+  }
+  if (settings.api) {
+    env.LING_API_PROTOCOL = settings.api;
   }
   if (skillsRoot) {
     env.LING_SKILLS_ROOT = skillsRoot;
@@ -264,6 +275,7 @@ export class SidecarClient {
       apiKey: options.apiKey,
       model: options.model,
       baseUrl: options.baseUrl,
+      api: options.api,
       maxSteps: options.maxSteps,
       maxParallelTools: options.maxParallelTools,
       commandTimeoutSeconds: options.commandTimeoutSeconds,

@@ -30,9 +30,11 @@ Requires **Windows x64** and **VS Code 1.96+**.
 
 1. Install **Ling** from the VS Code Marketplace.
 2. Click the Ling icon in the activity bar to open Chat, or run `Ling: Open Chat` from the command palette.
-3. Click the gear icon in the panel and set **API Key**, **Model**, and **API Base URL**, then save.
+3. Click the gear icon in the panel and set **API Key**, **Model**, **API protocol**, and **API Base URL**, then save.
 
-The default model is `deepseek-chat` and the default base URL is `https://api.deepseek.com/v1`. Any OpenAI Chat Completions-compatible endpoint works.
+The default protocol is **OpenAI Chat Completions** with model `deepseek-flash` and base URL `https://api.deepseek.com/v1`. Choose **Anthropic Messages** for a native `/v1/messages` endpoint; the default becomes `deepseek-flash` at `https://api.deepseek.com/anthropic`. For native Anthropic, use `https://api.anthropic.com` and a Claude model.
+
+Anthropic support covers streaming text, tools, thinking blocks, and images. Prompt caching, token counting, and the Files API are not exposed yet.
 
 Settings are stored in Ling's own file:
 
@@ -327,8 +329,9 @@ Click the gear at the top-right of Chat to open Settings:
 | Setting | Default | Description |
 |---|---|---|
 | API Key | empty | Saving an empty value deletes the stored key |
-| Model | `deepseek-chat` | Model name |
-| API Base URL | `https://api.deepseek.com/v1` | OpenAI-compatible endpoint |
+| Model | `deepseek-flash` | Model name; both protocols default to `deepseek-flash` |
+| API protocol | OpenAI Chat Completions | Must match the endpoint: OpenAI Chat Completions or Anthropic Messages |
+| API Base URL | `https://api.deepseek.com/v1` | Endpoint; Anthropic defaults to `https://api.deepseek.com/anthropic` |
 | Reasoning effort | `High` | Low / Medium / High / Extra high / Max |
 | Diff view | Inline | Or Side by side |
 | Max steps per message | 50 | 1–100 |
@@ -339,7 +342,7 @@ Click the gear at the top-right of Chat to open Settings:
 | Keep recent user turns | 5 | 0–50 |
 | Embedding model | `text-embedding-v4` | Change when switching providers |
 | Embedding base URL | `https://dashscope.aliyuncs.com/compatible-mode/v1` | Change for another compatible service |
-| Embedding API Key | empty | Empty reuses the main API key |
+| Embedding API Key | empty | Empty reuses the main key for OpenAI-compatible chat; Anthropic needs its own embedding key |
 | Skills | — | Read-only list with source and path |
 
 Saving restarts Ling's background process; changes apply to the next request. Settings cannot be opened while a run is active.

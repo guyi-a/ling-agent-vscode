@@ -18,6 +18,8 @@ class ThinkingContent:
     # Opaque provider payload required to replay this block in later turns.
     signature: str | None = None
     redacted: bool = False
+    # Opaque payload for Anthropic redacted_thinking blocks.
+    data: str | None = None
     type: Literal["thinking"] = "thinking"
 
 

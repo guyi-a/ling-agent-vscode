@@ -1,11 +1,15 @@
 import { useEffect, useState, type FormEvent } from "react";
-import type {
-  DiffView,
-  EffortLevel,
-  IndexStatus,
-  MemoryScope,
-  McpServerStatus,
-  SettingsView,
+import {
+  API_PROTOCOL_DEFAULTS,
+  API_PROTOCOL_OPTIONS,
+  DEFAULT_API_PROTOCOL,
+  type ApiProtocol,
+  type DiffView,
+  type EffortLevel,
+  type IndexStatus,
+  type MemoryScope,
+  type McpServerStatus,
+  type SettingsView,
 } from "../types";
 import {
   EyeIcon,
@@ -17,6 +21,7 @@ interface SettingsInput {
   apiKey: string;
   model: string;
   baseUrl: string;
+  api: ApiProtocol;
   effort: EffortLevel;
   diffView: DiffView;
   maxSteps: number;
@@ -77,6 +82,7 @@ export function SettingsPanel({
   const [apiKey, setApiKey] = useState("");
   const [model, setModel] = useState("");
   const [baseUrl, setBaseUrl] = useState("");
+  const [api, setApi] = useState<ApiProtocol>(DEFAULT_API_PROTOCOL);
   const [effort, setEffort] = useState<EffortLevel>("high");
   const [diffView, setDiffView] = useState<DiffView>("inline");
   const [maxSteps, setMaxSteps] = useState("50");
@@ -104,6 +110,7 @@ export function SettingsPanel({
     setApiKey(settings.apiKey);
     setModel(settings.model);
     setBaseUrl(settings.baseUrl);
+    setApi(settings.api);
     setEffort(settings.effort);
     setDiffView(settings.diffView);
     setMaxSteps(String(settings.maxSteps));
@@ -129,6 +136,7 @@ export function SettingsPanel({
       apiKey: apiKey.trim(),
       model: model.trim(),
       baseUrl: baseUrl.trim(),
+      api,
       effort,
       diffView,
       maxSteps: Number(maxSteps),
@@ -170,6 +178,23 @@ export function SettingsPanel({
       return;
     }
     onBuildIndex(currentInput());
+  }
+
+  function handleApiChange(next: ApiProtocol) {
+    if (next === api) {
+      return;
+    }
+    const previous = API_PROTOCOL_DEFAULTS[api];
+    const target = API_PROTOCOL_DEFAULTS[next];
+    const currentModel = model.trim();
+    const currentBaseUrl = baseUrl.trim();
+    if (!currentModel || currentModel === previous.model) {
+      setModel(target.model);
+    }
+    if (!currentBaseUrl || currentBaseUrl === previous.baseUrl) {
+      setBaseUrl(target.baseUrl);
+    }
+    setApi(next);
   }
 
   function numbersValid(): boolean {
@@ -264,6 +289,30 @@ export function SettingsPanel({
             </label>
 
             <label className="settings-field">
+              <span className="settings-label">API protocol</span>
+              <select
+                className="settings-input"
+                value={api}
+                onChange={(event) =>
+                  handleApiChange(event.target.value as ApiProtocol)
+                }
+              >
+                {API_PROTOCOL_OPTIONS.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+              <p className="settings-hint">
+                Must match the endpoint. Anthropic Messages examples:
+                {" "}
+                https://api.anthropic.com or
+                {" "}
+                https://api.deepseek.com/anthropic.
+              </p>
+            </label>
+
+            <label className="settings-field">
               <span className="settings-label">API Base URL</span>
               <input
                 className="settings-input"
@@ -328,7 +377,11 @@ export function SettingsPanel({
                   className="settings-input settings-input--key"
                   type={showEmbeddingKey ? "text" : "password"}
                   value={embeddingApiKey}
-                  placeholder="Defaults to the API Key above"
+                  placeholder={
+                    api === "openai-completions"
+                      ? "Defaults to the API Key above"
+                      : "Required for Anthropic embeddings"
+                  }
                   autoComplete="off"
                   spellCheck={false}
                   onChange={(event) =>
@@ -356,7 +409,9 @@ export function SettingsPanel({
                 </button>
               </div>
               <p className="settings-hint">
-                Leave empty for keyword-only search.
+                {api === "anthropic-messages"
+                  ? "Anthropic chat keys are not reused; leave empty for keyword-only search."
+                  : "Leave empty for keyword-only search."}
               </p>
             </div>
 

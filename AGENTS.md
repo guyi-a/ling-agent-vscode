@@ -13,7 +13,7 @@ TypeScript 扩展是 VS Code 前端，Python sidecar 是 harness 本体，负责
 
 Python 侧从下往上：
 
-1. `ling_ai/` — 模型无关的 `types.py`、`events.py`、`stream.py`；唯一的 provider 适配器是 `adapters/openai_completions.py`（默认 `deepseek-chat`）。
+1. `ling_ai/` — 模型无关的 `types.py`、`events.py`、`stream.py`；两个 provider 适配器：`adapters/openai_completions.py`（OpenAI Chat Completions，默认 `deepseek-flash`）与 `adapters/anthropic_messages.py`（Anthropic Messages，默认 `deepseek-flash`）。协议由 `LING_API_PROTOCOL` 选择，默认 `openai-completions`。
 2. `ling_core/` — 通用 `Agent` 循环（`max_steps`、并行工具、`hooks.py` 的 pre/post tool hooks、`tools.py` 的 `ToolRegistry`）。不含任何产品逻辑。
 3. `ling_agent/` — 产品层：`session.py` 开会话并提交事件、`approvals.py` 审批策略、`tools/*`（files / search / commands / documents / computer / browser / web / subagents / skills / memory / plan / spill）、`computer/` Windows 桌面控制服务与 helper（统一 observation、UIA、截图、输入、启动、控制 overlay、审计）、`command_process.py` 命令进程与输出、`command_calls.py` 前台命令转后台状态机、`background_tasks.py` 后台任务调度、`compaction/` 上下文压缩、`storage.py` SQLite 历史、`workspace.py` 路径沙箱。
 4. `ling_rpc/` — stdio 上的 NDJSON JSON-RPC（`PROTOCOL_VERSION = 1`）。`server.py` 按 method 字符串分发：`initialize` `ping` `shutdown` `session.*` `changes.*` `mcp.*` `background.*` `tool.background` `approval.resolve` `question.answer` `memory.*` `comment.generate` `index.*`；`ui_events.py` 把事件推给前端。
@@ -29,6 +29,7 @@ Python（在 `ling/` 目录下执行，需要 `python` 在 PATH，或设 `LING_P
 cd ling
 python -W error -m tests.test_ling_agent_approvals   # 单文件：每个测试文件都能直接运行
 python -m pytest tests -q                            # 全量（pytest 已可用）
+$env:LING_LIVE_ANTHROPIC="1"; python -m pytest tests/test_anthropic_live.py -q -s  # DeepSeek Anthropic 实网，需 key
 ```
 
 测试文件有两类写法，都要保持可用：多数文件是模块级 `test_*` 函数 + `if __name__ == "__main__":` 逐个调用；`test_ling_rpc*.py`、`test_ling_comment.py` 用 `unittest.TestCase`，因为 `npm test` 只用标准库 `unittest` 跑这三个模块。

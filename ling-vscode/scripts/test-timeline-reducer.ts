@@ -1285,30 +1285,49 @@ assert.equal(
   }),
   false,
 );
+const settingsSave = {
+  type: "settings.save",
+  apiKey: "sk-test",
+  model: "deepseek-chat",
+  baseUrl: "https://api.deepseek.com/v1",
+  effort: "high",
+  diffView: "inline",
+  maxSteps: 10,
+  maxParallelTools: 4,
+  commandTimeoutSeconds: 120,
+  approvalTimeoutSeconds: 120,
+  contextWindowTokens: 1_000_000,
+  keepLastUserTurns: 5,
+  embeddingModel: "",
+  embeddingBaseUrl: "",
+  embeddingApiKey: "",
+  computerUseEnabled: true,
+  computerSessionTtlSeconds: 600,
+  computerSessionIdleSeconds: 90,
+  computerDeniedApps: "",
+  computerAuditEnabled: true,
+};
+assert.equal(isWebviewToHostMessage(settingsSave), true);
 assert.equal(
   isWebviewToHostMessage({
-    type: "settings.save",
-    apiKey: "sk-test",
-    model: "deepseek-chat",
-    baseUrl: "https://api.deepseek.com/v1",
-    effort: "high",
-    diffView: "inline",
-    maxSteps: 10,
-    maxParallelTools: 4,
-    commandTimeoutSeconds: 120,
-    approvalTimeoutSeconds: 120,
-    contextWindowTokens: 1_000_000,
-    keepLastUserTurns: 5,
-    embeddingModel: "",
-    embeddingBaseUrl: "",
-    embeddingApiKey: "",
-    computerUseEnabled: true,
-    computerSessionTtlSeconds: 600,
-    computerSessionIdleSeconds: 90,
-    computerDeniedApps: "",
-    computerAuditEnabled: true,
+    ...settingsSave,
+    api: "anthropic-messages",
   }),
   true,
+);
+assert.equal(
+  isWebviewToHostMessage({
+    ...settingsSave,
+    api: undefined,
+  }),
+  true,
+);
+assert.equal(
+  isWebviewToHostMessage({
+    ...settingsSave,
+    api: "grpc",
+  }),
+  false,
 );
 assert.equal(
   isWebviewToHostMessage({

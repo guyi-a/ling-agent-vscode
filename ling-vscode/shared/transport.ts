@@ -1,3 +1,4 @@
+import { isApiProtocol, type ApiProtocol } from "./apiProtocol";
 import type { UiEvent } from "./uiProtocol";
 import type {
   ApprovalMode,
@@ -98,6 +99,7 @@ export type WebviewToHostMessage =
       apiKey: string;
       model: string;
       baseUrl: string;
+      api?: ApiProtocol;
       effort: EffortLevel;
       diffView: DiffView;
       maxSteps: number;
@@ -414,6 +416,7 @@ export function isWebviewToHostMessage(
         typeof value.apiKey === "string" &&
         typeof value.model === "string" &&
         typeof value.baseUrl === "string" &&
+        (value.api === undefined || isApiProtocol(value.api)) &&
         isEffortLevel(value.effort) &&
         isDiffView(value.diffView) &&
         isPositiveInteger(value.maxSteps) &&
@@ -676,6 +679,7 @@ function isSettingsView(value: unknown): value is SettingsView {
     typeof value.apiKey === "string" &&
     typeof value.model === "string" &&
     typeof value.baseUrl === "string" &&
+    isApiProtocol(value.api) &&
     isEffortLevel(value.effort) &&
     isDiffView(value.diffView) &&
     isPositiveInteger(value.maxSteps) &&

@@ -1,3 +1,7 @@
+import type { ApiProtocol } from "./apiProtocol";
+
+export type { ApiProtocol } from "./apiProtocol";
+
 export type ApprovalMode = "manual" | "accept-write" | "auto" | "plan";
 
 export type ToolAction =
@@ -488,6 +492,7 @@ export interface SettingsView {
   apiKey: string;
   model: string;
   baseUrl: string;
+  api: ApiProtocol;
   effort: EffortLevel;
   diffView: DiffView;
   maxSteps: number;

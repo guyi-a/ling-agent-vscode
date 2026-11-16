@@ -67,7 +67,7 @@ python -m ling_eval.swebench `
   --records "$EvalRoot\records" `
   --workdir "$EvalRoot\runs" `
   --repo-cache "$EvalRoot\repos" `
-  --model deepseek-chat `
+  --model deepseek-flash `
   --git-proxy http://127.0.0.1:7877 `
   --git-ssl-backend schannel
 ```

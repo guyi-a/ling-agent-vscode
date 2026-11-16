@@ -1,5 +1,12 @@
 # Changelog
 
+## 2.1.1
+
+- Add native Anthropic Messages API support through the new **API protocol** setting. The adapter handles streaming text, tools/tool_use/tool_result, thinking blocks and signatures, redacted thinking, images, usage, stop reasons, retries, and cancellation.
+- Keep **OpenAI Chat Completions** as the default protocol. Anthropic can target DeepSeek's Anthropic-compatible endpoint (`https://api.deepseek.com/anthropic`) or native Anthropic (`https://api.anthropic.com`).
+- Change the default model to `deepseek-flash` for both protocols.
+- Fix newly launched windows dropping the saved API protocol when starting the sidecar. The sidecar now receives `LING_API_PROTOCOL` from settings, avoiding OpenAI requests against an Anthropic base URL.
+
 ## 2.1.0
 
 - Change Auto mode to run every operation without prompting except a non-readonly Computer Use takeover. This includes destructive commands, sensitive file writes, browser scripts, MCP administration/tools, and unknown tools; Plan restrictions, workspace path checks, and Computer Use hard denies still apply.

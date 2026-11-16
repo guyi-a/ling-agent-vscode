@@ -281,6 +281,7 @@ def _assistant_content_from_list(data: list[dict[str, Any]]) -> list[Any]:
                     thinking=block["thinking"],
                     signature=block.get("signature"),
                     redacted=bool(block.get("redacted", False)),
+                    data=block.get("data"),
                 )
             )
         elif kind == "tool_call":

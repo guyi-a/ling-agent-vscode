@@ -10,6 +10,7 @@ from pathlib import Path
 from ling_ai.types import (
     AssistantMessage,
     TextContent,
+    ThinkingContent,
     ToolCall,
     ToolResultMessage,
     Usage,
@@ -626,6 +627,71 @@ def test_sqlite_command_task_round_trip() -> None:
         )
 
 
+async def _redacted_thinking_round_trip(
+    database_path: Path,
+    workspace: Path,
+) -> None:
+    store = SQLiteSessionStore(database_path)
+    await store.upsert_session(
+        SessionRecord(
+            session_id="session-1",
+            workspace_root=workspace,
+            title="Thinking session",
+            status="idle",
+            created_at=1,
+            updated_at=1,
+            approval_mode=ApprovalMode.AUTO,
+        )
+    )
+    message = AssistantMessage(
+        content=[
+            ThinkingContent(
+                thinking="",
+                signature="sig",
+                redacted=True,
+                data="opaque",
+            ),
+            TextContent("done"),
+        ],
+        provider="anthropic",
+        model="claude",
+        api="anthropic-messages",
+        usage=Usage(),
+        stop_reason="stop",
+        timestamp=2,
+    )
+    await store.append_committed(_envelope(1, RunStarted()))
+    await store.append_committed(
+        _envelope(
+            2,
+            AssistantMessageCommitted(message=message),
+            message_id="message-1",
+        )
+    )
+    await store.close()
+
+    reopened = SQLiteSessionStore(database_path)
+    persisted = await reopened.load_committed("session-1")
+    assert isinstance(persisted[1].event, AssistantMessageCommitted)
+    block = persisted[1].event.message.content[0]
+    assert isinstance(block, ThinkingContent)
+    assert block.redacted is True
+    assert block.signature == "sig"
+    assert block.data == "opaque"
+    await reopened.close()
+
+
+def test_redacted_thinking_round_trip() -> None:
+    with tempfile.TemporaryDirectory() as temp:
+        root = Path(temp)
+        asyncio.run(
+            _redacted_thinking_round_trip(
+                root / "sessions.db",
+                root / "workspace",
+            )
+        )
+
+
 def test_old_background_event_uses_defaults() -> None:
     event = _event_from_dict(
         "background.tasks.completed",
@@ -653,6 +719,7 @@ if __name__ == "__main__":
     test_sqlite_schema_v1_migration()
     test_sqlite_schema_v3_migration()
     test_sqlite_command_task_round_trip()
+    test_redacted_thinking_round_trip()
     test_old_background_event_uses_defaults()
     test_sqlite_recovers_interrupted_approvals()
     test_sqlite_deletes_session_and_events()

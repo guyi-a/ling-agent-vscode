@@ -41,7 +41,7 @@ The extension provides the chat UI, editor integration, approval diffs, settings
 
 Harness layers:
 
-- `ling_ai/`: model-facing types, events, streams, and provider adapter.
+- `ling_ai/`: model-facing types, events, streams, and provider adapters (OpenAI Chat Completions, Anthropic Messages).
 - `ling_core/`: generic agent loop, tool registry, hooks.
 - `ling_agent/`: sessions, approvals, tools, compaction, retrieval, storage.
 - `ling_rpc/`: stdio JSON-RPC server.
