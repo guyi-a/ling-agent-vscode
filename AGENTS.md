@@ -58,7 +58,7 @@ npm run sync:skills    # .agents/skills -> resources/skills（vscode:prepublish 
 - 命令白名单在 `.agents/settings.local.json`（本地、gitignored）；审批 UI 的“以后不再问”写入 `permissions.allowCommands`，危险命令永远不适用。
 - 修改已有文件前必须先 `read_file`；`edit_file` 和覆盖已有文件的 `write_file` 会校验会话内读取记录和文件 mtime/size，外部修改后要求重读。
 - 工具输出上限：超过 12,000 字符写入 `.agents/spills/`，单条结果上限 50,000 字符。
-- `run_command` 默认前台，受 Command timeout 限制（默认 3600 秒）。长任务用 `background: true`；后台命令返回 task id 和 `.agents/background/<task-id>.log`，完成时自动通知并续接会话。只有结果出现 `mode: background` 才能说命令在后台运行。
+- `run_command` 默认前台，受 Command timeout 限制（默认 3600 秒）。长任务用 `background: true`，并始终传 `description` 作为任务标签；后台命令返回 task id 和 `.agents/background/<task-id>.log`，完成时自动通知并续接会话。只有结果出现 `mode: background` 才能说命令在后台运行。
 - 版本号同时更新 `ling-vscode/package.json` 和 `CHANGELOG.md`。
 
 ## 容易踩的坑

@@ -33,7 +33,10 @@ from ling_agent import (
     default_global_memory_root,
     default_database_path,
 )
-from ling_agent.background_tasks import BackgroundTaskManager
+from ling_agent.background_tasks import (
+    BackgroundTaskManager,
+    task_description,
+)
 from ling_agent.browser_bridge import BrowserBridge
 from ling_agent.compaction import CompactionConfig, SummarizeFn
 from ling_agent.events import BackgroundTaskNotice
@@ -140,7 +143,7 @@ def _background_task_view(
         "id": task.id,
         "sessionId": task.session_id,
         "toolCallId": task.tool_call_id,
-        "description": task.description,
+        "description": task_description(task),
         "status": task.status,
         "summary": task.summary,
         "error": task.error,
@@ -361,7 +364,7 @@ class SessionService:
         notices = tuple(
             BackgroundTaskNotice(
                 id=task.id,
-                description=task.description,
+                description=task_description(task),
                 status=task.status,
                 summary=task.summary,
                 error=task.error,

@@ -78,6 +78,7 @@ def test_prompt_covers_long_running_failure_recovery() -> None:
     assert "Before retrying a failed long-running command" in prompt.system_prompt
     assert "After two failures of the same long-running operation" in prompt.system_prompt
     assert "Isolate failures one layer at a time" in prompt.system_prompt
+    assert "Always pass a short description" in prompt.system_prompt
 
 
 def test_prompt_emphasizes_inline_visualization() -> None:

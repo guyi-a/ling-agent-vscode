@@ -13,11 +13,17 @@ from ling_agent import HarnessConfig
 from ling_agent.background_tasks import (
     BackgroundTaskManager,
     background_notification_message,
+    command_description,
     new_background_task_id,
+    task_description,
 )
 from ling_agent.command_process import start_command_process
 from ling_agent.events import BackgroundTaskNotice
-from ling_agent.storage import SQLiteSessionStore, SessionRecord
+from ling_agent.storage import (
+    BackgroundTaskRecord,
+    SQLiteSessionStore,
+    SessionRecord,
+)
 from ling_agent.subagents import SubagentError, SubagentResult
 from ling_agent.tools.subagents import create_subagent_tools
 from ling_ai.types import ToolCall
@@ -280,9 +286,11 @@ async def _adopt_command(root: Path) -> None:
             tool_call_id="call-command",
             command=f"{_sleep(0.1)}; {_echo('cmd-ok')}",
             handle=handle,
+            description="Run the test command",
         )
         assert task.status == "running"
         assert task.kind == "command"
+        assert task.description == "Run the test command"
         assert task.output_path == str(log_path)
         assert manager._queue.qsize() == 0
         await _wait_status(store, task_id, "completed")
@@ -301,6 +309,50 @@ async def _adopt_command(root: Path) -> None:
 def test_adopt_command_records_exit_and_log() -> None:
     with tempfile.TemporaryDirectory() as temp:
         asyncio.run(_adopt_command(Path(temp)))
+
+
+def test_task_description_recomputes_old_boilerplate_labels() -> None:
+    task = BackgroundTaskRecord(
+        id="task-1",
+        session_id="session-1",
+        run_id="run-1",
+        tool_call_id="call-1",
+        description="cd E:\\orca-main",
+        prompt="cd E:\\orca-main\npnpm dev",
+        status="running",
+        summary=None,
+        error=None,
+        trace=(),
+        created_at=1,
+        kind="command",
+    )
+    assert task_description(task) == "pnpm dev"
+
+
+def test_command_description_skips_boilerplate() -> None:
+    assert (
+        command_description(
+            'cd E:\\orca-main\n$env:ELECTRON_MIRROR="mirror"\npnpm dev'
+        )
+        == "pnpm dev"
+    )
+    assert (
+        command_description(
+            "$ErrorActionPreference = 'Stop'\nwinget install BuildTools"
+        )
+        == "winget install BuildTools"
+    )
+    assert (
+        command_description("$p = Start-Process -FilePath setup.exe")
+        == "$p = Start-Process -FilePath setup.exe"
+    )
+    assert (
+        command_description(
+            "$sw = [Diagnostics.Stopwatch]::StartNew()\nnode install.mjs"
+        )
+        == "node install.mjs"
+    )
+    assert command_description("cd E:\\orca-main") == "cd E:\\orca-main"
 
 
 async def _stop_command(root: Path) -> None:

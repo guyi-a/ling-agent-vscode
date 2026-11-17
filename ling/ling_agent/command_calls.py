@@ -36,6 +36,7 @@ class CommandCallSlot:
     state: CommandCallState
     detach_event: asyncio.Event
     outcome: asyncio.Future[DetachOutcome]
+    description: str | None = None
     adopt_task: asyncio.Task[None] | None = None
 
     def resolve(self, outcome: DetachOutcome) -> None:
@@ -85,6 +86,7 @@ class CommandCallRegistry:
         task_id: str,
         log_path: str,
         handle: CommandHandle,
+        description: str | None = None,
     ) -> CommandCallSlot:
         if self._session_id is None or self._run_id is None:
             raise CommandNotRunning("No active run")
@@ -99,6 +101,7 @@ class CommandCallRegistry:
             state=CommandCallState.RUNNING,
             detach_event=asyncio.Event(),
             outcome=asyncio.get_running_loop().create_future(),
+            description=description,
         )
         self._slots[call_id] = slot
         return slot
@@ -190,6 +193,7 @@ class CommandCallRegistry:
                 tool_call_id=slot.call_id,
                 command=slot.command,
                 handle=slot.handle,
+                description=slot.description,
             )
         except asyncio.CancelledError:
             slot.state = CommandCallState.TERMINATING

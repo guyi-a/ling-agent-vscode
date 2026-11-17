@@ -321,6 +321,7 @@ async def _run_command_backgrounded_by_tool(root: Path) -> None:
                     arguments={
                         "command": command,
                         "background": True,
+                        "description": "Run the background test command",
                     },
                 )
             ),
@@ -385,11 +386,13 @@ async def _run_command_backgrounded_by_tool(root: Path) -> None:
         assert len(notices) == 1
         notice = notices[0]["tasks"][0]
         assert notice["kind"] == "command"
+        assert notice["description"] == "Run the background test command"
         assert notice["exitCode"] == 0
 
         tasks = await service.background_list()
         assert len(tasks) == 1
         assert tasks[0]["status"] == "completed"
+        assert tasks[0]["description"] == "Run the background test command"
         assert tasks[0]["exitCode"] == 0
         assert "bgdone" in (tasks[0]["summary"] or "")
     finally:

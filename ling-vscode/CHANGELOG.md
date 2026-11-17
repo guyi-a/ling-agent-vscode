@@ -1,5 +1,10 @@
 # Changelog
 
+## 2.2.4
+
+- Add a short `description` argument to `run_command`; background tasks use it as the label in the Tasks panel and in completion notifications.
+- Derive a useful label from the first meaningful command line when no description is supplied, skipping `cd`, environment assignments, PowerShell preferences, and simple variable setup. Existing tasks whose label is only `cd <workspace>` are relabeled when the panel loads.
+
 ## 2.2.3
 
 - Recover sessions whose history contains an assistant message with tool calls but no matching tool results. The OpenAI adapter now drops unanswered calls and unpaired results before serialization, so an interrupted run no longer makes every later request fail with HTTP 400.

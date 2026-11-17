@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import inspect
 import json
+import re
 import time
 import uuid
 from contextlib import suppress
@@ -40,12 +41,73 @@ def new_background_task_id() -> str:
     return f"task-{uuid.uuid4()}"
 
 
+_DIRECTORY_LINE = re.compile(
+    r"^(?:cd|chdir|set-location|push-location|pop-location|sl)(?:\s|$)",
+    re.IGNORECASE,
+)
+_ENV_LINE = re.compile(
+    r"^(?:\$env:[A-Za-z_][A-Za-z0-9_]*|"
+    r"(?:set|export)\s+[A-Za-z_][A-Za-z0-9_]*)\s*=",
+    re.IGNORECASE,
+)
+_PREFERENCE_LINE = re.compile(
+    r"^\$(?:ErrorActionPreference|ProgressPreference|OutputEncoding|"
+    r"WarningPreference|InformationPreference|VerbosePreference|"
+    r"DebugPreference)\s*=",
+    re.IGNORECASE,
+)
+_SECURITY_PROTOCOL_LINE = re.compile(
+    r"^\[Net\.ServicePointManager\]::SecurityProtocol",
+    re.IGNORECASE,
+)
+_ASSIGNMENT_LINE = re.compile(
+    r"^\$[A-Za-z_][A-Za-z0-9_]*\s*=\s*",
+)
+
+
+def _is_command_boilerplate(line: str) -> bool:
+    if line.startswith("#") or line.startswith("::"):
+        return True
+    if (
+        _DIRECTORY_LINE.match(line)
+        or _ENV_LINE.match(line)
+        or _PREFERENCE_LINE.match(line)
+        or _SECURITY_PROTOCOL_LINE.match(line)
+    ):
+        return True
+    assignment = _ASSIGNMENT_LINE.match(line)
+    if assignment is not None:
+        value = line[assignment.end() :].lstrip()
+        if value.startswith(('"', "'", "[", "@")) or value.isdigit():
+            return True
+    return False
+
+
 def command_description(command: str, limit: int = 120) -> str:
-    line = next(
-        (line.strip() for line in command.splitlines() if line.strip()),
-        command.strip(),
-    )
-    return line[:limit]
+    """Return the first meaningful line of a command."""
+    lines = [line.strip() for line in command.splitlines() if line.strip()]
+    for line in lines:
+        if not _is_command_boilerplate(line):
+            return line[:limit]
+    fallback = lines[0] if lines else command.strip()
+    return fallback[:limit]
+
+
+def _task_description(command: str, description: str | None) -> str:
+    if description:
+        normalized = " ".join(description.split())
+        if normalized:
+            return normalized[:120]
+    return command_description(command)
+
+
+def task_description(task: BackgroundTaskRecord) -> str:
+    """Return a useful label, including for tasks saved before labels existed."""
+    if task.kind == "command" and (
+        not task.description or _is_command_boilerplate(task.description)
+    ):
+        return command_description(task.prompt) or task.description
+    return task.description
 
 
 @dataclass(slots=True)
@@ -143,6 +205,7 @@ class BackgroundTaskManager:
         tool_call_id: str,
         command: str,
         handle: CommandHandle,
+        description: str | None = None,
     ) -> BackgroundTaskRecord:
         if self._closed:
             raise RuntimeError("Background task manager is closed")
@@ -156,7 +219,7 @@ class BackgroundTaskManager:
             session_id=session_id,
             run_id=run_id,
             tool_call_id=tool_call_id,
-            description=command_description(body),
+            description=_task_description(body, description),
             prompt=body,
             status="running",
             summary=None,
@@ -562,5 +625,6 @@ __all__ = [
     "BackgroundTaskStatus",
     "background_notification_message",
     "command_description",
+    "task_description",
     "new_background_task_id",
 ]

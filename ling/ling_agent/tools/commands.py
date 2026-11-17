@@ -47,6 +47,13 @@ def create_command_tools(
         background = call.arguments.get("background", False)
         if not isinstance(background, bool):
             raise TypeError("background must be a boolean")
+        description = call.arguments.get("description")
+        if description is not None:
+            if not isinstance(description, str):
+                raise TypeError("description must be a string")
+            description = " ".join(description.split()) or None
+            if description is not None:
+                description = description[:120]
         if background and (
             command_calls is None or not command_calls.available
         ):
@@ -88,6 +95,7 @@ def create_command_tools(
             task_id,
             log_path,
             handle,
+            description=description,
         )
         if background:
             from ..command_calls import CommandNotRunning
@@ -160,29 +168,36 @@ def create_command_tools(
                 name="run_command",
                 description=(
                     "Run a PowerShell command with the workspace as cwd. "
-                    "Requires approval. Set background=true for downloads, "
-                    "installs, builds, or servers that may outlive the turn; "
-                    "it returns a task id immediately and the command keeps "
-                    "running after the run ends. Foreground commands are "
-                    "bounded by the configured Command timeout; a timeout "
-                    "stops the process tree and may leave a file the command "
-                    "was writing incomplete. Inspect it before retrying. "
-                    "Write long output to a log and read the tail instead of "
-                    "piping it through a filter that hides progress or "
-                    "errors. Only describe a command as background when the "
-                    "result says mode: background."
+                    "Requires approval. Always pass a short description in "
+                    "the user's language (for example, \"Install Visual "
+                    "Studio Build Tools\"); it labels the Tasks panel entry "
+                    "and completion notification. Set background=true for "
+                    "downloads, installs, builds, or servers that may "
+                    "outlive the turn; it returns a task id immediately and "
+                    "the command keeps running after the run ends. Foreground "
+                    "commands are bounded by the configured Command timeout; "
+                    "a timeout stops the process tree and may leave a file "
+                    "the command was writing incomplete. Inspect it before "
+                    "retrying. Write long output to a log and read the tail "
+                    "instead of piping it through a filter that hides "
+                    "progress or errors. Only describe a command as "
+                    "background when the result says mode: background."
                 ),
                 parameters={
                     "type": "object",
                     "properties": {
                         "command": {"type": "string"},
+                        "description": {
+                            "type": "string",
+                            "maxLength": 120,
+                        },
                         "timeout_seconds": {
                             "type": "number",
                             "exclusiveMinimum": 0,
                         },
                         "background": {"type": "boolean"},
                     },
-                    "required": ["command"],
+                    "required": ["command", "description"],
                     "additionalProperties": False,
                 },
             ),

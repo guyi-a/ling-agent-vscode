@@ -107,6 +107,7 @@ When research can proceed while the main conversation keeps working, Ling runs t
 Long-running commands can keep running after the main conversation moves on. Ling can start one directly with `run_command(background: true)`, or you can click **Run in background** while a foreground command is running:
 
 - The process is not interrupted; it becomes a **Command** task with its own status and exit code.
+- Each command carries a short description supplied by Ling; it labels the task in the Tasks panel and in the completion notification.
 - Full output is written to `.agents/background/<task-id>.log`; the completion notification includes the exit code and a short output tail.
 - Open **Tasks** to view command tasks and their logs, or to stop one; stopping terminates the process tree.
 - Commands moved to the background keep running if you cancel the current run. They stop when the sidecar closes.
