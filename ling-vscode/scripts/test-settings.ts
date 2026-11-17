@@ -60,7 +60,7 @@ async function main(): Promise<void> {
     assert.equal(normalized.effort, "high");
     assert.equal(normalized.maxSteps, 50);
     assert.equal(normalized.maxParallelTools, 4);
-    assert.equal(normalized.commandTimeoutSeconds, 120);
+    assert.equal(normalized.commandTimeoutSeconds, 3600);
     assert.equal(normalized.approvalTimeoutSeconds, 45);
     assert.equal(normalized.contextWindowTokens, 2048);
     assert.equal(normalized.keepLastUserTurns, 5);

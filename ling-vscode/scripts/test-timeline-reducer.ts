@@ -1948,15 +1948,20 @@ const skillGroupBlocks = groupTimelineEntries([
     },
   },
 ] as TimelineEntry[]);
-const skillGroup = skillGroupBlocks.find(
-  (block) => block.kind === "tool-group" &&
-    block.category === "skill",
-);
 assert.equal(
-  skillGroup?.kind === "tool-group"
-    ? skillGroup.summary
-    : undefined,
-  "ling-self、inline-visualization",
+  skillGroupBlocks.some(
+    (block) => block.kind === "tool-group" &&
+      block.category === "skill",
+  ),
+  false,
+);
+assert.deepEqual(
+  skillGroupBlocks.flatMap((block) =>
+    block.kind === "tools"
+      ? block.tools.map((tool) => tool.id)
+      : [],
+  ),
+  ["skill-ling-self", "skill-inline", "web-after-skills"],
 );
 assert.equal(
   classifyToolCategory({

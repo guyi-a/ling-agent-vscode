@@ -7,6 +7,7 @@ TypeScript 扩展是 VS Code 前端，Python sidecar 是 harness 本体，负责
 - `ling/`：Python 包（sidecar）。**没有 pyproject / ruff / mypy 配置**，依赖在 `requirements.txt`，包括 `httpx`、`mcp`、`pypdf`、`websockets`。
 - `.agents/skills/`：内置技能的**唯一源**（`pdf`、`pptx`、`docx`、`inline-visualization`、`browser-bridge`、`frontend-design`、`computer-use`、`ling-self`），构建时复制到 `ling-vscode/resources/skills/`（该目录被 gitignore）。
 - `.agents/{memory,code-index,plans,attachments}/`：运行时状态，只有 `skills` 和 `memory` 应纳入版本控制。
+- 记忆分两级：**工作区记忆**在 `.agents/memory/*.md`（随仓库走，当前为空），**全局记忆**在 `%APPDATA%\Ling\memory\*.md`（`LING_GLOBAL_MEMORY_ROOT` 可覆盖，没有 `APPDATA` 时退回 `~/.agents/memory/`）。跨项目的稳定偏好放全局，项目约定放工作区，同名以工作区为准。
 - `~/.agents/skills/`：用户全局技能库。插件启动时把内置技能同步到这里（SKILL.md 标 `source: ling`），升级只覆盖未本地修改的托管技能；加载优先级为内置 > 全局无来源 > 工作区。
 
 ## 分层
@@ -66,5 +67,6 @@ npm run sync:skills    # .agents/skills -> resources/skills（vscode:prepublish 
 - **文档读取**只支持 PDF / DOCX / PPTX，不支持 `.doc` / `.ppt` / `.xlsx`，也没有 OCR。
 - **`run_command` 的改动不产生 diff**，只有 `write_file` / `edit_file` 走审批 diff。
 - `.agents/` 是点目录，`glob` / `grep` 之类的检索工具可能跳过它，看这些文件用 `read_file` 或 `run_command`。
+- **`memory_write` 自己会写 frontmatter**：`name` / `description` / `alwaysApply` / `globs` 由工具生成，`content` 里再带一遍 `---` 块会让文件出现两份 frontmatter。只传正文。
 - 审批模式（Manual / Edit automatically / Auto / Plan）按会话保存，Plan 模式只允许只读工具并把计划写到 `.agents/plans/`。
 - MCP 是用户级配置：`%APPDATA%\Ling\mcp.json`；工具清单缓存和 OAuth 凭证在 `%LOCALAPPDATA%\ling-agent\`（`mcp-cache.json`、`mcp-auth/`）。MCP 支持 stdio、Streamable HTTP、SSE fallback、静态 headers 和 PKCE OAuth；Windows 凭证使用 DPAPI 加密。

@@ -4,6 +4,7 @@ import {
   useMemo,
   useRef,
   useState,
+  type PointerEvent as ReactPointerEvent,
 } from "react";
 import { createPortal } from "react-dom";
 import { rendererCodeBlock } from "./markdownRenderer";
@@ -33,12 +34,76 @@ const BLOCKED_TAGS = new Set([
 const MIN_FRAME_HEIGHT = 40;
 const MAX_FRAME_HEIGHT = 1400;
 const MAX_EXPANDED_HEIGHT = 4000;
+const MIN_PANEL_WIDTH = 360;
+const MIN_PANEL_HEIGHT = 240;
+const ZOOM_MIN = 0.5;
+const ZOOM_MAX = 4;
+const ZOOM_STEP = 0.1;
+const PANEL_SIZE_KEY = "ling.inlineRenderer.panelSize";
+
+interface PanelSize {
+  width: number;
+  height: number;
+}
+
+interface ResizeState {
+  startX: number;
+  startY: number;
+  startWidth: number;
+  startHeight: number;
+  lastWidth: number;
+  lastHeight: number;
+}
+
+function clamp(value: number, min: number, max: number): number {
+  return Math.min(max, Math.max(min, value));
+}
+
+function panelLimits(): { minWidth: number; minHeight: number; maxWidth: number; maxHeight: number } {
+  const maxWidth = Math.max(240, window.innerWidth - 48);
+  const maxHeight = Math.max(200, window.innerHeight - 48);
+  return {
+    minWidth: Math.min(MIN_PANEL_WIDTH, maxWidth),
+    minHeight: Math.min(MIN_PANEL_HEIGHT, maxHeight),
+    maxWidth,
+    maxHeight,
+  };
+}
+
+function clampPanelSize(size: PanelSize): PanelSize {
+  const limits = panelLimits();
+  return {
+    width: clamp(size.width, limits.minWidth, limits.maxWidth),
+    height: clamp(size.height, limits.minHeight, limits.maxHeight),
+  };
+}
+
+function readPanelSize(): PanelSize | null {
+  try {
+    const raw = window.localStorage.getItem(PANEL_SIZE_KEY);
+    if (!raw) {
+      return null;
+    }
+    const value = JSON.parse(raw) as Partial<PanelSize>;
+    if (
+      typeof value.width !== "number" ||
+      typeof value.height !== "number"
+    ) {
+      return null;
+    }
+    return clampPanelSize({ width: value.width, height: value.height });
+  } catch {
+    return null;
+  }
+}
 
 export function InlineRenderer({
   html,
   streaming,
 }: InlineRendererProps) {
   const wrapperRef = useRef<HTMLDivElement>(null);
+  const panelRef = useRef<HTMLDivElement>(null);
+  const resizeRef = useRef<ResizeState | null>(null);
   const closeButtonRef = useRef<HTMLButtonElement>(null);
   const [theme, setTheme] = useState<Theme>({
     color: "#e9edf5",
@@ -49,6 +114,10 @@ export function InlineRenderer({
   const [copied, setCopied] = useState(false);
   const [showSource, setShowSource] = useState(false);
   const [expanded, setExpanded] = useState(false);
+  const [zoom, setZoom] = useState(1);
+  const [panelSize, setPanelSize] = useState<PanelSize | null>(
+    readPanelSize,
+  );
   const copyTimer = useRef<number | undefined>(undefined);
 
   useEffect(() => {
@@ -96,6 +165,22 @@ export function InlineRenderer({
 
   useEffect(() => {
     if (!expanded) {
+      setZoom(1);
+    }
+  }, [expanded]);
+
+  useEffect(() => {
+    const onResize = () => {
+      setPanelSize((current) =>
+        current ? clampPanelSize(current) : current,
+      );
+    };
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  }, []);
+
+  useEffect(() => {
+    if (!expanded) {
       return;
     }
     const onKeyDown = (event: KeyboardEvent) => {
@@ -136,6 +221,77 @@ export function InlineRenderer({
     setCopied(true);
     window.clearTimeout(copyTimer.current);
     copyTimer.current = window.setTimeout(() => setCopied(false), 1200);
+  }
+
+  function changeZoom(delta: number): void {
+    setZoom((current) =>
+      Math.round(
+        clamp(current + delta, ZOOM_MIN, ZOOM_MAX) * 10,
+      ) / 10,
+    );
+  }
+
+  function startResize(event: ReactPointerEvent<HTMLDivElement>): void {
+    const panel = panelRef.current;
+    if (!panel) {
+      return;
+    }
+    event.preventDefault();
+    const rect = panel.getBoundingClientRect();
+    resizeRef.current = {
+      startX: event.clientX,
+      startY: event.clientY,
+      startWidth: rect.width,
+      startHeight: rect.height,
+      lastWidth: rect.width,
+      lastHeight: rect.height,
+    };
+    event.currentTarget.setPointerCapture(event.pointerId);
+  }
+
+  function moveResize(event: ReactPointerEvent<HTMLDivElement>): void {
+    const state = resizeRef.current;
+    if (!state) {
+      return;
+    }
+    const limits = panelLimits();
+    const width = clamp(
+      state.startWidth + event.clientX - state.startX,
+      limits.minWidth,
+      limits.maxWidth,
+    );
+    const height = clamp(
+      state.startHeight + event.clientY - state.startY,
+      limits.minHeight,
+      limits.maxHeight,
+    );
+    state.lastWidth = width;
+    state.lastHeight = height;
+    setPanelSize({ width, height });
+  }
+
+  function endResize(event: ReactPointerEvent<HTMLDivElement>): void {
+    const state = resizeRef.current;
+    if (!state) {
+      return;
+    }
+    resizeRef.current = null;
+    try {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    } catch {
+      // The browser may already have released the capture.
+    }
+    try {
+      window.localStorage.setItem(
+        PANEL_SIZE_KEY,
+        JSON.stringify({
+          width: state.lastWidth,
+          height: state.lastHeight,
+        }),
+      );
+    } catch {
+      // Size persistence is optional.
+    }
   }
 
   return (
@@ -193,27 +349,89 @@ export function InlineRenderer({
                 }
               }}
             >
-              <div className="inline-renderer-expanded">
+              <div
+                className="inline-renderer-expanded"
+                ref={panelRef}
+                style={
+                  panelSize
+                    ? {
+                        width: panelSize.width,
+                        height: panelSize.height,
+                      }
+                    : undefined
+                }
+              >
                 <div className="inline-renderer-expanded-bar">
                   <span className="inline-renderer-expanded-label">
                     Diagram
                   </span>
-                  <button
-                    ref={closeButtonRef}
-                    className="inline-renderer-action"
-                    type="button"
-                    onClick={() => setExpanded(false)}
-                  >
-                    Close
-                  </button>
+                  <div className="inline-renderer-expanded-tools">
+                    <button
+                      className="inline-renderer-action"
+                      type="button"
+                      aria-label="Zoom out"
+                      title="Zoom out"
+                      onClick={() => changeZoom(-ZOOM_STEP)}
+                    >
+                      −
+                    </button>
+                    <button
+                      className="inline-renderer-action inline-renderer-zoom-value"
+                      type="button"
+                      title="Reset zoom"
+                      onClick={() => setZoom(1)}
+                    >
+                      {Math.round(zoom * 100)}%
+                    </button>
+                    <button
+                      className="inline-renderer-action"
+                      type="button"
+                      aria-label="Zoom in"
+                      title="Zoom in"
+                      onClick={() => changeZoom(ZOOM_STEP)}
+                    >
+                      +
+                    </button>
+                    <button
+                      className="inline-renderer-action"
+                      type="button"
+                      title="Fit to width"
+                      onClick={() => setZoom(1)}
+                    >
+                      Fit
+                    </button>
+                    <button
+                      ref={closeButtonRef}
+                      className="inline-renderer-action"
+                      type="button"
+                      onClick={() => setExpanded(false)}
+                    >
+                      Close
+                    </button>
+                  </div>
                 </div>
                 <div className="inline-renderer-expanded-stage">
-                  <RendererFrame
-                    document={documentContent}
-                    className="inline-renderer-expanded-frame"
-                    maxHeight={MAX_EXPANDED_HEIGHT}
-                  />
+                  <div
+                    className="inline-renderer-zoom"
+                    style={{ zoom }}
+                  >
+                    <RendererFrame
+                      document={documentContent}
+                      className="inline-renderer-expanded-frame"
+                      maxHeight={MAX_EXPANDED_HEIGHT}
+                    />
+                  </div>
                 </div>
+                <div
+                  className="inline-renderer-resize"
+                  role="separator"
+                  aria-label="Resize diagram"
+                  title="Drag to resize"
+                  onPointerDown={startResize}
+                  onPointerMove={moveResize}
+                  onPointerUp={endResize}
+                  onPointerCancel={endResize}
+                />
               </div>
             </div>,
             document.body,

@@ -1,5 +1,15 @@
 # Changelog
 
+## 2.2.1
+
+- Expand inline visualizations with 50–400% zoom, a 100% reset, a fit-width action, and a resizable overlay panel whose size is remembered.
+- Add a Collapse/Expand control to `ask_user` cards so the conversation remains visible while deciding.
+- Expand Todo cards by default, remove the failed-count badge from grouped tool summaries, and keep consecutive skill loads as individual cards.
+- Add `run_command(background: true)` for downloads, installs, builds, and servers that outlive the turn. Background commands return a task id immediately, write a log, and notify the conversation when they finish.
+- Raise the default Command timeout to 3600 seconds; foreground commands still report and clamp to the configured limit.
+- Update the `run_command` description and agent prompt so Ling only calls a command background when the result says `mode: background`.
+- Remove the stale inline-visualization workspace memory and document workspace/global memory precedence in `AGENTS.md`.
+
 ## 2.1.1
 
 - Add native Anthropic Messages API support through the new **API protocol** setting. The adapter handles streaming text, tools/tool_use/tool_result, thinking blocks and signatures, redacted thinking, images, usage, stop reasons, retries, and cancellation.

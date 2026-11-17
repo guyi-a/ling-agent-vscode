@@ -308,6 +308,94 @@ async def _run_command_detach(root: Path) -> None:
         await service.close()
 
 
+async def _run_command_backgrounded_by_tool(root: Path) -> None:
+    workspace = root / "workspace"
+    workspace.mkdir()
+    command = _command(1.5)
+    streams = ScriptedStreams(
+        [
+            _tool_assistant(
+                ToolCall(
+                    id="call-cmd",
+                    name="run_command",
+                    arguments={
+                        "command": command,
+                        "background": True,
+                    },
+                )
+            ),
+            _assistant("started"),
+            _assistant("continued"),
+        ]
+    )
+    service = SessionService(
+        _emit,
+        model=MODEL,
+        stream_fn=streams,
+        storage_root=root / "state",
+    )
+    try:
+        await service.start(
+            "run it",
+            str(workspace),
+            approval_mode=ApprovalMode.AUTO,
+        )
+        detail = None
+        for _ in range(400):
+            snapshot = await service.snapshot()
+            tool_entry = next(
+                (
+                    entry
+                    for entry in snapshot["entries"]
+                    if entry.get("kind") == "tool"
+                    and entry["tool"]["id"] == "call-cmd"
+                ),
+                None,
+            )
+            detail = (
+                tool_entry["tool"].get("detail")
+                if tool_entry is not None
+                else None
+            )
+            if isinstance(detail, dict) and detail.get("taskId"):
+                break
+            await asyncio.sleep(0.02)
+        assert isinstance(detail, dict)
+        assert detail["mode"] == "background"
+        assert detail["status"] == "running"
+
+        notices = []
+        texts: list[str] = []
+        for _ in range(400):
+            snapshot = await service.snapshot()
+            notices = [
+                entry
+                for entry in snapshot["entries"]
+                if entry.get("kind") == "task-notification"
+            ]
+            texts = [
+                entry["message"]["content"]
+                for entry in snapshot["entries"]
+                if entry.get("kind") == "message"
+                and entry["message"]["role"] == "assistant"
+            ]
+            if notices and "continued" in texts:
+                break
+            await asyncio.sleep(0.02)
+        assert len(notices) == 1
+        notice = notices[0]["tasks"][0]
+        assert notice["kind"] == "command"
+        assert notice["exitCode"] == 0
+
+        tasks = await service.background_list()
+        assert len(tasks) == 1
+        assert tasks[0]["status"] == "completed"
+        assert tasks[0]["exitCode"] == 0
+        assert "bgdone" in (tasks[0]["summary"] or "")
+    finally:
+        await service.close()
+
+
 class BackgroundTasksRpcTest(unittest.IsolatedAsyncioTestCase):
     async def test_background_tasks_batch_into_one_continuation(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
@@ -316,6 +404,10 @@ class BackgroundTasksRpcTest(unittest.IsolatedAsyncioTestCase):
     async def test_running_command_can_be_detached(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             await _run_command_detach(Path(temp))
+
+    async def test_run_command_can_start_in_background(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            await _run_command_backgrounded_by_tool(Path(temp))
 
 
 if __name__ == "__main__":

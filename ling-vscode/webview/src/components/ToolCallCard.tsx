@@ -40,6 +40,7 @@ export function ToolCallCard({
   const [expanded, setExpanded] = useState(
     call.detail?.kind === "plan" ||
       call.detail?.kind === "subagent" ||
+      call.detail?.kind === "todo" ||
       backgroundMode,
   );
   const effectiveStatus = backgroundTask
@@ -51,6 +52,7 @@ export function ToolCallCard({
     if (
       call.detail?.kind === "plan" ||
       call.detail?.kind === "subagent" ||
+      call.detail?.kind === "todo" ||
       backgroundMode
     ) {
       setExpanded(true);

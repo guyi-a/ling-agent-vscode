@@ -301,7 +301,7 @@ function isActiveTool(tool: ToolCall): boolean {
 }
 
 function isUngroupableTool(tool: ToolCall): boolean {
-  return toolName(tool) === "ask_user";
+  return toolName(tool) === "ask_user" || toolName(tool) === "load_skill";
 }
 
 export function classifyToolCategory(

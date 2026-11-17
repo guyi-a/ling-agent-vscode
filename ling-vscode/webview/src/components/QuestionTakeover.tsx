@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import type { AskUserAnswer, QuestionRequest } from "../types";
+import { ChevronIcon } from "./icons";
 
 interface QuestionTakeoverProps {
   request: QuestionRequest;
@@ -22,9 +23,11 @@ export function QuestionTakeover({
   onCancelRun,
 }: QuestionTakeoverProps) {
   const [drafts, setDrafts] = useState<Record<string, DraftAnswer>>({});
+  const [collapsed, setCollapsed] = useState(false);
 
   useEffect(() => {
     setDrafts({});
+    setCollapsed(false);
   }, [request.callId]);
 
   const complete = useMemo(
@@ -91,14 +94,29 @@ export function QuestionTakeover({
           <p className="approval-kicker">Question</p>
           <h2>{request.questions[0]?.header ?? "Input needed"}</h2>
         </div>
-        {total > 1 ? (
-          <span className="approval-queue">
-            {index + 1} / {total}
-          </span>
-        ) : null}
+        <div className="question-heading-actions">
+          {total > 1 ? (
+            <span className="approval-queue">
+              {index + 1} / {total}
+            </span>
+          ) : null}
+          <button
+            className="question-collapse"
+            type="button"
+            aria-expanded={!collapsed}
+            aria-label={collapsed ? "Expand question" : "Collapse question"}
+            title={collapsed ? "Expand question" : "Collapse question"}
+            onClick={() => setCollapsed((value) => !value)}
+          >
+            <span>{collapsed ? "Expand" : "Collapse"}</span>
+            <ChevronIcon className="question-collapse__chevron" />
+          </button>
+        </div>
       </div>
 
-      <div className="question-list">
+      {!collapsed ? (
+        <>
+          <div className="question-list">
         {request.questions.map((question, questionIndex) => {
           const draft = drafts[question.id];
           const hasOptions = question.options.length > 0;
@@ -191,6 +209,8 @@ export function QuestionTakeover({
           Submit
         </button>
       </div>
+        </>
+      ) : null}
     </section>
   );
 }

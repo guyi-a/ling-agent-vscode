@@ -87,7 +87,7 @@ export function SettingsPanel({
   const [diffView, setDiffView] = useState<DiffView>("inline");
   const [maxSteps, setMaxSteps] = useState("50");
   const [maxParallelTools, setMaxParallelTools] = useState("4");
-  const [commandTimeout, setCommandTimeout] = useState("120");
+  const [commandTimeout, setCommandTimeout] = useState("3600");
   const [approvalTimeout, setApprovalTimeout] = useState("120");
   const [contextWindow, setContextWindow] = useState("1000000");
   const [keepTurns, setKeepTurns] = useState("5");

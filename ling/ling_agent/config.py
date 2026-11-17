@@ -66,7 +66,7 @@ class HarnessConfig:
     max_document_bytes: int = 25 * 1024 * 1024
     max_document_text_chars: int = 256 * 1024
     max_document_xml_bytes: int = 64 * 1024 * 1024
-    command_timeout_seconds: float = 120.0
+    command_timeout_seconds: float = 3600.0
     approval_timeout_seconds: float = 120.0
     prompt_max_chars: int = 100_000
     storage_root: Path | None = None

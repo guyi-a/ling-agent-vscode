@@ -160,11 +160,6 @@ export function Timeline({
             <span className="tool-group__summary-text">
               {block.summary}
             </span>
-            {block.failedCount > 0 ? (
-              <span className="tool-group__failed">
-                {block.failedCount} 失败
-              </span>
-            ) : null}
             {block.cancelledCount > 0 ? (
               <span className="tool-group__cancelled">
                 {block.cancelledCount} 取消

@@ -104,12 +104,13 @@ When research can proceed while the main conversation keeps working, Ling runs t
 
 ### Background commands
 
-Long-running commands can keep running after the main conversation moves on. While a `run_command` card is running, click **Run in background**:
+Long-running commands can keep running after the main conversation moves on. Ling can start one directly with `run_command(background: true)`, or you can click **Run in background** while a foreground command is running:
 
 - The process is not interrupted; it becomes a **Command** task with its own status and exit code.
 - Full output is written to `.agents/background/<task-id>.log`; the completion notification includes the exit code and a short output tail.
 - Open **Tasks** to view command tasks and their logs, or to stop one; stopping terminates the process tree.
 - Commands moved to the background keep running if you cancel the current run. They stop when the sidecar closes.
+- Foreground commands are capped by **Command timeout** (3600s by default); a longer `timeout_seconds` is clamped to that setting.
 
 ### Browser (Kro Bridge)
 
@@ -318,6 +319,7 @@ When the model emits a block like this, Ling renders a diagram instead of source
 - Updates roughly every 70 ms while streaming.
 - Rendered in a sandboxed iframe; scripts and external resources are blocked.
 - Height follows content; width follows the message area.
+- **Expand** opens a larger overlay with 50–400% zoom, a 100% reset, and a bottom-right resize handle. The panel size is remembered.
 - `Copy` (source) and `Source` (expand source) are available at the top-right.
 
 Only `html` blocks with `type="renderer"` are rendered; normal code blocks are unchanged.
@@ -336,7 +338,7 @@ Click the gear at the top-right of Chat to open Settings:
 | Diff view | Inline | Or Side by side |
 | Max steps per message | 50 | 1–100 |
 | Parallel tools | 4 | 1–16 |
-| Command timeout | 120s | 1–3600 |
+| Command timeout | 3600s | 1–3600 |
 | Approval timeout | 120s | 1–3600 |
 | Context window | 1,000,000 | 1024–10,000,000 |
 | Keep recent user turns | 5 | 0–50 |

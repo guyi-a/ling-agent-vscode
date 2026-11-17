@@ -44,6 +44,15 @@ def create_command_tools(
         command = call.arguments.get("command")
         if not isinstance(command, str):
             raise TypeError("command must be a string")
+        background = call.arguments.get("background", False)
+        if not isinstance(background, bool):
+            raise TypeError("background must be a boolean")
+        if background and (
+            command_calls is None or not command_calls.available
+        ):
+            raise RuntimeError(
+                "Background commands require an active session."
+            )
         requested_timeout = _optional_timeout(
             call,
             resolved_config.command_timeout_seconds,
@@ -80,6 +89,26 @@ def create_command_tools(
             log_path,
             handle,
         )
+        if background:
+            from ..command_calls import CommandNotRunning
+
+            try:
+                task = await command_calls.request_detach(call.id)
+            except CommandNotRunning:
+                if (
+                    command_calls.state(call.id)
+                    is not CommandCallState.FINISHED
+                ):
+                    raise
+                outcome = await handle.wait_foreground(
+                    timeout_seconds=0.1,
+                )
+                await handle.drain_readers(timeout=5.0)
+                handle.close_log(delete=True)
+                command_calls.complete_foreground(call.id)
+                return handle.foreground_result(outcome).to_tool_execution()
+            return handle.background_result(task.id).to_tool_execution()
+
         try:
             outcome = await handle.wait_foreground(
                 timeout_seconds=timeout_seconds,
@@ -131,9 +160,13 @@ def create_command_tools(
                 name="run_command",
                 description=(
                     "Run a PowerShell command with the workspace as cwd. "
-                    "Requires approval. Output and runtime are bounded. "
-                    "Long-running foreground commands can be moved to the "
-                    "background from the tool card."
+                    "Requires approval. Set background=true for downloads, "
+                    "installs, builds, or servers that may outlive the turn; "
+                    "it returns a task id immediately and the command keeps "
+                    "running after the run ends. Foreground commands are "
+                    "bounded by the configured Command timeout. Only describe "
+                    "a command as background when the result says "
+                    "mode: background."
                 ),
                 parameters={
                     "type": "object",
@@ -143,6 +176,7 @@ def create_command_tools(
                             "type": "number",
                             "exclusiveMinimum": 0,
                         },
+                        "background": {"type": "boolean"},
                     },
                     "required": ["command"],
                     "additionalProperties": False,

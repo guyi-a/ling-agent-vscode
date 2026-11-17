@@ -56,7 +56,7 @@ export const DEFAULT_SETTINGS: LingSettings = {
   effort: "high",
   maxSteps: 50,
   maxParallelTools: 4,
-  commandTimeoutSeconds: 120,
+  commandTimeoutSeconds: 3600,
   approvalTimeoutSeconds: 120,
   contextWindowTokens: 1_000_000,
   keepLastUserTurns: 5,
@@ -207,7 +207,7 @@ function normalizeSettings(value: unknown): LingSettings {
     maxParallelTools: intSetting(record.maxParallelTools, 4, 1, 16),
     commandTimeoutSeconds: numberSetting(
       record.commandTimeoutSeconds,
-      120,
+      3600,
       1,
       3600,
     ),
