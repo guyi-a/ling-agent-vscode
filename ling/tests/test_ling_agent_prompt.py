@@ -71,6 +71,15 @@ def test_computer_policy_points_to_skill() -> None:
     assert len(section) < 1200
 
 
+def test_prompt_covers_long_running_failure_recovery() -> None:
+    with tempfile.TemporaryDirectory() as temp:
+        prompt = build_system_prompt(Workspace(Path(temp)))
+
+    assert "Before retrying a failed long-running command" in prompt.system_prompt
+    assert "After two failures of the same long-running operation" in prompt.system_prompt
+    assert "Isolate failures one layer at a time" in prompt.system_prompt
+
+
 def test_prompt_emphasizes_inline_visualization() -> None:
     with tempfile.TemporaryDirectory() as temp:
         workspace = Workspace(Path(temp))
@@ -96,5 +105,6 @@ if __name__ == "__main__":
     test_prompt_includes_workspace_and_agents_file()
     test_prompt_has_size_limit()
     test_computer_policy_points_to_skill()
+    test_prompt_covers_long_running_failure_recovery()
     test_prompt_emphasizes_inline_visualization()
     print("all ling_agent prompt tests passed")

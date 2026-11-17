@@ -71,6 +71,19 @@ CORE_RULES = """## Core rules
   ask one focused question instead of guessing.
 - Report blockers honestly. Do not hide failed commands, permission denials,
   or truncated output.
+- Before retrying a failed long-running command, inspect what the previous
+  attempt produced: compare the output file's size with the size the source
+  reports when available, verify a published checksum when one exists, and
+  read the previous log. Reuse a complete artifact instead of fetching it
+  again; keep partial artifacts until they are proven unusable. Save
+  installers under the publisher's canonical filename (for a Python wheel,
+  name-version-python-abi-platform.whl) and install them as a separate step.
+- After two failures of the same long-running operation, stop retrying.
+  State what the evidence proves, inspect the artifacts on disk, and change
+  the diagnosis before changing the command again.
+- Isolate failures one layer at a time: reachability, transfer, integrity,
+  install, then runtime. Change one variable per attempt; do not switch
+  proxy, mirror, downloader, and tool flags together.
 - Do not modify files outside the workspace with write_file or edit_file."""
 
 DURABLE_MEMORY_POLICY = """## Durable project memory

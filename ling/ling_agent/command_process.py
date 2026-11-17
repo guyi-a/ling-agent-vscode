@@ -38,6 +38,7 @@ class CommandResult:
     backgrounded: bool = False
     task_id: str | None = None
     log_path: str | None = None
+    timeout_seconds: float | None = None
 
     def to_tool_execution(self) -> ToolExecution:
         if self.backgrounded:
@@ -87,6 +88,21 @@ class CommandResult:
         ]
         if self.truncated:
             sections.extend(["", "[truncated]"])
+        if self.timed_out:
+            limit = (
+                f"{self.timeout_seconds:g}s"
+                if self.timeout_seconds is not None
+                else "the configured limit"
+            )
+            sections.extend(
+                [
+                    "",
+                    f"note: the command was stopped at the effective timeout "
+                    f"({limit}); the process tree was terminated. Files the "
+                    "command was writing may be incomplete - check them "
+                    "before restarting.",
+                ]
+            )
         return ToolExecution(
             output="\n".join(sections),
             is_error=(
@@ -109,6 +125,7 @@ class CommandResult:
 class ForegroundOutcome:
     reason: ForegroundReason
     exit_code: int | None = None
+    timeout_seconds: float | None = None
 
 
 class _OutputBudget:
@@ -369,7 +386,10 @@ class CommandHandle:
         else:
             await self.terminate()
             await self.drain_readers(timeout=5.0)
-            outcome = ForegroundOutcome("timeout")
+            outcome = ForegroundOutcome(
+                "timeout",
+                timeout_seconds=timeout_seconds,
+            )
 
         for task in (wait_task, timeout_task, cancel_task, detach_task):
             if task is None:
@@ -423,6 +443,7 @@ class CommandHandle:
             timed_out=outcome.reason == "timeout",
             cancelled=outcome.reason == "cancelled",
             truncated=truncated,
+            timeout_seconds=outcome.timeout_seconds,
         )
 
     def background_result(self, task_id: str) -> CommandResult:

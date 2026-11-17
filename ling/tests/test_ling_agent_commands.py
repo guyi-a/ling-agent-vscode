@@ -75,7 +75,11 @@ async def _command_process_contracts() -> None:
             max_output_chars=1000,
         )
         assert timed_out.timed_out
-        assert timed_out.to_tool_execution().is_error
+        assert timed_out.timeout_seconds == 0.1
+        execution = timed_out.to_tool_execution()
+        assert execution.is_error
+        assert "effective timeout (0.1s)" in execution.output
+        assert "may be incomplete" in execution.output
 
         cancel = asyncio.Event()
         asyncio.get_running_loop().call_later(0.1, cancel.set)

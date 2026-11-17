@@ -95,6 +95,7 @@ Development mode uses the Python source in `ling/`; no sidecar rebuild is needed
 ## How it works
 
 - **Approvals**: Manual / Edit automatically / Auto / Plan.
+- **Background work**: explore subagents and long-running commands can continue after the turn; the Tasks panel tracks status, exit codes, and logs.
 - **Read before edit**: `edit_file` and overwriting `write_file` require a prior `read_file` in the session.
 - **Skills**: built-in > global without `source: ling` > workspace; built-ins are mirrored to the user's global skill library.
 - **MCP**: user-level configuration with stdio, Streamable HTTP, SSE, and OAuth.

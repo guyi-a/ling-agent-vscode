@@ -111,6 +111,7 @@ Long-running commands can keep running after the main conversation moves on. Lin
 - Open **Tasks** to view command tasks and their logs, or to stop one; stopping terminates the process tree.
 - Commands moved to the background keep running if you cancel the current run. They stop when the sidecar closes.
 - Foreground commands are capped by **Command timeout** (3600s by default); a longer `timeout_seconds` is clamped to that setting.
+- When a foreground command reaches that limit, Ling terminates the process tree, reports the effective timeout, and warns that files the command was writing may be incomplete. Check them before retrying.
 
 ### Browser (Kro Bridge)
 

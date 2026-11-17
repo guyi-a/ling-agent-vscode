@@ -1,5 +1,11 @@
 # Changelog
 
+## 2.2.2
+
+- Add long-running command recovery rules to the agent prompt: inspect existing artifacts, sizes, checksums, and previous logs before retrying; stop after two failures to re-diagnose; and isolate failures one layer at a time instead of switching proxy, mirror, downloader, and flags together.
+- Report the effective timeout when a foreground command is stopped and warn that files the command was writing may be incomplete.
+- Update the `run_command` description, the `ling-self` skill, `AGENTS.md`, and the READMEs so model-started background commands and timeout behavior are documented consistently.
+
 ## 2.2.1
 
 - Expand inline visualizations with 50–400% zoom, a 100% reset, a fit-width action, and a resizable overlay panel whose size is remembered.

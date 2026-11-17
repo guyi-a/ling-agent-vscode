@@ -164,9 +164,13 @@ def create_command_tools(
                     "installs, builds, or servers that may outlive the turn; "
                     "it returns a task id immediately and the command keeps "
                     "running after the run ends. Foreground commands are "
-                    "bounded by the configured Command timeout. Only describe "
-                    "a command as background when the result says "
-                    "mode: background."
+                    "bounded by the configured Command timeout; a timeout "
+                    "stops the process tree and may leave a file the command "
+                    "was writing incomplete. Inspect it before retrying. "
+                    "Write long output to a log and read the tail instead of "
+                    "piping it through a filter that hides progress or "
+                    "errors. Only describe a command as background when the "
+                    "result says mode: background."
                 ),
                 parameters={
                     "type": "object",
