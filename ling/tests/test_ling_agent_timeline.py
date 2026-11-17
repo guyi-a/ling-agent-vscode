@@ -298,7 +298,27 @@ def test_timeline_projector_ignores_duplicate_sequences() -> None:
     assert users == []
 
 
+def test_run_stop_finishes_pending_tools() -> None:
+    for run_status, tool_status in (
+        ("aborted", "cancelled"),
+        ("error", "failed"),
+    ):
+        projector = TimelineProjector("session-1")
+        call = ToolCall(id="call-1", name="run_command", arguments={})
+        projector.push_committed(_envelope(1, RunStarted()))
+        projector.push_committed(
+            _envelope(2, ToolExecutionStarted(call=call), call_id=call.id)
+        )
+        projector.push_committed(_envelope(3, RunStopped(status=run_status)))
+
+        snapshot = projector.snapshot()
+        tools = [item for item in snapshot.items if item.kind == "tool"]
+        assert tools[0].status == tool_status
+        assert tools[0].error
+
+
 if __name__ == "__main__":
     test_timeline_projector_reconciles_stream_and_commit()
     test_timeline_projector_ignores_duplicate_sequences()
+    test_run_stop_finishes_pending_tools()
     print("all ling_agent timeline tests passed")

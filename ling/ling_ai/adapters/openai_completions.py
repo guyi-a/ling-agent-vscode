@@ -5,8 +5,8 @@ from __future__ import annotations
 import asyncio
 import json
 import time
-from dataclasses import dataclass
-from typing import Any, AsyncIterator, Literal
+from dataclasses import dataclass, replace
+from typing import Any, AsyncIterator, Literal, Sequence
 
 import httpx
 
@@ -322,6 +322,86 @@ def _finish_tool_call(tool_call: _StreamingToolCall) -> None:
     tool_call.block.arguments = arguments
 
 
+def _normalize_tool_history(messages: Sequence[Message]) -> list[Message]:
+    """Pair assistant tool calls with results before OpenAI serialization.
+
+    Interrupted runs can persist an assistant message with tool calls but no
+    matching tool messages. OpenAI rejects that history, so drop unanswered
+    calls and orphan results instead of sending an invalid request.
+    """
+    normalized: list[Message] = []
+    index = 0
+    while index < len(messages):
+        message = messages[index]
+        if not isinstance(message, AssistantMessage):
+            normalized.append(message)
+            index += 1
+            continue
+
+        calls = [
+            block for block in message.content if isinstance(block, ToolCall)
+        ]
+        if not calls:
+            normalized.append(message)
+            index += 1
+            continue
+
+        result_index = index + 1
+        results: list[ToolResultMessage] = []
+        while (
+            result_index < len(messages)
+            and isinstance(messages[result_index], ToolResultMessage)
+        ):
+            results.append(messages[result_index])
+            result_index += 1
+
+        answered = {
+            result.tool_call_id
+            for result in results
+            if result.tool_call_id
+        }
+        kept_calls = [
+            call for call in calls if call.id and call.id in answered
+        ]
+        kept_ids = {call.id for call in kept_calls}
+        if kept_calls:
+            if len(kept_calls) != len(calls):
+                message = replace(
+                    message,
+                    content=[
+                        block
+                        for block in message.content
+                        if not isinstance(block, ToolCall)
+                        or block.id in kept_ids
+                    ],
+                )
+            normalized.append(message)
+            results_by_id = {
+                result.tool_call_id: result for result in results
+            }
+            normalized.extend(
+                results_by_id[call.id] for call in kept_calls
+            )
+        else:
+            content = [
+                block
+                for block in message.content
+                if not isinstance(block, ToolCall)
+            ]
+            has_content = any(
+                (isinstance(block, TextContent) and block.text)
+                or (
+                    isinstance(block, ThinkingContent)
+                    and (block.thinking or block.signature)
+                )
+                for block in content
+            )
+            if has_content:
+                normalized.append(replace(message, content=content))
+        index = result_index
+    return normalized
+
+
 def _build_payload(
     model: Model,
     context: Context,
@@ -333,7 +413,7 @@ def _build_payload(
         role = "developer" if compat.supports_developer_role else "system"
         messages.append({"role": role, "content": context.system_prompt})
     last_role: str | None = None
-    for message in context.messages:
+    for message in _normalize_tool_history(context.messages):
         if (
             compat.requires_assistant_after_tool_result
             and last_role == "tool"

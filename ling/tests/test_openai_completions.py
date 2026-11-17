@@ -134,6 +134,151 @@ def test_build_payload_skips_empty_assistant_messages() -> None:
     ]
 
 
+def test_payload_drops_unanswered_tool_calls() -> None:
+    context = Context(
+        messages=[
+            UserMessage(content="go", timestamp=0),
+            AssistantMessage(
+                content=[
+                    TextContent("working"),
+                    ToolCall(
+                        id="call_1",
+                        name="read_file",
+                        arguments={"path": "a.py"},
+                    ),
+                    ToolCall(
+                        id="call_2",
+                        name="read_file",
+                        arguments={"path": "b.py"},
+                    ),
+                ],
+                provider="deepseek",
+                model="deepseek-chat",
+                usage=Usage(),
+                stop_reason="tool_use",
+                timestamp=1,
+            ),
+            ToolResultMessage(
+                tool_call_id="call_1",
+                tool_name="read_file",
+                content=[TextContent("print(1)")],
+                is_error=False,
+                timestamp=2,
+            ),
+            UserMessage(content="next", timestamp=3),
+        ]
+    )
+
+    payload = _build_payload(MODEL, context, StreamOptions())
+
+    assistant = payload["messages"][1]
+    assert assistant["content"] == "working"
+    assert [call["id"] for call in assistant["tool_calls"]] == ["call_1"]
+    assert payload["messages"][2] == {
+        "role": "tool",
+        "tool_call_id": "call_1",
+        "content": "print(1)",
+    }
+    assert payload["messages"][3] == {"role": "user", "content": "next"}
+
+
+def test_payload_drops_tool_only_assistant_without_results() -> None:
+    context = Context(
+        messages=[
+            UserMessage(content="go", timestamp=0),
+            AssistantMessage(
+                content=[
+                    ToolCall(
+                        id="call_1",
+                        name="read_file",
+                        arguments={"path": "a.py"},
+                    )
+                ],
+                provider="deepseek",
+                model="deepseek-chat",
+                usage=Usage(),
+                stop_reason="tool_use",
+                timestamp=1,
+            ),
+            UserMessage(content="next", timestamp=2),
+        ]
+    )
+
+    payload = _build_payload(MODEL, context, StreamOptions())
+
+    assert [message["role"] for message in payload["messages"]] == [
+        "user",
+        "user",
+    ]
+
+
+def test_payload_keeps_text_when_tool_call_is_unanswered() -> None:
+    context = Context(
+        messages=[
+            UserMessage(content="go", timestamp=0),
+            AssistantMessage(
+                content=[
+                    TextContent("working"),
+                    ToolCall(
+                        id="call_1",
+                        name="read_file",
+                        arguments={"path": "a.py"},
+                    ),
+                ],
+                provider="deepseek",
+                model="deepseek-chat",
+                usage=Usage(),
+                stop_reason="tool_use",
+                timestamp=1,
+            ),
+            UserMessage(content="next", timestamp=2),
+        ]
+    )
+
+    payload = _build_payload(MODEL, context, StreamOptions())
+
+    assistant = payload["messages"][1]
+    assert assistant == {"role": "assistant", "content": "working"}
+    assert payload["messages"][2] == {"role": "user", "content": "next"}
+
+
+def test_payload_drops_unpaired_tool_results() -> None:
+    context = Context(
+        messages=[
+            UserMessage(content="go", timestamp=0),
+            AssistantMessage(
+                content=[
+                    ToolCall(
+                        id="call_1",
+                        name="read_file",
+                        arguments={"path": "a.py"},
+                    )
+                ],
+                provider="deepseek",
+                model="deepseek-chat",
+                usage=Usage(),
+                stop_reason="tool_use",
+                timestamp=1,
+            ),
+            ToolResultMessage(
+                tool_call_id="call_2",
+                tool_name="read_file",
+                content=[TextContent("print(1)")],
+                is_error=False,
+                timestamp=2,
+            ),
+            UserMessage(content="next", timestamp=3),
+        ]
+    )
+
+    payload = _build_payload(MODEL, context, StreamOptions())
+
+    assert [message["role"] for message in payload["messages"]] == [
+        "user",
+        "user",
+    ]
+
+
 def test_reasoning_payload() -> None:
     context = Context(
         messages=[
@@ -899,6 +1044,11 @@ def test_http_error() -> None:
 
 if __name__ == "__main__":
     test_build_payload()
+    test_build_payload_skips_empty_assistant_messages()
+    test_payload_drops_unanswered_tool_calls()
+    test_payload_drops_tool_only_assistant_without_results()
+    test_payload_keeps_text_when_tool_call_is_unanswered()
+    test_payload_drops_unpaired_tool_results()
     test_reasoning_payload()
     test_compat_payload()
     test_compat_tool_result_messages()

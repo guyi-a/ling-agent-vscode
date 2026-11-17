@@ -494,6 +494,14 @@ class TimelineProjector:
             if run_status == "error"
             else "completed"
         )
+        tool_status: Literal["cancelled", "failed"] = (
+            "cancelled" if run_status == "cancelled" else "failed"
+        )
+        tool_error = (
+            "运行已取消，工具未返回结果。"
+            if tool_status == "cancelled"
+            else "运行已停止，工具未返回结果。"
+        )
         for item in self._items:
             if (
                 isinstance(item, AssistantTimelineItem)
@@ -501,6 +509,13 @@ class TimelineProjector:
                 and item.status == "streaming"
             ):
                 item.status = assistant_status
+            elif (
+                isinstance(item, ToolTimelineItem)
+                and item.run_id == run_id
+                and item.status in ("requested", "running")
+            ):
+                item.status = tool_status
+                item.error = tool_error
 
 
 def _user_display_text(event: UserMessageCommitted) -> str:

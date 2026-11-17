@@ -1,5 +1,10 @@
 # Changelog
 
+## 2.2.3
+
+- Recover sessions whose history contains an assistant message with tool calls but no matching tool results. The OpenAI adapter now drops unanswered calls and unpaired results before serialization, so an interrupted run no longer makes every later request fail with HTTP 400.
+- Mark tools that are still requested or running as cancelled or failed when a run stops, instead of leaving their cards spinning forever.
+
 ## 2.2.2
 
 - Add long-running command recovery rules to the agent prompt: inspect existing artifacts, sizes, checksums, and previous logs before retrying; stop after two failures to re-diagnose; and isolate failures one layer at a time instead of switching proxy, mirror, downloader, and flags together.
