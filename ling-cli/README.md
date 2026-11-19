@@ -4,7 +4,7 @@ Ling 的终端客户端（TUI）。它通过 stdio JSON-RPC 连接 Ling sidecar�
 
 ## 状态
 
-- 版本 `0.1.0`，**尚未发布到 npm**；当前用于本地开发和打包验证。
+- 版本 `0.1.1`，通过 GitHub Release 分发；**尚未发布到 npm**。
 - 仅支持 Windows x64，要求 Node.js >= 22。
 - 复用 Ling 的配置和会话历史：`%APPDATA%\Ling\config.json`、`%LOCALAPPDATA%\ling-agent\sessions.db`。
 - sidecar 以 `vendor/win32-x64/ling-sidecar.exe` 随包分发，用户不需要安装 Python。
@@ -52,6 +52,7 @@ ling --help
 /mode [manual|accept-write|auto|plan]
 /effort [low|medium|high|xhigh|max]
 /history [query]      # ↑/↓ 选择，Enter 打开
+/config               # 编辑 Ling 配置
 /tasks                /stop-task <taskId>
 /details [n]          /last
 /attach <path>        /detach
@@ -77,17 +78,20 @@ ling --help
 - `ask_user`：单选、多选、多问题、自定义回答；Esc 中断当前 run。
 - 运行中发送的消息在对话下方显示为 `Queued · N`（最新在上）；按 Esc 中断当前 run 并 promote 顶部（最新）消息。
 - 历史、后台任务使用 overlay；`/history` 里用 ↑/↓ 选中某条记录后按 Enter 直接恢复会话。
+- `/config` 在输入框里编辑 Ling 配置：↑/↓ 选字段，Enter 编辑，Esc 取消/关闭；API Key 显示为 `set/unset`，输入时用 `*` 遮挡。保存后需要重启 `ling` 生效。
 
 快捷键：Enter 发送，Shift+Tab 循环切换审批模式，Ctrl+Alt+T 展开/收起 thinking，Esc 中断/关闭，Ctrl+C 取消/退出，Ctrl+D 退出。
 
 ## 配置
 
-TUI 只读 Ling 的配置文件，不写回：
+配置文件和 VS Code 版共用：
 
 - Windows：`%APPDATA%\Ling\config.json`
-- 模型、API Key、Base URL、API 协议都从该文件读取，CLI 参数可以覆盖模型/协议/Base URL。
+- 模型、API Key、Base URL、API 协议等都从该文件读取，CLI 参数可以覆盖模型/协议/Base URL。
+- 没有配置文件时 TUI 仍能启动；在 TUI 里输入 `/config` 即可创建并编辑，保存后重启 `ling` 生效。
 - shell 里的 `LING_*`、`DEEPSEEK_*`、`OPENAI_*` 会被清掉，避免旧值串进 sidecar。
-- API Key 不会出现在终端输出、日志或 `--debug-log` 中。
+- `/config` 只更新配置中对应的字段，保留未知字段；文件写入使用临时文件替换，并尝试设为 0600。
+- API Key 不会出现在终端输出、日志或 `--debug-log` 中；`/config` 列表只显示 `set` / `unset`。
 
 ## 架构
 
@@ -125,7 +129,7 @@ npm pack --dry-run      # prepack 会自动再执行上面三步
 npm test
 ```
 
-当前 44 个测试：34 个 Ink/交互测试、3 个 Markdown 渲染测试、4 个 config 测试、3 个 RPC 测试。CI 在 `.github/workflows/ling-cli.yml` 里跑 `npm ci` + `npm test`。
+当前 47 个测试：35 个 Ink/交互测试、3 个 Markdown 渲染测试、6 个 config 测试、3 个 RPC 测试。CI 在 `.github/workflows/ling-cli.yml` 里跑 `npm ci` + `npm test`。
 
 真实 sidecar 冒烟（调用模型）：`node scripts/tui-smoke.mjs`，覆盖聊天、审批、`/last` diff、`/history` 选择恢复。
 

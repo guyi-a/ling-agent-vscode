@@ -59,7 +59,7 @@ npm install
 npm run build
 node bin/ling.js --check          # 启动 sidecar、握手、snapshot，不调用模型
 node bin/ling.js --workspace E:\some-workspace
-npm test                          # 44 个测试：Ink/交互 + Markdown + config + rpc
+npm test                          # 47 个测试：Ink/交互 + Markdown + config + rpc
 node scripts/tui-smoke.mjs        # 真实 sidecar 冒烟（会调用模型）
 npm run build:sidecar             # 复制 ling-sidecar.exe 到 vendor/win32-x64
 npm pack --dry-run                # 检查 npm 包内容

@@ -5,7 +5,9 @@ import {
   buildSidecarEnv,
   defaultConfigPath,
   loadConfig,
+  loadConfigIfExists,
   packageRoot,
+  packageVersion,
   resolveSidecar,
   requireApiKey,
   type ApiProtocol,
@@ -151,16 +153,7 @@ function parseChoice<T extends string>(
 }
 
 function readVersion(): string {
-  try {
-    const raw = fs.readFileSync(
-      path.join(packageRoot, "package.json"),
-      "utf8",
-    );
-    const parsed = JSON.parse(raw) as { version?: string };
-    return parsed.version ?? "0.1.0";
-  } catch {
-    return "0.1.0";
-  }
+  return packageVersion();
 }
 
 function makeRedactor(secret: string): (text: string) => string {
@@ -319,7 +312,7 @@ async function main(): Promise<void> {
   let config: ReturnType<typeof loadConfig>;
   let options: CliOptions;
   try {
-    config = loadConfig();
+    config = loadConfigIfExists();
     options = buildOptions(parsed, config);
   } catch (error) {
     process.stderr.write(

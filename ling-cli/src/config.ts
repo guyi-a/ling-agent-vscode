@@ -1,4 +1,12 @@
 import fs from "node:fs";
+import {
+  chmod,
+  mkdir,
+  readFile,
+  rename,
+  unlink,
+  writeFile,
+} from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -7,6 +15,19 @@ export const packageRoot = path.resolve(
   fileURLToPath(new URL("..", import.meta.url)),
 );
 export const repoRoot = path.resolve(packageRoot, "..");
+
+export function packageVersion(): string {
+  try {
+    const raw = fs.readFileSync(
+      path.join(packageRoot, "package.json"),
+      "utf8",
+    );
+    const parsed = JSON.parse(raw) as { version?: string };
+    return parsed.version ?? "0.0.0";
+  } catch {
+    return "0.0.0";
+  }
+}
 
 export interface LingConfig {
   version?: number;
@@ -132,6 +153,61 @@ export function loadConfig(configPath = defaultConfigPath()): LingConfig {
   return parsed as LingConfig;
 }
 
+export function loadConfigIfExists(
+  configPath = defaultConfigPath(),
+): LingConfig {
+  return fs.existsSync(configPath) ? loadConfig(configPath) : {};
+}
+
+export async function readConfigRecord(
+  configPath = defaultConfigPath(),
+): Promise<Record<string, unknown>> {
+  let raw: string;
+  try {
+    raw = await readFile(configPath, "utf8");
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+      return {};
+    }
+    throw error;
+  }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    throw new Error(`Ling config is not valid JSON: ${configPath}`);
+  }
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    throw new Error(`Ling config must be a JSON object: ${configPath}`);
+  }
+  return parsed as Record<string, unknown>;
+}
+
+export async function writeConfigRecord(
+  record: Record<string, unknown>,
+  configPath = defaultConfigPath(),
+): Promise<void> {
+  await mkdir(path.dirname(configPath), { recursive: true });
+  const data = `${JSON.stringify(record, null, 2)}\n`;
+  const tempPath = `${configPath}.${process.pid}.${Date.now()}.tmp`;
+  await writeFile(tempPath, data, { encoding: "utf8", mode: 0o600 });
+  try {
+    await rename(tempPath, configPath);
+  } catch {
+    await writeFile(configPath, data, { encoding: "utf8", mode: 0o600 });
+    try {
+      await unlink(tempPath);
+    } catch {
+      // Best-effort cleanup.
+    }
+  }
+  try {
+    await chmod(configPath, 0o600);
+  } catch {
+    // Windows does not map POSIX modes directly.
+  }
+}
+
 export function requireApiKey(config: LingConfig): string {
   const key = typeof config.apiKey === "string" ? config.apiKey.trim() : "";
   if (!key) {
@@ -173,7 +249,11 @@ export function buildSidecarEnv(
     delete env[name];
   }
 
-  setIf(env, "LING_API_KEY", requireApiKey(config));
+  const apiKey =
+    typeof config.apiKey === "string" ? config.apiKey.trim() : "";
+  if (apiKey) {
+    env.LING_API_KEY = apiKey;
+  }
   setIf(env, "LING_MODEL", options.model ?? config.model);
   setIf(env, "LING_API_BASE_URL", options.baseUrl ?? config.baseUrl);
   setIf(env, "LING_API_PROTOCOL", options.api ?? config.api);

@@ -3,7 +3,7 @@ import { render } from "ink";
 
 import {
   buildSidecarEnv,
-  requireApiKey,
+  packageVersion,
   resolveSidecar,
   type CliOptions,
   type LingConfig,
@@ -30,7 +30,8 @@ export async function runTui(
     );
   }
 
-  const apiKey = requireApiKey(config);
+  const apiKey =
+    typeof config.apiKey === "string" ? config.apiKey.trim() : "";
   const launch = resolveSidecar(options);
   const env = buildSidecarEnv(config, options);
   const client = new SidecarClient({
@@ -46,7 +47,10 @@ export async function runTui(
       "initialize",
       {
         protocolVersion: 1,
-        clientInfo: { name: "ling-cli", version: "0.1.0" },
+        clientInfo: {
+          name: "ling-cli",
+          version: packageVersion(),
+        },
       },
       20_000,
     );
@@ -91,6 +95,11 @@ export async function runTui(
         initialMode={snapshot.approvalMode ?? options.mode}
         initialEffort={options.effort}
         initialSnapshot={snapshot}
+        initialNotice={
+          apiKey
+            ? undefined
+            : "No API key configured. Type /config to set it."
+        }
       />,
       {
         exitOnCtrlC: false,

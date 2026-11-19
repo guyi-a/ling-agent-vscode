@@ -466,6 +466,7 @@ UI 要点（已实现）：
 - `/last`：在 overlay 里显示最后一条工具 entry 的详情。
 - `/attach <path>`：把文件或图片附到下一条消息；图片复制到 `.agents/attachments/`，普通文件直接引用绝对路径。
 - `/detach`：清空待发送附件。
+- `/config`：在输入框里编辑配置字段（API Key、model、baseUrl、api、effort、限额、embedding、computer、browserBridgePort 等）；↑/↓ 选字段，Enter 编辑，Esc 取消/关闭。写入 `%APPDATA%\Ling\config.json`，保留未知字段；secret 显示 `set/unset`，输入时遮挡。
 - `/mcp`：`mcp.status`，显示配置文件、服务器状态、工具数量、授权和错误。
 - `/index`：`index.build`，overlay 显示构建进度（监听 `index.progress`）和最终统计。
 - `/index-status`：`index.status`，显示 files/totalFiles/percent、chunks、vectors、model。
@@ -773,7 +774,7 @@ return { kind: "python", command: python, args: ["-m", "ling_rpc"],
 
 ### 4.8 配置与安全边界
 
-- TUI 只读 config，MVP 不写 config；用户要改模型/key 仍在 VS Code 的 Ling 设置里改。
+- 没有配置文件时 TUI 仍可启动（sidecar 允许暂缺 API Key），用户可通过 `/config` 创建配置；修改后在 TUI 内重启生效。配置写入与 VS Code 使用同一份 `%APPDATA%\Ling\config.json`，保留未知字段。
 - API key 绝不出现在：
   - 终端输出
   - 日志
@@ -1135,7 +1136,7 @@ question.resolved
 
 - `ling --check` 在真实 sidecar 上握手成功，isolated env 不会泄漏 shell 变量。
 - `scripts/tui-smoke.mjs` 通过真实 sidecar：聊天 `Ling APPLE`、`/new`、`write_file` 审批、`/last` 展开 diff、`/history` 选择恢复会话。
-- `npm test` 的 44 个测试通过（34 个 Ink/交互 + 4 个 config + 3 个 RPC + 3 个 Markdown 渲染）。
+- `npm test` 的 47 个测试通过（35 个 Ink/交互 + 6 个 config + 3 个 RPC + 3 个 Markdown 渲染）。
 - 退出后 sidecar 进程结束，没有残留 python 进程。
 
 ### 阶段 2：工具 + 审批 + 问题（已实现）
@@ -1255,7 +1256,7 @@ npm publish          # 需要 npm 2FA/trusted publishing，当前尚未执行
 
 ## 8. 测试计划
 
-### 8.1 单元测试（已实现，`npm test` 44 个通过）
+### 8.1 单元测试（已实现，`npm test` 47 个通过）
 
 `src/tests/app.test.tsx`（22 个，`ink-testing-library` + 假 `SidecarClient`）：
 
@@ -1268,7 +1269,7 @@ npm publish          # 需要 npm 2FA/trusted publishing，当前尚未执行
 - 队列内联显示（最新在上）；Esc 中断并 promote 顶部（最新）消息；队列为空时 Esc 取消 run。
 - `/history` 选择恢复、`/tasks` + `/stop-task`。
 
-`src/tests/config.test.ts`（4 个）：
+`src/tests/config.test.ts`（6 个）：
 
 - 配置读取、缺 key、非法 JSON、shell `LING_*` 清理、storage root、显式 sidecar 解析。
 

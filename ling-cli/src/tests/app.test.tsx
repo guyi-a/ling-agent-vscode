@@ -396,6 +396,66 @@ test("shows only the latest run's thinking when expanded", async () => {
   app.unmount();
 });
 
+test("edits Ling config with /config and masks secrets", async () => {
+  const appData = await mkdtemp(
+    path.join(os.tmpdir(), "ling-cli-config-"),
+  );
+  const previous = process.env.APPDATA;
+  process.env.APPDATA = appData;
+  const state = snapshot();
+  const fake = new FakeClient(state);
+  const app = renderApp(fake, state);
+  try {
+    app.stdin.write("/config");
+    await delay(40);
+    app.stdin.write("\r");
+    await delay(160);
+    const initial = app.lastFrame() ?? "";
+    assert.match(initial, /Configuration/);
+    assert.match(initial, /apiKey/);
+    assert.match(initial, /model/);
+    assert.match(initial, /deepseek-flash/);
+
+    app.stdin.write("\r");
+    await delay(80);
+    app.stdin.write("sk-test-secret");
+    await delay(60);
+    const editing = app.lastFrame() ?? "";
+    assert.doesNotMatch(editing, /sk-test-secret/);
+    app.stdin.write("\r");
+    await delay(160);
+
+    app.stdin.write(String.fromCharCode(27, 91, 66));
+    await delay(60);
+    app.stdin.write("\r");
+    await delay(80);
+    app.stdin.write(String.fromCharCode(127).repeat(14));
+    await delay(60);
+    app.stdin.write("test-model");
+    await delay(60);
+    app.stdin.write("\r");
+    await delay(160);
+
+    const configPath = path.join(appData, "Ling", "config.json");
+    const saved = JSON.parse(
+      await readFile(configPath, "utf8"),
+    ) as Record<string, unknown>;
+    assert.equal(saved.apiKey, "sk-test-secret");
+    assert.equal(saved.model, "test-model");
+    assert.equal(saved.baseUrl, "https://api.deepseek.com/v1");
+    assert.equal(saved.version, 1);
+    assert.match(app.lastFrame() ?? "", /Saved model/);
+  } finally {
+    app.unmount();
+    if (previous === undefined) {
+      delete process.env.APPDATA;
+    } else {
+      process.env.APPDATA = previous;
+    }
+    await rm(appData, { recursive: true, force: true });
+  }
+});
+
 test("groups a tool run under one Ling turn", () => {
   const state = snapshot({
     entries: [

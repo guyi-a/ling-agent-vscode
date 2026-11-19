@@ -10,7 +10,21 @@ import { mkdir, readFile, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { Box, Static, Text, useApp, useInput } from "ink";
 
+import {
+  defaultConfigPath,
+  readConfigRecord,
+  writeConfigRecord,
+} from "../config.js";
 import type { SidecarClient } from "../rpc.js";
+import {
+  CONFIG_FIELDS,
+  buildConfigRecord,
+  configDisplayValue,
+  configHint,
+  configValues,
+  parseConfigInput,
+  type ConfigField,
+} from "../settings.js";
 import type {
   ApprovalRequest,
   BackgroundTask,
@@ -37,6 +51,7 @@ const HELP = [
   "  /last                         show the last tool's details",
   "  /attach <path>                attach a file or image to the next message",
   "  /detach                       clear pending attachments",
+  "  /config                       edit Ling configuration",
   "  /mcp                          show MCP servers and tools",
   "  /index                        build or refresh the code index",
   "  /index-status                 show code index status",
@@ -67,6 +82,7 @@ const COMMANDS: CommandSpec[] = [
   { name: "last", description: "show the last tool's details" },
   { name: "attach", description: "attach a file or image" },
   { name: "detach", description: "clear pending attachments" },
+  { name: "config", description: "edit Ling configuration" },
   { name: "mcp", description: "show MCP servers and tools" },
   { name: "index", description: "build or refresh the code index" },
   { name: "index-status", description: "show code index status" },
@@ -248,6 +264,7 @@ interface AppProps {
   initialMode: string;
   initialEffort: string;
   initialSnapshot: SessionSnapshot;
+  initialNotice?: string;
 }
 
 interface QuestionDraft {
@@ -265,6 +282,14 @@ interface Overlay {
   tool?: TimelineEntry;
   sessions?: HistorySession[];
   selected?: number;
+}
+
+interface ConfigEditor {
+  path: string;
+  original: Record<string, unknown>;
+  values: Record<string, string>;
+  selected: number;
+  editing: boolean;
 }
 
 function messageText(content: unknown): string {
@@ -834,6 +859,56 @@ function OverlayView({ overlay }: { overlay: Overlay }) {
   );
 }
 
+function ConfigEditorView({ editor }: { editor: ConfigEditor }) {
+  const fields = CONFIG_FIELDS;
+  const visibleCount = 12;
+  const maxStart = Math.max(0, fields.length - visibleCount);
+  const start = Math.min(
+    Math.max(0, editor.selected - Math.floor(visibleCount / 2)),
+    maxStart,
+  );
+  const visible = fields.slice(start, start + visibleCount);
+  const current = fields[editor.selected];
+  return (
+    <Box
+      marginTop={1}
+      borderStyle="round"
+      borderColor="blue"
+      flexDirection="column"
+      paddingX={1}
+    >
+      <Text bold color="blue">
+        Configuration · {truncate(editor.path, 100)}
+      </Text>
+      {visible.map((field, index) => {
+        const fieldIndex = start + index;
+        const selected = fieldIndex === editor.selected;
+        const value = configDisplayValue(
+          field,
+          editor.values[field.key] ?? field.defaultValue,
+        );
+        return (
+          <Text
+            key={field.key}
+            wrap="truncate"
+            backgroundColor={selected ? "cyan" : undefined}
+            color={selected ? "black" : undefined}
+          >
+            {selected ? "❯ " : "  "}
+            {field.label.padEnd(26)}
+            {value}
+          </Text>
+        );
+      })}
+      <Text dimColor wrap="truncate">
+        {editor.editing
+          ? `Editing ${current.label} · ${configHint(current)} · Enter save · Esc cancel`
+          : "↑/↓ select · Enter edit · Esc close"}
+      </Text>
+    </Box>
+  );
+}
+
 export function App({
   client,
   workspace,
@@ -841,6 +916,7 @@ export function App({
   initialMode,
   initialEffort,
   initialSnapshot,
+  initialNotice,
 }: AppProps) {
   const { exit } = useApp();
   const [entries, setEntries] = useState<TimelineEntry[]>(
@@ -873,8 +949,12 @@ export function App({
   const [showThinking, setShowThinking] = useState(false);
   const [attachments, setAttachments] = useState<PendingAttachment[]>([]);
   const [input, setInput] = useState("");
-  const [notice, setNotice] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(
+    initialNotice ?? null,
+  );
   const [overlay, setOverlay] = useState<Overlay | null>(null);
+  const [configEditor, setConfigEditor] =
+    useState<ConfigEditor | null>(null);
   const [staticEntries, setStaticEntries] = useState<TimelineEntry[]>(() => {
     const initial = initialSnapshot.entries ?? [];
     const held = heldAssistantStaticKey(initial);
@@ -927,7 +1007,8 @@ export function App({
     pendingApprovals.length === 0 &&
     pendingQuestions.length === 0 &&
     !feedbackMode &&
-    !overlay;
+    !overlay &&
+    !configEditor;
   const commandMatches = useMemo(
     () =>
       commandMenuVisible
@@ -1334,6 +1415,91 @@ export function App({
     [client, workspace],
   );
 
+  const openConfigEditor = useCallback(async () => {
+    try {
+      const configPath = defaultConfigPath();
+      const original = await readConfigRecord(configPath);
+      setConfigEditor({
+        path: configPath,
+        original,
+        values: configValues(original),
+        selected: 0,
+        editing: false,
+      });
+      setInput("");
+      setNotice(null);
+    } catch (cause) {
+      setNotice(
+        `Config load failed: ${
+          cause instanceof Error ? cause.message : String(cause)
+        }`,
+      );
+    }
+  }, []);
+
+  const closeConfigEditor = useCallback(() => {
+    setConfigEditor(null);
+    setInput("");
+  }, []);
+
+  const startConfigEdit = useCallback(() => {
+    if (!configEditor || configEditor.editing) {
+      return;
+    }
+    const field = CONFIG_FIELDS[configEditor.selected];
+    setConfigEditor({ ...configEditor, editing: true });
+    setInput(
+      field.kind === "secret"
+        ? ""
+        : (configEditor.values[field.key] ?? field.defaultValue),
+    );
+    setNotice(null);
+  }, [configEditor]);
+
+  const cancelConfigEdit = useCallback(() => {
+    if (!configEditor) {
+      return;
+    }
+    setConfigEditor({ ...configEditor, editing: false });
+    setInput("");
+  }, [configEditor]);
+
+  const saveConfigField = useCallback(async () => {
+    if (!configEditor?.editing) {
+      return;
+    }
+    const field: ConfigField = CONFIG_FIELDS[configEditor.selected];
+    const current =
+      configEditor.values[field.key] ?? field.defaultValue;
+    const parsed = parseConfigInput(field, input, current);
+    if (parsed.error) {
+      setNotice(parsed.error);
+      return;
+    }
+    const values = {
+      ...configEditor.values,
+      [field.key]: parsed.value ?? current,
+    };
+    const record = buildConfigRecord(configEditor.original, values);
+    try {
+      await writeConfigRecord(record, configEditor.path);
+      setConfigEditor({
+        ...configEditor,
+        original: record,
+        values,
+        editing: false,
+      });
+      setInput("");
+      setNotice(`Saved ${field.key}. Restart ling to apply.`);
+    } catch (cause) {
+      setNotice(
+        `Config save failed: ${
+          cause instanceof Error ? cause.message : String(cause)
+        }`,
+      );
+    }
+  }, [configEditor, input]);
+
   const openSession = useCallback(
     async (session: HistorySession) => {
       try {
@@ -1678,6 +1844,10 @@ export function App({
           setNotice("Pending attachments cleared.");
           return;
         }
+        case "config": {
+          void openConfigEditor();
+          return;
+        }
         case "mcp": {
           try {
             const result = await client.call<Record<string, unknown>>(
@@ -1939,6 +2109,7 @@ export function App({
       exit,
       fetchHistory,
       mode,
+      openConfigEditor,
       openSession,
       resetConversation,
       workspace,
@@ -1979,6 +2150,60 @@ export function App({
     if (key.ctrl && rawInput === "d") {
       if (!input) {
         exit();
+      }
+      return;
+    }
+    if (configEditor) {
+      if (configEditor.editing) {
+        if (key.escape) {
+          cancelConfigEdit();
+          return;
+        }
+        if (key.return) {
+          void saveConfigField();
+          return;
+        }
+        if (key.backspace || key.delete) {
+          setInput((current) => current.slice(0, -1));
+          return;
+        }
+        if (rawInput && !key.ctrl && !key.meta) {
+          setInput((current) => current + rawInput);
+        }
+        return;
+      }
+      if (key.escape) {
+        closeConfigEditor();
+        return;
+      }
+      if (key.upArrow) {
+        setConfigEditor((current) =>
+          current
+            ? {
+                ...current,
+                selected:
+                  (current.selected - 1 + CONFIG_FIELDS.length) %
+                  CONFIG_FIELDS.length,
+              }
+            : current,
+        );
+        return;
+      }
+      if (key.downArrow) {
+        setConfigEditor((current) =>
+          current
+            ? {
+                ...current,
+                selected:
+                  (current.selected + 1) % CONFIG_FIELDS.length,
+              }
+            : current,
+        );
+        return;
+      }
+      if (key.return) {
+        startConfigEdit();
+        return;
       }
       return;
     }
@@ -2347,29 +2572,45 @@ export function App({
     ...(pendingQuestions.length > 0
       ? [`questions ${pendingQuestions.length}`]
       : []),
+    ...(configEditor
+      ? [
+          `config ${configEditor.selected + 1}/${CONFIG_FIELDS.length}`,
+        ]
+      : []),
   ].join(" · ");
   const statusRest = clip(
     ` · ${statusDetails}`,
     Math.max(1, contentWidth - mode.length),
   );
-  const displayInput = feedbackMode
-    ? feedback
-    : questionDraft?.customMode
-      ? questionDraft.customInput
-      : questionDraft && pendingQuestions.length > 0 &&
-          (currentQuestion(pendingQuestions[0], questionDraft)?.options
-            ?.length ?? 0) === 0
+  const configField = configEditor
+    ? CONFIG_FIELDS[configEditor.selected]
+    : null;
+  const displayInput = configEditor
+    ? configEditor.editing && configField?.kind === "secret"
+      ? "*".repeat(input.length)
+      : input
+    : feedbackMode
+      ? feedback
+      : questionDraft?.customMode
         ? questionDraft.customInput
-        : input;
-  const inputLabel = feedbackMode
-    ? "feedback"
-    : questionDraft?.customMode
-      ? "custom"
-      : pendingApprovals.length > 0
-        ? "approval"
-        : pendingQuestions.length > 0
-          ? "answer"
-          : "message";
+        : questionDraft && pendingQuestions.length > 0 &&
+            (currentQuestion(pendingQuestions[0], questionDraft)?.options
+              ?.length ?? 0) === 0
+          ? questionDraft.customInput
+          : input;
+  const inputLabel = configEditor
+    ? configEditor.editing && configField
+      ? `config:${configField.key}`
+      : "config"
+    : feedbackMode
+      ? "feedback"
+      : questionDraft?.customMode
+        ? "custom"
+        : pendingApprovals.length > 0
+          ? "approval"
+          : pendingQuestions.length > 0
+            ? "answer"
+            : "message";
   const inputText = clip(
     displayInput,
     Math.max(4, contentWidth - inputLabel.length - 4),
@@ -2468,6 +2709,10 @@ export function App({
             message.
           </Text>
         </Box>
+      ) : null}
+
+      {configEditor ? (
+        <ConfigEditorView editor={configEditor} />
       ) : null}
 
       {overlay ? <OverlayView overlay={overlay} /> : null}

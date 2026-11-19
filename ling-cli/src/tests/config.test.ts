@@ -7,8 +7,11 @@ import test from "node:test";
 import {
   buildSidecarEnv,
   loadConfig,
+  loadConfigIfExists,
+  readConfigRecord,
   requireApiKey,
   resolveSidecar,
+  writeConfigRecord,
   type CliOptions,
 } from "../config.js";
 
@@ -66,6 +69,40 @@ test("rejects missing, invalid, and keyless configs", () => {
     const keyless = path.join(root, "keyless.json");
     fs.writeFileSync(keyless, JSON.stringify({ model: "m" }), "utf8");
     assert.throws(() => requireApiKey(loadConfig(keyless)), /no API key/);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("allows starting the TUI without a config or API key", () => {
+  const root = tempDir();
+  try {
+    const missing = path.join(root, "missing.json");
+    assert.deepEqual(loadConfigIfExists(missing), {});
+    const env = buildSidecarEnv({}, options());
+    assert.equal(env.LING_API_KEY, undefined);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("reads and writes a config record", async () => {
+  const root = tempDir();
+  const configPath = path.join(root, "Ling", "config.json");
+  try {
+    await writeConfigRecord(
+      { version: 1, model: "cfg-model", apiKey: "secret" },
+      configPath,
+    );
+    assert.deepEqual(await readConfigRecord(configPath), {
+      version: 1,
+      model: "cfg-model",
+      apiKey: "secret",
+    });
+    assert.deepEqual(
+      await readConfigRecord(path.join(root, "none.json")),
+      {},
+    );
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }
