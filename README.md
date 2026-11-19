@@ -11,8 +11,11 @@ Ling is a local agent harness for VS Code. It handles tools, approvals, skills, 
 ## Architecture
 
 ```text
-VS Code extension (ling-vscode/)
-  extension.ts / SidecarClient / React webview
+Clients
+  VS Code extension (ling-vscode/)
+    extension.ts / SidecarClient / React webview
+  Terminal client (ling-cli/)
+    ling-agent npm package / Ink TUI / `ling`
                  │
                  │ stdio JSON-RPC (NDJSON)
                  ▼
@@ -34,6 +37,7 @@ The extension provides the chat UI, editor integration, approval diffs, settings
 | Path | Contents |
 |---|---|
 | `ling-vscode/` | VS Code extension, React webview, build scripts |
+| `ling-cli/` | TypeScript/Node terminal client (`ling-agent` npm package) |
 | `ling/` | Local Python agent harness |
 | `.agents/skills/` | Source of built-in skills |
 | `.github/workflows/` | Test and release CI |
@@ -62,6 +66,18 @@ A single test module can also run directly:
 ```powershell
 python -W error -m tests.test_ling_agent_approvals
 ```
+
+### Terminal client
+
+```powershell
+cd ling-cli
+npm install
+npm run build
+node bin/ling.js --check
+node bin/ling.js --workspace E:\some-workspace
+```
+
+The terminal client requires Node.js >= 22 and currently targets Windows x64. `npm test` runs the Ink component tests; `node scripts/tui-smoke.mjs` runs a real sidecar smoke test (model calls, publish-time only). The npm package `ling-agent` is not published yet.
 
 ### VS Code extension
 

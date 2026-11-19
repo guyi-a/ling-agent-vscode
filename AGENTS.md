@@ -4,6 +4,7 @@ Ling 是一套本地运行的 agent harness，通过 VS Code 扩展交付。它�
 TypeScript 扩展是 VS Code 前端，Python sidecar 是 harness 本体，负责 agent、工具、检索与持久化。
 
 - `ling-vscode/`：VS Code 扩展（`extension.ts`）+ React 19 webview + 打包脚本。
+- `ling-cli/`：TypeScript/Node 终端客户端（npm 包 `ling-agent`，命令 `ling`），用 Ink 8 渲染，通过 stdio JSON-RPC 复用 sidecar；发布时随包带 `ling-sidecar.exe`。
 - `ling/`：Python 包（sidecar）。**没有 pyproject / ruff / mypy 配置**，依赖在 `requirements.txt`，包括 `httpx`、`mcp`、`pypdf`、`websockets`。
 - `.agents/skills/`：内置技能的**唯一源**（`pdf`、`pptx`、`docx`、`inline-visualization`、`browser-bridge`、`frontend-design`、`computer-use`、`ling-self`），构建时复制到 `ling-vscode/resources/skills/`（该目录被 gitignore）。
 - `.agents/{memory,code-index,plans,attachments}/`：运行时状态，只有 `skills` 和 `memory` 应纳入版本控制。
@@ -21,6 +22,8 @@ Python 侧从下往上：
 5. 侧挂模块：`ling_retrieval/`（BM25 + 向量 RRF，带 `eval.py` 与评测报告）、`ling_comment/`（docstring / JSDoc 生成）、`ling_eval/`（headless 评测与 SWE-bench 适配，不属于 sidecar 运行时）。
 
 TypeScript 侧：`src/extension.ts` 是入口，`src/sidecar/SidecarClient.ts` 拉起 Python 并收发 RPC，`src/diffController.ts` 负责原生 diff 审批，`webview/src/state/timelineReducer.ts` 是前端唯一的状态机。webview 构建产物在 `ling-vscode/media/webview/`（gitignore）。
+
+终端侧：`ling-cli/src/index.ts` 是 CLI 入口，`config.ts` 读写 Ling 配置并构建 sidecar env，`rpc.ts` 是 NDJSON 客户端，`tui/App.tsx` 是 Ink 界面（消息、流式输出、审批/问题、历史/队列/后台），`tui/markdown.tsx` 渲染 Markdown，`tui/detail.tsx` 渲染 diff/io/审批详情。`ling --check` 只握手不调用模型；`scripts/tui-smoke.mjs` 用真实 sidecar 做发布前冒烟。
 
 ## 命令
 
@@ -49,10 +52,26 @@ npm run sync:skills    # .agents/skills -> resources/skills（vscode:prepublish 
 
 调试扩展：用 VS Code 打开 `ling-vscode/`，按 `F5` 启动 Extension Development Host。
 
+终端客户端（在 `ling-cli/` 目录下执行，需要 Node >= 22）：
+
+```powershell
+npm install
+npm run build
+node bin/ling.js --check          # 启动 sidecar、握手、snapshot，不调用模型
+node bin/ling.js --workspace E:\some-workspace
+npm test                          # 44 个测试：Ink/交互 + Markdown + config + rpc
+node scripts/tui-smoke.mjs        # 真实 sidecar 冒烟（会调用模型）
+npm run build:sidecar             # 复制 ling-sidecar.exe 到 vendor/win32-x64
+npm pack --dry-run                # 检查 npm 包内容
+```
+
+当前只支持 Windows x64；`vendor/` 是构建产物，gitignore。npm 包 `ling-agent` 尚未发布。
+
 ## 约定
 
 - Python：4 空格缩进，`from __future__ import annotations`，Google 风格 docstring，中文只在面向用户的提示里出现。
 - TypeScript：prettier 风格（双引号、行尾逗号、100 列左右），无 lint 步骤，靠 `npm run typecheck` 把关。
+- `ling-cli`：ESM + NodeNext，相对 import 带 `.js`；JSX 用 `react-jsx`；测试用 `node:test` + `ink-testing-library`，不引入 vitest/jest。
 - 用户可见文案（README、CHANGELOG、UI 字符串）用中文；代码注释用英文。
 - 任何写文件 / 执行命令都必须经过 `ling_agent/approvals.py` 的策略，不要在工具里直接落盘。
 - 命令白名单在 `.agents/settings.local.json`（本地、gitignored）；审批 UI 的“以后不再问”写入 `permissions.allowCommands`，危险命令永远不适用。
@@ -72,3 +91,7 @@ npm run sync:skills    # .agents/skills -> resources/skills（vscode:prepublish 
 - **`memory_write` 自己会写 frontmatter**：`name` / `description` / `alwaysApply` / `globs` 由工具生成，`content` 里再带一遍 `---` 块会让文件出现两份 frontmatter。只传正文。
 - 审批模式（Manual / Edit automatically / Auto / Plan）按会话保存，Plan 模式只允许只读工具并把计划写到 `.agents/plans/`。
 - MCP 是用户级配置：`%APPDATA%\Ling\mcp.json`；工具清单缓存和 OAuth 凭证在 `%LOCALAPPDATA%\ling-agent\`（`mcp-cache.json`、`mcp-auth/`）。MCP 支持 stdio、Streamable HTTP、SSE fallback、静态 headers 和 PKCE OAuth；Windows 凭证使用 DPAPI 加密。
+- **终端客户端与 VS Code 共享历史库，但不共享运行态**：不要同时用两边继续同一个活动会话。TUI 默认复用 `%LOCALAPPDATA%\ling-agent\sessions.db`，传 `--storage-root` 会让历史分叉。
+- **`ling-cli` 的测试产物在 `dist-tests/`**，不随 npm 包发布；`dist/` 只放运行时。`prepack` 会先清空 `dist/`，避免旧测试文件被打进包。CI 在 `.github/workflows/ling-cli.yml`，只跑 `npm ci` + `npm test`，不调用模型。
+- **TUI 已完成内容必须走 Ink `<Static>`**：不要把历史消息重新放回动态区域，否则终端 resize 会重复渲染。**底部动态区域（状态/输入框）在 Orca 连续拖拽时仍会叠帧，这是已知未解问题**；曾尝试自定义 resize clear，但与 Ink 自身处理抢时序，已撤回。队列在对话下方内联显示（最新在上），Esc 中断当前 run 并 promote 顶部（最新）消息；不要再通过 `/queue` 命令查看队列。
+- **npm 包自带约 48 MB 的 `ling-sidecar.exe`**：`vendor/` 是构建产物，不提交；`npm pack` 前先 `npm run build:sidecar`。sidecar 是 `--onefile`，运行时解压到系统临时目录。**不要复用旧的 `ling-vscode/resources/sidecar/ling-sidecar.exe`**：它可能落后于当前 Python 源码（曾在含未完成工具调用的历史会话上触发 HTTP 400）；发布前必须重新构建。

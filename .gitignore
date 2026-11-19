@@ -5,6 +5,11 @@ ling-vscode/media/webview/
 ling-vscode/*.vsix
 ling-vscode/resources/skills/
 ling-vscode/resources/sidecar/
+ling-cli/vendor/
+ling-cli/skills/
+ling-cli/*.tgz
+ling-cli/build/
+ling-cli/dist-tests/
 # Python
 **/__pycache__/
 *.py[cod]

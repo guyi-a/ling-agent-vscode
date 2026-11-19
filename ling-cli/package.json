@@ -1,0 +1,62 @@
+{
+  "name": "ling-agent",
+  "version": "0.1.0",
+  "description": "Ling terminal client for the local Ling agent harness",
+  "type": "module",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/guyi-a/ling-agent-vscode.git"
+  },
+  "keywords": [
+    "ling",
+    "agent",
+    "cli",
+    "tui",
+    "vscode"
+  ],
+  "os": [
+    "win32"
+  ],
+  "cpu": [
+    "x64"
+  ],
+  "bin": {
+    "ling": "bin/ling.js"
+  },
+  "main": "dist/index.js",
+  "files": [
+    "bin",
+    "dist",
+    "skills",
+    "vendor",
+    "README.md"
+  ],
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "build": "node scripts/clean-dist.mjs && tsc -p tsconfig.json",
+    "build:test": "node scripts/clean-dist-tests.mjs && tsc -p tsconfig.test.json",
+    "build:sidecar": "node scripts/copy-sidecar.mjs",
+    "build:skills": "node scripts/copy-skills.mjs",
+    "dev": "tsx src/index.ts",
+    "check": "npm run build && node bin/ling.js --check",
+    "test": "npm run build:test && node --test --test-force-exit \"dist-tests/tests/*.test.js\"",
+    "pack:win": "npm pack",
+    "prepack": "npm run build && npm run build:sidecar && npm run build:skills"
+  },
+  "dependencies": {
+    "diff": "^9.0.0",
+    "ink": "^8.0.0",
+    "marked": "^18.2.1",
+    "react": "^19.3.0"
+  },
+  "devDependencies": {
+    "@types/node": "^24.5.2",
+    "@types/react": "^19.3.0",
+    "ink-testing-library": "^4.0.0",
+    "tsx": "^4.20.6",
+    "typescript": "^5.9.2"
+  }
+}
