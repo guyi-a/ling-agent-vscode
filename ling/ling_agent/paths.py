@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import sys
 from pathlib import Path
 
 
@@ -13,6 +14,13 @@ def default_state_root() -> Path:
         if base:
             return Path(base) / "ling-agent"
         return Path.home() / "AppData" / "Local" / "ling-agent"
+    if sys.platform == "darwin":
+        return (
+            Path.home()
+            / "Library"
+            / "Application Support"
+            / "ling-agent"
+        )
     if os.environ.get("XDG_STATE_HOME"):
         return Path(os.environ["XDG_STATE_HOME"]) / "ling-agent"
     return Path.home() / ".local" / "state" / "ling-agent"
@@ -25,6 +33,8 @@ def default_config_root() -> Path:
         if base:
             return Path(base) / "Ling"
         return Path.home() / "AppData" / "Roaming" / "Ling"
+    if sys.platform == "darwin":
+        return Path.home() / "Library" / "Application Support" / "Ling"
     if os.environ.get("XDG_CONFIG_HOME"):
         return Path(os.environ["XDG_CONFIG_HOME"]) / "ling-agent"
     return Path.home() / ".config" / "ling-agent"

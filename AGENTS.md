@@ -8,7 +8,7 @@ TypeScript 扩展是 VS Code 前端，Python sidecar 是 harness 本体，负责
 - `ling/`：Python 包（sidecar）。**没有 pyproject / ruff / mypy 配置**，依赖在 `requirements.txt`，包括 `httpx`、`mcp`、`pypdf`、`websockets`。
 - `.agents/skills/`：内置技能的**唯一源**（`pdf`、`pptx`、`docx`、`inline-visualization`、`browser-bridge`、`frontend-design`、`computer-use`、`ling-self`），构建时复制到 `ling-vscode/resources/skills/`（该目录被 gitignore）。
 - `.agents/{memory,code-index,plans,attachments}/`：运行时状态，只有 `skills` 和 `memory` 应纳入版本控制。
-- 记忆分两级：**工作区记忆**在 `.agents/memory/*.md`（随仓库走，当前为空），**全局记忆**在 `%APPDATA%\Ling\memory\*.md`（`LING_GLOBAL_MEMORY_ROOT` 可覆盖，没有 `APPDATA` 时退回 `~/.agents/memory/`）。跨项目的稳定偏好放全局，项目约定放工作区，同名以工作区为准。
+- 记忆分两级：**工作区记忆**在 `.agents/memory/*.md`（随仓库走，当前为空），**全局记忆**在 Windows 的 `%APPDATA%\Ling\memory\*.md` 或 macOS 的 `~/Library/Application Support/Ling/memory/*.md`（`LING_GLOBAL_MEMORY_ROOT` 可覆盖）。跨项目的稳定偏好放全局，项目约定放工作区，同名以工作区为准。
 - `~/.agents/skills/`：用户全局技能库。插件启动时把内置技能同步到这里（SKILL.md 标 `source: ling`），升级只覆盖未本地修改的托管技能；加载优先级为内置 > 全局无来源 > 工作区。
 
 ## 分层
@@ -45,8 +45,8 @@ npm install
 npm run typecheck      # tsc --noEmit（扩展 + webview 两套 tsconfig）
 npm run build          # typecheck + esbuild 扩展 + vite webview
 npm test               # typecheck + 8 个 esbuild 测试脚本 + build，末尾会跑 Python RPC 测试
-npm run build:sidecar  # PyInstaller --onefile -> resources/sidecar/ling-sidecar.exe（需 pip install pyinstaller）
-npm run package:vsix   # 只支持 --target win32-x64
+npm run build:sidecar  # PyInstaller --onefile -> resources/sidecar/ling-sidecar[.exe]（需 pip install pyinstaller）
+npm run package:vsix   # 当前平台；或 -- --target win32-x64 / darwin-arm64
 npm run sync:skills    # .agents/skills -> resources/skills（vscode:prepublish 自动执行）
 ```
 
@@ -65,7 +65,7 @@ npm run build:sidecar             # 复制 ling-sidecar.exe 到 vendor/win32-x64
 npm pack --dry-run                # 检查 npm 包内容
 ```
 
-当前只支持 Windows x64；`vendor/` 是构建产物，gitignore。npm 包 `ling-agent` 尚未发布。
+VS Code 扩展支持 Windows x64 与 Apple Silicon macOS（`darwin-arm64`）；终端客户端目前只支持 Windows x64。`vendor/` 是构建产物，gitignore。npm 包 `ling-agent` 尚未发布。
 
 ## 约定
 
@@ -83,15 +83,15 @@ npm pack --dry-run                # 检查 npm 包内容
 ## 容易踩的坑
 
 - **路径大小写**：`vite.config.ts` 里对 `__dirname` 做首字母大写处理不是多余代码 —— 混用 `e:/` 和 `E:/` 会让 Rollup 打进两份 React，直接白屏。
-- **测试里的路径断言**：CI 是 Windows，历史上有两次提交专门修这个（`Fix memory path assertion on Windows CI`）——比较路径前两边都要 `resolve()`。
+- **测试里的路径断言**：CI 同时跑 Windows 和 macOS，比较路径前两边都要 `resolve()`，并避免依赖平台大小写或分隔符。
 - **文档读取**只支持 PDF / DOCX / PPTX，不支持 `.doc` / `.ppt` / `.xlsx`，也没有 OCR。
 - **`run_command` 的改动不产生 diff**，只有 `write_file` / `edit_file` 走审批 diff。
 - **长任务失败不等于网络不通**：前台超时会终止进程树并可能留下未写完的文件；重试前先检查已有产物（大小、源站 Content-Length/hash、上次日志），再决定是否换代理或镜像。
 - `.agents/` 是点目录，`glob` / `grep` 之类的检索工具可能跳过它，看这些文件用 `read_file` 或 `run_command`。
 - **`memory_write` 自己会写 frontmatter**：`name` / `description` / `alwaysApply` / `globs` 由工具生成，`content` 里再带一遍 `---` 块会让文件出现两份 frontmatter。只传正文。
 - 审批模式（Manual / Edit automatically / Auto / Plan）按会话保存，Plan 模式只允许只读工具并把计划写到 `.agents/plans/`。
-- MCP 是用户级配置：`%APPDATA%\Ling\mcp.json`；工具清单缓存和 OAuth 凭证在 `%LOCALAPPDATA%\ling-agent\`（`mcp-cache.json`、`mcp-auth/`）。MCP 支持 stdio、Streamable HTTP、SSE fallback、静态 headers 和 PKCE OAuth；Windows 凭证使用 DPAPI 加密。
+- MCP 是用户级配置：Windows 在 `%APPDATA%\Ling\mcp.json`，macOS 在 `~/Library/Application Support/Ling/mcp.json`；工具清单缓存和 OAuth 状态在对应平台的 `ling-agent` 应用状态目录。MCP 支持 stdio、Streamable HTTP、SSE fallback、静态 headers 和 PKCE OAuth；Windows 凭证使用 DPAPI，macOS 使用 Keychain 保存 AES-GCM 密钥并加密本地凭据文件。
 - **终端客户端与 VS Code 共享历史库，但不共享运行态**：不要同时用两边继续同一个活动会话。TUI 默认复用 `%LOCALAPPDATA%\ling-agent\sessions.db`，传 `--storage-root` 会让历史分叉。
 - **`ling-cli` 的测试产物在 `dist-tests/`**，不随 npm 包发布；`dist/` 只放运行时。`prepack` 会先清空 `dist/`，避免旧测试文件被打进包。CI 在 `.github/workflows/ling-cli.yml`，只跑 `npm ci` + `npm test`，不调用模型。
 - **TUI 已完成内容必须走 Ink `<Static>`**：不要把历史消息重新放回动态区域，否则终端 resize 会重复渲染。**底部动态区域（状态/输入框）在 Orca 连续拖拽时仍会叠帧，这是已知未解问题**；曾尝试自定义 resize clear，但与 Ink 自身处理抢时序，已撤回。队列在对话下方内联显示（最新在上），Esc 中断当前 run 并 promote 顶部（最新）消息；不要再通过 `/queue` 命令查看队列。
-- **npm 包自带约 48 MB 的 `ling-sidecar.exe`**：`vendor/` 是构建产物，不提交；`npm pack` 前先 `npm run build:sidecar`。sidecar 是 `--onefile`，运行时解压到系统临时目录。**不要复用旧的 `ling-vscode/resources/sidecar/ling-sidecar.exe`**：它可能落后于当前 Python 源码（曾在含未完成工具调用的历史会话上触发 HTTP 400）；发布前必须重新构建。
+- **npm 包自带约 48 MB 的 `ling-sidecar.exe`**：这是 Windows 终端客户端；`vendor/` 是构建产物，不提交；`npm pack` 前先 `npm run build:sidecar`。sidecar 是 `--onefile`，运行时解压到系统临时目录。**不要复用旧的 `ling-vscode/resources/sidecar/` 二进制**：它可能落后于当前 Python 源码（曾在含未完成工具调用的历史会话上触发 HTTP 400）；发布前必须按目标平台重新构建。

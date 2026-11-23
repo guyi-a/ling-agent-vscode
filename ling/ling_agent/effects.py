@@ -8,7 +8,7 @@ import hashlib
 import json
 from dataclasses import dataclass
 from enum import Enum
-from pathlib import Path
+from pathlib import Path, PurePosixPath, PureWindowsPath
 from typing import Literal, TypeAlias
 
 from ling_ai.types import ToolCall
@@ -193,6 +193,11 @@ def _all_paths_inside(tokens: list[str], workspace: Workspace | None) -> bool:
     if workspace is None:
         return not paths
     for path in paths:
+        if (
+            PurePosixPath(path).is_absolute()
+            or PureWindowsPath(path).is_absolute()
+        ):
+            return False
         try:
             workspace.resolve(path)
         except WorkspacePathError:

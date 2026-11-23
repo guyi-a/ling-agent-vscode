@@ -7,7 +7,7 @@ export function resolveProposedPath(
   if (typeof raw !== "string" || !raw.trim()) {
     return undefined;
   }
-  if (path.isAbsolute(raw)) {
+  if (path.isAbsolute(raw) || path.win32.isAbsolute(raw)) {
     return undefined;
   }
 

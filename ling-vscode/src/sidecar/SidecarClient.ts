@@ -2,7 +2,12 @@ import {
   spawn,
   type ChildProcessWithoutNullStreams,
 } from "node:child_process";
-import { existsSync } from "node:fs";
+import {
+  accessSync,
+  chmodSync,
+  constants,
+  existsSync,
+} from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { createInterface, type Interface } from "node:readline";
 
@@ -620,6 +625,7 @@ export class SidecarClient {
   private resolveLaunch(): SidecarLaunch {
     const explicitSidecar = process.env.LING_SIDECAR_PATH?.trim();
     if (explicitSidecar) {
+      ensureExecutable(explicitSidecar);
       return {
         command: explicitSidecar,
         args: [],
@@ -657,6 +663,7 @@ export class SidecarClient {
         name,
       );
       if (existsSync(candidate)) {
+        ensureExecutable(candidate);
         return {
           command: candidate,
           args: [],
@@ -676,6 +683,26 @@ export class SidecarClient {
 
   private log(line: string): void {
     this.options.output?.(line);
+  }
+}
+
+function ensureExecutable(filePath: string): void {
+  if (process.platform === "win32") {
+    return;
+  }
+  try {
+    accessSync(filePath, constants.X_OK);
+    return;
+  } catch {
+    // Bundled VSIX entries may lose their executable bit during extraction.
+  }
+  try {
+    chmodSync(filePath, 0o755);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    throw new Error(
+      `Unable to make the Ling sidecar executable at ${filePath}: ${message}`,
+    );
   }
 }
 

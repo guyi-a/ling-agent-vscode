@@ -8,11 +8,19 @@ on:
 
 permissions:
   contents: read
-  id-token: write
 
 jobs:
-  publish:
-    runs-on: windows-latest
+  build:
+    name: Build ${{ matrix.target }}
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          - runner: windows-latest
+            target: win32-x64
+          - runner: macos-15
+            target: darwin-arm64
     defaults:
       run:
         working-directory: ling-vscode
@@ -39,7 +47,13 @@ jobs:
       - name: Install extension dependencies
         run: npm ci
 
+      - name: Verify Apple Silicon runner
+        if: matrix.target == 'darwin-arm64'
+        run: test "$(uname -m)" = "arm64"
+
       - name: Build sidecar
+        env:
+          LING_SIDECAR_TARGET: ${{ matrix.target }}
         run: npm run build:sidecar
 
       - name: Test sidecar
@@ -50,11 +64,39 @@ jobs:
         run: npm test
 
       - name: Package VSIX
-        run: npx @vscode/vsce package --no-dependencies --target win32-x64
+        run: npm run package:vsix -- --target ${{ matrix.target }}
 
-      - name: Publish
-        shell: pwsh
-        run: |
-          $vsix = Get-ChildItem -Filter *.vsix | Select-Object -First 1
-          if (-not $vsix) { throw "No VSIX found" }
-          npx @vscode/vsce publish --oidc --packagePath $vsix.FullName
+      - name: Upload VSIX
+        uses: actions/upload-artifact@v4
+        with:
+          name: vsix-${{ matrix.target }}
+          path: ling-vscode/*.vsix
+          if-no-files-found: error
+          retention-days: 14
+
+  publish:
+    name: Publish Marketplace packages
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+
+    steps:
+      - name: Download VSIX packages
+        uses: actions/download-artifact@v4
+        with:
+          pattern: vsix-*
+          path: artifacts
+          merge-multiple: true
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Publish Windows x64
+        run: npx @vscode/vsce publish --oidc --packagePath artifacts/*win32-x64-*.vsix
+
+      - name: Publish Apple Silicon
+        run: npx @vscode/vsce publish --oidc --packagePath artifacts/*darwin-arm64-*.vsix

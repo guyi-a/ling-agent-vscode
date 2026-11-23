@@ -6,6 +6,14 @@ import sys
 from contextlib import contextmanager
 from typing import Any, Iterator
 
+import pytest
+
+if sys.platform != "win32":
+    pytest.skip(
+        "Windows computer-use helper tests",
+        allow_module_level=True,
+    )
+
 from ling_agent.computer.helper import input as input_api
 
 

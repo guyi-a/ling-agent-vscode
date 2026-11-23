@@ -6,9 +6,12 @@ import fnmatch
 import json
 import os
 import re
+import sys
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
+
+from .paths import default_config_root
 
 MEMORY_DIRECTORY = ".agents/memory"
 MAX_MEMORY_CHARS = 12_000
@@ -41,6 +44,8 @@ def default_global_memory_root() -> Path:
     override = os.environ.get("LING_GLOBAL_MEMORY_ROOT", "").strip()
     if override:
         return Path(override).expanduser()
+    if sys.platform == "darwin":
+        return default_config_root() / "memory"
     appdata = os.environ.get("APPDATA", "").strip()
     if appdata:
         return Path(appdata) / "Ling" / "memory"

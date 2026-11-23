@@ -94,7 +94,7 @@ Useful scripts:
 ```powershell
 npm run build          # typecheck + esbuild + vite
 npm run build:sidecar  # PyInstaller onefile
-npm run package:vsix   # win32-x64 only
+npm run package:vsix   # current platform; or pass -- --target darwin-arm64
 npm run sync:skills    # .agents/skills -> resources/skills
 ```
 
@@ -128,7 +128,7 @@ git push origin main
 git push origin vX.Y.Z
 ```
 
-A `v*` tag triggers GitHub Actions: build the sidecar, run tests, package the VSIX, and publish to the Marketplace via OIDC. No manual VSIX upload or PAT is required.
+A `v*` tag triggers GitHub Actions: build and test the Windows x64 and Apple Silicon sidecars, package both platform VSIXs, and publish them to the Marketplace via OIDC. No manual VSIX upload or PAT is required.
 
 ## More
 

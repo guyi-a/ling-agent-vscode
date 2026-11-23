@@ -10,7 +10,7 @@ Ling is a local agent harness for VS Code. It handles tools, approvals, skills, 
 
 It can read and search your code, edit files, run commands, read PDF/DOCX/PPTX, and generate project-style comments. Writes and normal commands require approval by default; file edits are shown as native VS Code diffs.
 
-Requires **Windows x64** and **VS Code 1.96+**.
+Runs on **Windows x64** and **Apple Silicon Macs**, with **VS Code 1.96+**.
 
 ## Features
 
@@ -39,6 +39,7 @@ Anthropic support covers streaming text, tools, thinking blocks, and images. Pro
 Settings are stored in Ling's own file:
 
 - Windows: `%APPDATA%\Ling\config.json`
+- macOS: `~/Library/Application Support/Ling/config.json`
 
 The API key is stored there in plain text and is never written to project files, the history database, or logs.
 
@@ -150,6 +151,8 @@ MCP servers are user-level configuration shared by all workspaces:
 - Tool manifest cache: `%LOCALAPPDATA%\ling-agent\mcp-cache.json`
 
 Stdio, Streamable HTTP, SSE fallback, static headers, and PKCE OAuth are supported. Windows credentials are encrypted with DPAPI. Settings → MCP can open the config file, enable or disable servers, and re-authorize.
+
+On macOS the MCP config is stored at `~/Library/Application Support/Ling/mcp.json`; OAuth state and the manifest cache live under `~/Library/Application Support/ling-agent/`. Credential files are encrypted with an AES-GCM key protected by the system Keychain.
 
 ### Approval modes
 
@@ -296,6 +299,7 @@ Click the history button at the top of Chat to view sessions for the current wor
 With no folder open, Ling uses a fixed workspace:
 
 - Windows: `%LOCALAPPDATA%\ling-agent\scratch`
+- macOS: `~/Library/Application Support/ling-agent/scratch`
 
 Chat, attachments, history, file tools, and command tools all work there; Chat shows `No folder` at the top. Without a folder, edit diffs do not open automatically, but approvals still appear in Ling's card.
 
@@ -364,17 +368,17 @@ The first search builds the vector index synchronously: a few hundred chunks tak
 
 ## Privacy and security
 
-- The API key is stored in plain text in `%APPDATA%\Ling\config.json`; it is not written to project files, the history database, or logs.
+- The API key is stored in plain text in Ling's per-user config file (`%APPDATA%\Ling\config.json` on Windows, `~/Library/Application Support/Ling/config.json` on macOS); it is not written to project files, the history database, or logs.
 - Model requests go directly to the API endpoint you configure. Conversation content, attachments, tool output, and workspace context may be sent to that provider.
 - With semantic search enabled, code chunk text is sent to your embedding service when indexing; without it, only local keyword search is used.
 - Ling has no cloud proxy and no telemetry.
 - Writes outside the workspace are blocked by default; `write_file` / `edit_file` only modify paths inside the workspace.
-- `run_command` can execute arbitrary PowerShell commands subject to approval mode. Manual and Edit automatically still gate risky operations; Auto runs them without prompting.
-- Image attachments are copied to the project's `.agents/attachments/`; conversation history is stored in `%LOCALAPPDATA%\ling-agent\sessions.db`.
+- `run_command` can execute arbitrary PowerShell or POSIX shell commands subject to approval mode. Manual and Edit automatically still gate risky operations; Auto runs them without prompting.
+- Image attachments are copied to the project's `.agents/attachments/`; conversation history is stored under Ling's per-user application state directory.
 
 ## Known limitations
 
-- The Marketplace build currently supports **Windows x64** only.
+- The Marketplace build supports **Windows x64** and **Apple Silicon Macs**. Intel Macs are not packaged yet.
 - Comment generation supports Python, TypeScript, JavaScript, TSX, and JSX only; Python single-line function bodies are not supported.
 - Document reading has no OCR and does not support `.doc`, `.ppt`, or `.xlsx`.
 - PDF/PPTX/DOCX generation scripts require external tools.

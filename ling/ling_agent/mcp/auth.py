@@ -7,11 +7,15 @@ import base64
 import hashlib
 import json
 import os
+import secrets
 import stat
+import subprocess
+import sys
 import webbrowser
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
+from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from mcp.client.auth import OAuthClientProvider, OAuthFlowError, TokenStorage
 from mcp.shared.auth import (
     OAuthClientInformationFull,
@@ -23,6 +27,12 @@ from .config import McpServerConfig
 
 _CREDENTIAL_HEADER_DPAPI = b"LING-MCP-DPAPI-1\n"
 _CREDENTIAL_HEADER_LOCAL = b"LING-MCP-LOCAL-1\n"
+_CREDENTIAL_HEADER_KEYCHAIN = b"LING-MCP-KEYCHAIN-2\n"
+_DEFAULT_KEYCHAIN_SERVICE = "ling-agent.mcp-oauth"
+_KEYCHAIN_VALUE_PREFIX = "LING-MCP-KEYCHAIN-KEY-1:"
+_KEYCHAIN_KEY_BYTES = 32
+_KEYCHAIN_NONCE_BYTES = 12
+_KEYCHAIN_AAD = b"ling-mcp-oauth"
 
 
 class McpCredentialError(RuntimeError):
@@ -38,8 +48,8 @@ class McpTokenStore(TokenStorage):
         server: McpServerConfig,
     ) -> None:
         identity = f"{server.name}\n{server.url or ''}".encode("utf-8")
-        digest = hashlib.sha256(identity).hexdigest()
-        self.path = auth_root.resolve() / f"{digest}.bin"
+        self._account = hashlib.sha256(identity).hexdigest()
+        self.path = auth_root.resolve() / f"{self._account}.bin"
         self._lock = asyncio.Lock()
 
     async def get_tokens(self) -> OAuthToken | None:
@@ -87,6 +97,13 @@ class McpTokenStore(TokenStorage):
 
     async def clear(self) -> None:
         async with self._lock:
+            if sys.platform == "darwin":
+                _keychain_delete(self._account)
+                try:
+                    self.path.unlink()
+                except FileNotFoundError:
+                    pass
+                return
             try:
                 self.path.unlink()
             except FileNotFoundError:
@@ -101,6 +118,22 @@ class McpTokenStore(TokenStorage):
             return await self._read_unlocked()
 
     async def _read_unlocked(self) -> dict[str, object]:
+        if sys.platform == "darwin":
+            try:
+                raw = self.path.read_bytes()
+            except FileNotFoundError:
+                return {}
+            try:
+                plain = _decrypt_keychain_payload(
+                    raw,
+                    _keychain_read(self._account),
+                )
+                value = json.loads(plain.decode("utf-8"))
+            except Exception as exc:
+                raise McpCredentialError(
+                    f"Unable to read stored MCP credentials: {exc}"
+                ) from exc
+            return value if isinstance(value, dict) else {}
         try:
             raw = self.path.read_bytes()
         except FileNotFoundError:
@@ -120,6 +153,20 @@ class McpTokenStore(TokenStorage):
             ensure_ascii=False,
             separators=(",", ":"),
         ).encode("utf-8")
+        if sys.platform == "darwin":
+            key = _keychain_read(self._account)
+            if key is None:
+                key = secrets.token_bytes(_KEYCHAIN_KEY_BYTES)
+                _keychain_write(self._account, key)
+            raw = _encrypt_keychain_payload(key, plain)
+            self.path.parent.mkdir(parents=True, exist_ok=True)
+            temporary = self.path.with_name(
+                f"{self.path.name}.tmp-{os.getpid()}"
+            )
+            temporary.write_bytes(raw)
+            os.chmod(temporary, stat.S_IRUSR | stat.S_IWUSR)
+            os.replace(temporary, self.path)
+            return
         raw = _protect(plain)
         self.path.parent.mkdir(parents=True, exist_ok=True)
         temporary = self.path.with_name(
@@ -129,6 +176,18 @@ class McpTokenStore(TokenStorage):
         os.replace(temporary, self.path)
         if os.name != "nt":
             self.path.chmod(stat.S_IRUSR | stat.S_IWUSR)
+
+    @staticmethod
+    def remove_stored(path: Path) -> None:
+        if sys.platform == "darwin":
+            try:
+                _keychain_delete(path.stem)
+            except McpCredentialError:
+                pass
+        try:
+            path.unlink()
+        except OSError:
+            pass
 
 
 class OAuthLoopback:
@@ -289,6 +348,125 @@ def _protect(data: bytes) -> bytes:
         )
         return _CREDENTIAL_HEADER_DPAPI + base64.b64encode(protected)
     return _CREDENTIAL_HEADER_LOCAL + base64.b64encode(data)
+
+
+def _keychain_write(account: str, data: bytes) -> None:
+    secret = _KEYCHAIN_VALUE_PREFIX + base64.b64encode(data).decode("ascii")
+    result = subprocess.run(
+        [
+            "/usr/bin/security",
+            "add-generic-password",
+            "-a",
+            account,
+            "-s",
+            _keychain_service(),
+            "-U",
+            "-w",
+        ],
+        input=f"{secret}\n{secret}\n",
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    if result.returncode != 0:
+        detail = result.stderr.strip() or result.stdout.strip()
+        raise McpCredentialError(
+            "Unable to store MCP credentials in macOS Keychain"
+            + (f": {detail}" if detail else "")
+        )
+
+
+def _keychain_read(account: str) -> bytes | None:
+    result = subprocess.run(
+        [
+            "/usr/bin/security",
+            "find-generic-password",
+            "-a",
+            account,
+            "-s",
+            _keychain_service(),
+            "-w",
+        ],
+        capture_output=True,
+        check=False,
+    )
+    if (
+        result.returncode == 44
+        or b"could not be found" in result.stderr.lower()
+    ):
+        return None
+    if result.returncode != 0:
+        detail = result.stderr.decode("utf-8", errors="replace").strip()
+        raise McpCredentialError(
+            "Unable to read MCP credentials from macOS Keychain"
+            + (f": {detail}" if detail else "")
+        )
+    value = result.stdout.rstrip(b"\r\n")
+    prefix = _KEYCHAIN_VALUE_PREFIX.encode("ascii")
+    if not value.startswith(prefix):
+        # Ignore values from pre-release builds that used the raw JSON format.
+        return None
+    try:
+        return base64.b64decode(value[len(prefix) :], validate=True)
+    except ValueError as exc:
+        raise McpCredentialError(
+            "Stored MCP Keychain value is malformed"
+        ) from exc
+
+
+def _keychain_delete(account: str) -> None:
+    result = subprocess.run(
+        [
+            "/usr/bin/security",
+            "delete-generic-password",
+            "-a",
+            account,
+            "-s",
+            _keychain_service(),
+        ],
+        capture_output=True,
+        check=False,
+    )
+    if result.returncode in (0, 44):
+        return
+    if b"could not be found" in result.stderr.lower():
+        return
+    detail = result.stderr.decode("utf-8", errors="replace").strip()
+    raise McpCredentialError(
+        "Unable to remove MCP credentials from macOS Keychain"
+        + (f": {detail}" if detail else "")
+    )
+
+
+def _keychain_service() -> str:
+    return (
+        os.environ.get("LING_MCP_KEYCHAIN_SERVICE", "").strip()
+        or _DEFAULT_KEYCHAIN_SERVICE
+    )
+
+
+def _encrypt_keychain_payload(key: bytes, plain: bytes) -> bytes:
+    if len(key) != _KEYCHAIN_KEY_BYTES:
+        raise McpCredentialError("Stored MCP Keychain key is malformed")
+    nonce = secrets.token_bytes(_KEYCHAIN_NONCE_BYTES)
+    ciphertext = AESGCM(key).encrypt(nonce, plain, _KEYCHAIN_AAD)
+    return _CREDENTIAL_HEADER_KEYCHAIN + nonce + ciphertext
+
+
+def _decrypt_keychain_payload(
+    raw: bytes,
+    key: bytes | None,
+) -> bytes:
+    if not raw.startswith(_CREDENTIAL_HEADER_KEYCHAIN):
+        raise McpCredentialError("Unknown macOS credential format")
+    if key is None or len(key) != _KEYCHAIN_KEY_BYTES:
+        raise McpCredentialError("Missing macOS Keychain credential key")
+    offset = len(_CREDENTIAL_HEADER_KEYCHAIN)
+    nonce = raw[offset : offset + _KEYCHAIN_NONCE_BYTES]
+    if len(nonce) != _KEYCHAIN_NONCE_BYTES:
+        raise McpCredentialError("Stored MCP credential is truncated")
+    ciphertext = raw[offset + _KEYCHAIN_NONCE_BYTES :]
+    return AESGCM(key).decrypt(nonce, ciphertext, _KEYCHAIN_AAD)
 
 
 def _unprotect(raw: bytes) -> bytes:

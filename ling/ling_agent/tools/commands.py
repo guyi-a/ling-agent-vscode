@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from typing import TYPE_CHECKING, Any
 
 from ling_ai.types import Tool, ToolCall
@@ -36,6 +37,7 @@ def create_command_tools(
     command_calls: "CommandCallRegistry | None" = None,
 ) -> list[AgentTool]:
     resolved_config = config or workspace.config
+    shell_name = "PowerShell" if os.name == "nt" else "POSIX shell"
 
     async def run_command(
         call: ToolCall,
@@ -167,7 +169,7 @@ def create_command_tools(
             definition=Tool(
                 name="run_command",
                 description=(
-                    "Run a PowerShell command with the workspace as cwd. "
+                    f"Run a {shell_name} command with the workspace as cwd. "
                     "Requires approval. Always pass a short description in "
                     "the user's language (for example, \"Install Visual "
                     "Studio Build Tools\"); it labels the Tasks panel entry "

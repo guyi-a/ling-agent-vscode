@@ -33,6 +33,10 @@ from ling_agent.mcp.config import McpServerConfig
 from ling_agent.mcp.manager import unique_mcp_tool_name
 from ling_core import ToolContext
 
+_TEST_KEYCHAIN_ENV = {
+    "LING_MCP_KEYCHAIN_SERVICE": "ling-agent-tests.mcp-oauth"
+}
+
 
 def _manager(root: Path, **kwargs: Any) -> McpManager:
     return McpManager(
@@ -262,7 +266,10 @@ async def _remove_oauth_server_clears_credentials(root: Path) -> None:
 
 
 def test_removing_mcp_server_clears_oauth_credentials() -> None:
-    with tempfile.TemporaryDirectory() as temp:
+    with (
+        tempfile.TemporaryDirectory() as temp,
+        patch.dict(os.environ, _TEST_KEYCHAIN_ENV),
+    ):
         asyncio.run(
             _remove_oauth_server_clears_credentials(Path(temp))
         )
@@ -290,7 +297,10 @@ async def _credential_store_round_trip(root: Path) -> None:
 
 
 def test_mcp_credentials_are_encrypted() -> None:
-    with tempfile.TemporaryDirectory() as temp:
+    with (
+        tempfile.TemporaryDirectory() as temp,
+        patch.dict(os.environ, _TEST_KEYCHAIN_ENV),
+    ):
         asyncio.run(_credential_store_round_trip(Path(temp)))
 
 
@@ -473,6 +483,7 @@ async def _oauth_pkce_round_trip(root: Path) -> None:
         assert exchanged
         assert await store.authorized()
     finally:
+        await store.clear()
         await loopback.close()
         server.should_exit = True
         await asyncio.gather(server_task, return_exceptions=True)
@@ -481,6 +492,7 @@ async def _oauth_pkce_round_trip(root: Path) -> None:
 def test_mcp_oauth_pkce_round_trip() -> None:
     with (
         tempfile.TemporaryDirectory() as temp,
+        patch.dict(os.environ, _TEST_KEYCHAIN_ENV),
         # The flow normally opens the system browser; keep tests headless.
         patch("ling_agent.mcp.auth.webbrowser.open", return_value=True),
     ):

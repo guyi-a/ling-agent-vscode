@@ -82,6 +82,7 @@ export function assertSafeRelativePath(relativePath: string): void {
     !relativePath ||
     relativePath.includes("\\") ||
     path.isAbsolute(relativePath) ||
+    path.win32.isAbsolute(relativePath) ||
     relativePath.split("/").includes("..")
   ) {
     throw new Error("Attachment path must stay inside the workspace");

@@ -13,8 +13,10 @@ export function resolveScratchWorkspaceRoot(): string {
       ? process.env.LOCALAPPDATA ??
         process.env.APPDATA ??
         join(homedir(), "AppData", "Local")
-      : process.env.XDG_STATE_HOME ??
-        join(homedir(), ".local", "state");
+      : process.platform === "darwin"
+        ? join(homedir(), "Library", "Application Support")
+        : process.env.XDG_STATE_HOME ??
+          join(homedir(), ".local", "state");
   const root = join(base, "ling-agent", "scratch");
   mkdirSync(root, { recursive: true });
   return root;

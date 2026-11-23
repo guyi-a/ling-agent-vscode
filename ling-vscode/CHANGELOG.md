@@ -1,5 +1,13 @@
 # Changelog
 
+## 2.3.0
+
+- Add an Apple Silicon macOS package (`darwin-arm64`) alongside Windows x64.
+- Build and test both platform packages in GitHub Actions, then publish them to the VS Code Marketplace from one release job.
+- Make the bundled sidecar executable on macOS and resolve platform-specific build targets.
+- Protect MCP OAuth credentials with an AES-GCM key stored in the macOS Keychain, and use standard Application Support directories for configuration and runtime state.
+- Hide the Windows shell assumption from `run_command` so the model sees the active platform's shell.
+
 ## 2.2.4
 
 - Add a short `description` argument to `run_command`; background tasks use it as the label in the Tasks panel and in completion notifications.

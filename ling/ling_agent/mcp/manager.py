@@ -884,10 +884,7 @@ class McpManager:
         for path in directory.glob("*.bin"):
             if path in active:
                 continue
-            try:
-                path.unlink()
-            except OSError:
-                pass
+            McpTokenStore.remove_stored(path)
 
     async def _authorized(
         self,

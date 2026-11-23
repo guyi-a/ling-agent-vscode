@@ -2,9 +2,18 @@
 
 from __future__ import annotations
 
+import sys
 import time
 from types import SimpleNamespace
 from typing import Any
+
+import pytest
+
+if sys.platform != "win32":
+    pytest.skip(
+        "Windows computer-use helper tests",
+        allow_module_level=True,
+    )
 
 from ling_agent.computer.helper import capture
 from ling_agent.computer.types import ComputerError

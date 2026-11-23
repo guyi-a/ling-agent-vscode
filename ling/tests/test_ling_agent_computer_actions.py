@@ -7,6 +7,14 @@ from contextlib import contextmanager
 from types import SimpleNamespace
 from typing import Any, Iterator
 
+import pytest
+
+if sys.platform != "win32":
+    pytest.skip(
+        "Windows computer-use helper tests",
+        allow_module_level=True,
+    )
+
 from ling_agent.computer.helper import actions
 from ling_agent.computer.helper.actions import execute_actions
 from ling_agent.computer.types import ComputerError

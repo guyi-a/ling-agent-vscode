@@ -89,6 +89,15 @@ function defaultMcpConfigPath(): string {
   if (override) {
     return path.resolve(override);
   }
+  if (process.platform === "darwin") {
+    return path.join(
+      homedir(),
+      "Library",
+      "Application Support",
+      "Ling",
+      "mcp.json",
+    );
+  }
   const appData = process.env.APPDATA?.trim();
   if (appData) {
     return path.join(appData, "Ling", "mcp.json");

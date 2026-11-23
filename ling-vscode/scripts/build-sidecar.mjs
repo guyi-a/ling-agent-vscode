@@ -1,11 +1,20 @@
 import { spawnSync } from "node:child_process";
-import { existsSync, mkdirSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+
+import {
+  assertHostSupportsTarget,
+  resolvePlatformTarget,
+} from "./platform-target.mjs";
 
 const scriptDir = dirname(fileURLToPath(import.meta.url));
 const extensionRoot = resolve(scriptDir, "..");
 const lingRoot = resolve(extensionRoot, "..", "ling");
+const target = resolvePlatformTarget(
+  process.env.LING_SIDECAR_TARGET,
+);
+assertHostSupportsTarget(target);
 const outputDir =
   process.env.LING_SIDECAR_OUTPUT_DIR?.trim() ||
   join(extensionRoot, "resources", "sidecar");
@@ -14,9 +23,7 @@ const specDir = join(lingRoot, "build");
 const python =
   process.env.LING_PYTHON_PATH?.trim() ||
   (process.platform === "win32" ? "python" : "python3");
-const binaryName =
-  process.platform === "win32" ? "ling-sidecar.exe" : "ling-sidecar";
-const binaryPath = join(outputDir, binaryName);
+const binaryPath = join(outputDir, target.sidecarName);
 
 if (!existsSync(join(lingRoot, "ling_rpc"))) {
   console.error(`Ling sidecar source not found: ${lingRoot}`);
@@ -74,5 +81,8 @@ if (result.status !== 0) {
 if (!existsSync(binaryPath)) {
   console.error(`Expected sidecar binary was not created: ${binaryPath}`);
   process.exit(1);
+}
+if (process.platform !== "win32") {
+  chmodSync(binaryPath, 0o755);
 }
 console.log(`Sidecar binary ready: ${binaryPath}`);
