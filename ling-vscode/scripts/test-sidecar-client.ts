@@ -47,6 +47,18 @@ function testSkillsRoot(): void {
 async function main(): Promise<void> {
   testSkillsRoot();
 
+  const startupClient = new SidecarClient({
+    extensionPath: process.cwd(),
+    requestTimeoutMs: 1,
+    startupTimeoutMs: 60_000,
+  });
+  try {
+    const initialized = await startupClient.start();
+    assert.equal(initialized.protocolVersion, 1);
+  } finally {
+    await startupClient.stop();
+  }
+
   const settingsClient = new SidecarClient({
     extensionPath: process.cwd(),
     api: "anthropic-messages",

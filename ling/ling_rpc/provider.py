@@ -18,13 +18,15 @@ from ling_ai.adapters.anthropic_messages import (
 from ling_ai.adapters.openai_completions import (
     create_openai_completions_stream,
 )
+from ling_ai.adapters.openai_responses import create_openai_responses_stream
 from ling_ai.stream import StreamFunction
 from ling_ai.types import Model
 from ling_retrieval.embedding import OpenAIEmbedder
 
 OPENAI_COMPLETIONS = "openai-completions"
+OPENAI_RESPONSES = "openai-responses"
 ANTHROPIC_MESSAGES = "anthropic-messages"
-_SUPPORTED_PROTOCOLS = (OPENAI_COMPLETIONS, ANTHROPIC_MESSAGES)
+_SUPPORTED_PROTOCOLS = (OPENAI_COMPLETIONS, OPENAI_RESPONSES, ANTHROPIC_MESSAGES)
 
 _OPENAI_DEFAULT_MODEL = "deepseek-flash"
 _OPENAI_DEFAULT_BASE_URL = "https://api.deepseek.com/v1"
@@ -80,6 +82,8 @@ def resolve_model(
     if protocol == ANTHROPIC_MESSAGES:
         _log_anthropic_protocol()
         return resolved, create_anthropic_messages_stream(api_key=api_key)
+    if protocol == OPENAI_RESPONSES:
+        return resolved, create_openai_responses_stream(api_key=api_key)
     return resolved, create_openai_completions_stream(api_key=api_key)
 
 

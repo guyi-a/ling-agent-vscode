@@ -378,7 +378,7 @@ export function SettingsPanel({
                   type={showEmbeddingKey ? "text" : "password"}
                   value={embeddingApiKey}
                   placeholder={
-                    api === "openai-completions"
+                    api !== "anthropic-messages"
                       ? "Defaults to the API Key above"
                       : "Required for Anthropic embeddings"
                   }

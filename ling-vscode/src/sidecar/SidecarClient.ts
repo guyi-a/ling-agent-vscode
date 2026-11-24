@@ -14,6 +14,7 @@ import { createInterface, type Interface } from "node:readline";
 import type { ApiProtocol } from "../../shared/apiProtocol";
 
 const DEFAULT_REQUEST_TIMEOUT_MS = 5_000;
+const DEFAULT_STARTUP_TIMEOUT_MS = 60_000;
 const SHUTDOWN_TIMEOUT_MS = 800;
 const TERMINATE_TIMEOUT_MS = 600;
 
@@ -62,6 +63,7 @@ export interface SidecarClientOptions extends SidecarSettings {
   output?: (line: string) => void;
   onExit?: (info: SidecarExitInfo) => void;
   requestTimeoutMs?: number;
+  startupTimeoutMs?: number;
 }
 
 interface SidecarLaunch {
@@ -421,7 +423,7 @@ export class SidecarClient {
             version: "0.10.0",
           },
         },
-        this.options.requestTimeoutMs,
+        this.options.startupTimeoutMs ?? DEFAULT_STARTUP_TIMEOUT_MS,
       );
 
       if (!isInitializeResult(result) || result.protocolVersion !== 1) {

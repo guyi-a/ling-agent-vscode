@@ -1,5 +1,11 @@
 # Changelog
 
+## 2.3.1
+
+- Add OpenAI Responses API support with streaming text, function calls, and usage reporting for compatible services.
+- Request OpenAI Responses reasoning summaries and display streamed summaries in thinking blocks.
+- Give sidecar initialization a separate 60-second timeout so the first macOS launch can unpack and start without hitting the normal five-second RPC timeout.
+
 ## 2.3.0
 
 - Add an Apple Silicon macOS package (`darwin-arm64`) alongside Windows x64.

@@ -10,6 +10,7 @@ from ling_ai.types import Model
 from ling_rpc.provider import (
     ANTHROPIC_MESSAGES,
     OPENAI_COMPLETIONS,
+    OPENAI_RESPONSES,
     resolve_embedder,
     resolve_model,
     resolve_web_client,
@@ -73,6 +74,21 @@ def test_anthropic_protocol_defaults() -> None:
     assert model.api == ANTHROPIC_MESSAGES
     assert model.base_url == "https://api.deepseek.com/anthropic"
     assert "anthropic_messages.py" in _stream_source(stream)
+
+
+def test_openai_responses_protocol_defaults() -> None:
+    with _environment(
+        LING_API_KEY="key",
+        LING_API_PROTOCOL=OPENAI_RESPONSES,
+        LING_MODEL="gpt-6.1-sol",
+        LING_API_BASE_URL="http://192.168.18.80:14000/v1",
+    ):
+        model, stream = resolve_model(None, None)
+
+    assert model.id == "gpt-6.1-sol"
+    assert model.api == OPENAI_RESPONSES
+    assert model.base_url == "http://192.168.18.80:14000/v1"
+    assert "openai_responses.py" in _stream_source(stream)
 
 
 def test_explicit_model_and_env_overrides() -> None:
@@ -220,6 +236,7 @@ def test_web_client_normalizes_deepseek_anthropic_base() -> None:
 if __name__ == "__main__":
     test_default_protocol_is_openai()
     test_anthropic_protocol_defaults()
+    test_openai_responses_protocol_defaults()
     test_explicit_model_and_env_overrides()
     test_explicit_model_without_api_uses_env_protocol()
     test_invalid_protocol_raises()
