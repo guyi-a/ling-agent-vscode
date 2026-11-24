@@ -637,8 +637,19 @@ export class SidecarClient {
     }
 
     const pythonRoot = resolve(this.options.extensionPath, "..", "ling");
+    const devPython = join(
+      this.options.extensionPath,
+      "..",
+      ".venv",
+      ...(process.platform === "win32"
+        ? ["Scripts", "python.exe"]
+        : ["bin", "python"]),
+    );
     const python =
       process.env.LING_PYTHON_PATH?.trim() ||
+      (this.options.developmentMode && existsSync(devPython)
+        ? devPython
+        : "") ||
       (process.platform === "win32" ? "python" : "python3");
     const sourceLaunch: SidecarLaunch = {
       command: python,

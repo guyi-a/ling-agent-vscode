@@ -540,7 +540,13 @@ async def _schema_v3_migration(database_path: Path) -> None:
                 "PRAGMA table_info(background_tasks)"
             )
         }
-        assert {"kind", "exit_code", "output_path", "pid"} <= columns
+        assert {
+            "kind",
+            "exit_code",
+            "output_path",
+            "pid",
+            "owner_pid",
+        } <= columns
     finally:
         connection.close()
 
@@ -724,3 +730,172 @@ if __name__ == "__main__":
     test_sqlite_recovers_interrupted_approvals()
     test_sqlite_deletes_session_and_events()
     print("all ling_agent storage tests passed")
+
+
+async def _owner_scoped_recovery(
+    database_path: Path,
+    workspace: Path,
+) -> None:
+    store = SQLiteSessionStore(database_path)
+    try:
+        await store.upsert_session(
+            SessionRecord(
+                session_id="session-1",
+                workspace_root=workspace,
+                title="Recovery",
+                status="idle",
+                created_at=1,
+                updated_at=1,
+            )
+        )
+        for task_id, owner_pid in (
+            ("task-keep", 111),
+            ("task-recover", 222),
+            ("task-legacy", None),
+        ):
+            await store.create_background_task(
+                BackgroundTaskRecord(
+                    id=task_id,
+                    session_id="session-1",
+                    run_id="run-1",
+                    tool_call_id=f"call-{task_id}",
+                    description=task_id,
+                    prompt=task_id,
+                    status="running",
+                    summary=None,
+                    error=None,
+                    trace=(),
+                    created_at=1,
+                    owner_pid=owner_pid,
+                )
+            )
+
+        recovered = await store.recover_background_tasks(
+            completed_at=10,
+            should_recover=lambda owner_pid: owner_pid != 111,
+        )
+        assert {task.id for task in recovered} == {
+            "task-recover",
+            "task-legacy",
+        }
+        kept = await store.get_background_task("task-keep")
+        assert kept is not None
+        assert kept.status == "running"
+        for task_id in ("task-recover", "task-legacy"):
+            task = await store.get_background_task(task_id)
+            assert task is not None
+            assert task.status == "interrupted"
+    finally:
+        await store.close()
+
+
+def test_sqlite_recovers_only_selected_owners() -> None:
+    with tempfile.TemporaryDirectory() as temp:
+        root = Path(temp)
+        asyncio.run(
+            _owner_scoped_recovery(
+                root / "sessions.db",
+                root / "workspace",
+            )
+        )
+
+
+async def _schema_v4_owner_column(database_path: Path, workspace: Path) -> None:
+    connection = sqlite3.connect(database_path)
+    try:
+        connection.executescript(
+            """
+            CREATE TABLE schema_version(version INTEGER NOT NULL);
+            INSERT INTO schema_version(version) VALUES (4);
+            CREATE TABLE sessions (
+                session_id TEXT PRIMARY KEY,
+                workspace_root TEXT NOT NULL,
+                title TEXT,
+                status TEXT NOT NULL,
+                created_at INTEGER NOT NULL,
+                updated_at INTEGER NOT NULL,
+                last_seq INTEGER NOT NULL,
+                approval_mode TEXT NOT NULL DEFAULT 'manual'
+            );
+            CREATE TABLE background_tasks (
+                id TEXT PRIMARY KEY,
+                session_id TEXT NOT NULL,
+                run_id TEXT NOT NULL DEFAULT '',
+                tool_call_id TEXT NOT NULL DEFAULT '',
+                description TEXT NOT NULL,
+                prompt TEXT NOT NULL,
+                status TEXT NOT NULL,
+                summary TEXT,
+                error TEXT,
+                trace_json TEXT NOT NULL DEFAULT '[]',
+                created_at INTEGER NOT NULL,
+                started_at INTEGER,
+                completed_at INTEGER,
+                continued_at INTEGER,
+                kind TEXT NOT NULL DEFAULT 'subagent',
+                exit_code INTEGER,
+                output_path TEXT,
+                pid INTEGER
+            );
+            """
+        )
+        connection.commit()
+    finally:
+        connection.close()
+
+    store = SQLiteSessionStore(database_path)
+    try:
+        await store.upsert_session(
+            SessionRecord(
+                session_id="session-1",
+                workspace_root=workspace,
+                title="Owner",
+                status="idle",
+                created_at=1,
+                updated_at=1,
+            )
+        )
+        await store.create_background_task(
+            BackgroundTaskRecord(
+                id="task-owner",
+                session_id="session-1",
+                run_id="run-1",
+                tool_call_id="call-1",
+                description="owner",
+                prompt="owner",
+                status="running",
+                summary=None,
+                error=None,
+                trace=(),
+                created_at=1,
+                owner_pid=4242,
+            )
+        )
+        task = await store.get_background_task("task-owner")
+        assert task is not None
+        assert task.owner_pid == 4242
+    finally:
+        await store.close()
+
+    connection = sqlite3.connect(database_path)
+    try:
+        columns = {
+            row[1]
+            for row in connection.execute(
+                "PRAGMA table_info(background_tasks)"
+            )
+        }
+        assert "owner_pid" in columns
+    finally:
+        connection.close()
+
+
+def test_sqlite_schema_v4_adds_owner_column() -> None:
+    with tempfile.TemporaryDirectory() as temp:
+        root = Path(temp)
+        asyncio.run(
+            _schema_v4_owner_column(
+                root / "sessions.db",
+                root / "workspace",
+            )
+        )

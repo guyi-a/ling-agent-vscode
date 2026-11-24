@@ -1,5 +1,14 @@
 # Changelog
 
+## 2.4.0
+
+- Fix background tasks being marked interrupted while their sidecar was still running. Tasks now record the sidecar process that created them, and another window or client opening the same database only recovers tasks whose owner has actually exited.
+- Fix messages sent exactly as a run finished being stranded in memory. Queue handoff, background continuation startup, and queued-message promotion now share one lock, so a late prompt is either processed by the run or starts a new run.
+- Fix a failed background continuation leaving queued user prompts behind; the queue now moves on to the next prompt instead of reclaiming the same released tasks.
+- Remove the 20px left and right padding that VS Code's default webview layer applies, so the chat fills the whole panel instead of leaving black side bars.
+- Background command cards are collapsed by default; click the card to inspect its input and output.
+- Development hosts automatically use the repository `.venv` Python when `LING_PYTHON_PATH` is not set.
+
 ## 2.3.1
 
 - Add OpenAI Responses API support with streaming text, function calls, and usage reporting for compatible services.

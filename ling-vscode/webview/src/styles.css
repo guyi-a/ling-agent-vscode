@@ -43,6 +43,8 @@ body,
 
 body {
   overflow: hidden;
+  /* VS Code puts `padding: 0 20px` in its default webview layer. */
+  padding: 0;
   background: transparent;
   color: var(--text);
 }

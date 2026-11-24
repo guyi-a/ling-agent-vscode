@@ -34,14 +34,10 @@ export function ToolCallCard({
   onBuildPlan,
   onBackground,
 }: ToolCallCardProps) {
-  const backgroundMode =
-    call.detail?.kind === "io" &&
-    call.detail.mode === "background";
   const [expanded, setExpanded] = useState(
     call.detail?.kind === "plan" ||
       call.detail?.kind === "subagent" ||
-      call.detail?.kind === "todo" ||
-      backgroundMode,
+      call.detail?.kind === "todo",
   );
   const effectiveStatus = backgroundTask
     ? statusForBackgroundTask(backgroundTask.status, call.status)
@@ -52,12 +48,11 @@ export function ToolCallCard({
     if (
       call.detail?.kind === "plan" ||
       call.detail?.kind === "subagent" ||
-      call.detail?.kind === "todo" ||
-      backgroundMode
+      call.detail?.kind === "todo"
     ) {
       setExpanded(true);
     }
-  }, [backgroundMode, call.detail?.kind]);
+  }, [call.detail?.kind]);
   const diff =
     call.detail?.kind === "diff" ? call.detail : undefined;
   const canBackground =

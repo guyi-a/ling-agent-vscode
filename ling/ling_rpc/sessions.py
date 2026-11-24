@@ -240,6 +240,9 @@ class SessionService:
         self._task: asyncio.Task[None] | None = None
         self._queue: list[_QueuedPrompt] = []
         self._promote_pending = False
+        # Guards the task/queue handoff so a prompt queued exactly as a run
+        # ends is never stranded.
+        self._run_state_lock = asyncio.Lock()
         self._workspace_root: Path | None = None
         self._session_id: str | None = None
         self._approval_mode = ApprovalMode.MANUAL
@@ -327,10 +330,17 @@ class SessionService:
         except asyncio.CancelledError:
             return
 
+    def _task_active(self) -> bool:
+        return self._task is not None and not self._task.done()
+
+    def _finish_own_task(self) -> None:
+        if self._task is asyncio.current_task():
+            self._task = None
+
     async def _maybe_start_background_continuation(self) -> None:
         if self._closed or self._session_id is None:
             return
-        if self._task is not None and not self._task.done():
+        if self._task_active():
             return
         if self._agent is None:
             if self._workspace_root is None:
@@ -339,17 +349,20 @@ class SessionService:
         agent = self._agent
         if agent is None:
             return
-        item = await self._claim_background_item()
-        if item is None:
-            self._background_continuation_pending = False
-            return
-        if self._task is not None and not self._task.done():
-            self._queue.insert(0, item)
-            return
-        self._task = asyncio.create_task(
-            self._run_queue(agent, item),
-            name="ling-background-continuation",
-        )
+        async with self._run_state_lock:
+            if self._task_active():
+                return
+            item = await self._claim_background_item()
+            if item is None:
+                self._background_continuation_pending = False
+                return
+            if self._task_active():
+                self._queue.insert(0, item)
+                return
+            self._task = asyncio.create_task(
+                self._run_queue(agent, item),
+                name="ling-background-continuation",
+            )
 
     async def _claim_background_item(
         self,
@@ -469,31 +482,38 @@ class SessionService:
                 "reasoning must be one of: auto, low, medium, high, "
                 "xhigh, max"
             )
-        if self._task is not None and not self._task.done():
-            root = Path(workspace_root).expanduser().resolve()
-            if self._workspace_root is not None and root != self._workspace_root:
-                raise RuntimeError(
-                    "The active session belongs to another workspace"
+        async with self._run_state_lock:
+            if self._task_active():
+                root = Path(workspace_root).expanduser().resolve()
+                if (
+                    self._workspace_root is not None
+                    and root != self._workspace_root
+                ):
+                    raise RuntimeError(
+                        "The active session belongs to another workspace"
+                    )
+                if len(self._queue) >= MAX_QUEUED_PROMPTS:
+                    raise ValueError("Too many queued messages")
+                self._queue.append(
+                    _QueuedPrompt(
+                        id=f"queued-{uuid.uuid4()}",
+                        prompt=prompt,
+                        attachments=tuple(attachments),
+                        selections=tuple(selections),
+                        active_paths=tuple(active_paths),
+                        approval_mode=(
+                            approval_mode or self._approval_mode
+                        ),
+                        reasoning=reasoning,
+                        display_text=display_text,
+                    )
                 )
-            if len(self._queue) >= MAX_QUEUED_PROMPTS:
-                raise ValueError("Too many queued messages")
-            item = _QueuedPrompt(
-                id=f"queued-{uuid.uuid4()}",
-                prompt=prompt,
-                attachments=tuple(attachments),
-                selections=tuple(selections),
-                active_paths=tuple(active_paths),
-                approval_mode=approval_mode or self._approval_mode,
-                reasoning=reasoning,
-                display_text=display_text,
-            )
-            self._queue.append(item)
-            await self._emit_queue()
-            return {
-                "accepted": True,
-                "queued": True,
-                "queueLength": len(self._queue),
-            }
+                await self._emit_queue()
+                return {
+                    "accepted": True,
+                    "queued": True,
+                    "queueLength": len(self._queue),
+                }
 
         await self._ensure_recovered()
         root = Path(workspace_root).expanduser().resolve()
@@ -517,10 +537,21 @@ class SessionService:
             reasoning=reasoning,
             display_text=display_text,
         )
-        self._task = asyncio.create_task(
-            self._run_queue(agent, item),
-            name="ling-session-run",
-        )
+        async with self._run_state_lock:
+            if self._task_active():
+                if len(self._queue) >= MAX_QUEUED_PROMPTS:
+                    raise ValueError("Too many queued messages")
+                self._queue.append(item)
+                await self._emit_queue()
+                return {
+                    "accepted": True,
+                    "queued": True,
+                    "queueLength": len(self._queue),
+                }
+            self._task = asyncio.create_task(
+                self._run_queue(agent, item),
+                name="ling-session-run",
+            )
         return {"accepted": True}
 
     async def set_approval_mode(self, mode: ApprovalMode) -> ApprovalMode:
@@ -816,19 +847,20 @@ class SessionService:
                 await manager.close()
 
     async def cancel(self) -> None:
-        had_queue = bool(self._queue)
-        queued_tasks = [
-            task_id
-            for item in self._queue
-            if item.kind == "background"
-            for task_id in item.task_ids
-        ]
-        self._queue.clear()
+        async with self._run_state_lock:
+            had_queue = bool(self._queue)
+            queued_tasks = [
+                task_id
+                for item in self._queue
+                if item.kind == "background"
+                for task_id in item.task_ids
+            ]
+            self._queue.clear()
+            self._promote_pending = False
         if queued_tasks:
             await self._background_tasks.release_notifications(
                 queued_tasks
             )
-        self._promote_pending = False
         if had_queue:
             await self._emit_queue()
         agent = self._agent
@@ -1098,7 +1130,7 @@ class SessionService:
         *,
         reasoning: str | None = None,
     ) -> dict[str, Any]:
-        if self._task is not None and not self._task.done():
+        if self._task_active():
             raise RuntimeError(
                 "Cancel the active run before regenerating a message"
             )
@@ -1178,15 +1210,20 @@ class SessionService:
         agent = self._agent
         if agent is None:
             raise RuntimeError("Unable to reload the session")
-        self._task = asyncio.create_task(
-            self._run(
-                agent,
-                "",
-                reasoning=reasoning,
-                regenerate=True,
-            ),
-            name="ling-session-regenerate",
-        )
+        async with self._run_state_lock:
+            if self._task_active():
+                raise RuntimeError(
+                    "Cancel the active run before regenerating a message"
+                )
+            self._task = asyncio.create_task(
+                self._run(
+                    agent,
+                    "",
+                    reasoning=reasoning,
+                    regenerate=True,
+                ),
+                name="ling-session-regenerate",
+            )
         return {"accepted": True}
 
     async def _reload_active_session(self, session_id: str) -> None:
@@ -1414,54 +1451,75 @@ class SessionService:
         agent: CodingAgent,
         item: _QueuedPrompt,
     ) -> None:
-        while True:
-            if self._approval_mode != item.approval_mode:
-                self._approval_mode = item.approval_mode
-                if agent.session is not None:
-                    await agent.session.set_approval_mode(
-                        item.approval_mode
+        try:
+            while True:
+                if self._approval_mode != item.approval_mode:
+                    self._approval_mode = item.approval_mode
+                    if agent.session is not None:
+                        await agent.session.set_approval_mode(
+                            item.approval_mode
+                        )
+                if item.kind == "background":
+                    status, started = await self._run_background(agent, item)
+                    if status == "error" and not started:
+                        # The continuation never began; move on to a queued
+                        # prompt instead of reclaiming the same tasks.
+                        self._background_continuation_pending = False
+                        async with self._run_state_lock:
+                            if not self._queue:
+                                self._finish_own_task()
+                                await self._emit_queue()
+                                return
+                            item = self._queue.pop(0)
+                        await self._emit_queue()
+                        continue
+                else:
+                    status = await self._run(
+                        agent,
+                        item.prompt,
+                        item.attachments,
+                        item.selections,
+                        item.active_paths,
+                        item.reasoning,
+                        display_text=item.display_text,
                     )
-            if item.kind == "background":
-                status, started = await self._run_background(agent, item)
-                if status == "error" and not started:
-                    # The continuation never began; stop here instead of
-                    # immediately reclaiming the same released tasks.
-                    self._background_continuation_pending = False
-                    await self._emit_queue()
-                    return
-            else:
-                status = await self._run(
-                    agent,
-                    item.prompt,
-                    item.attachments,
-                    item.selections,
-                    item.active_paths,
-                    item.reasoning,
-                    display_text=item.display_text,
-                )
 
-            if status != "completed" and item.kind != "background":
-                if status == "aborted" and self._promote_pending and self._queue:
-                    self._promote_pending = False
+                if status != "completed" and item.kind != "background":
+                    if (
+                        status == "aborted"
+                        and self._promote_pending
+                        and self._queue
+                    ):
+                        self._promote_pending = False
+                    else:
+                        self._promote_pending = False
+                        async with self._run_state_lock:
+                            self._queue.clear()
+                            self._finish_own_task()
+                        await self._emit_queue()
+                        return
                 else:
                     self._promote_pending = False
-                    self._queue.clear()
-                    await self._emit_queue()
-                    return
-            else:
-                self._promote_pending = False
 
-            background_item = await self._claim_background_item()
-            if background_item is not None:
-                item = background_item
-                continue
+                background_item = await self._claim_background_item()
+                if background_item is not None:
+                    item = background_item
+                    continue
 
-            if not self._queue:
+                async with self._run_state_lock:
+                    if not self._queue:
+                        self._finish_own_task()
+                        await self._emit_queue()
+                        return
+                    item = self._queue.pop(0)
                 await self._emit_queue()
-                return
-
-            item = self._queue.pop(0)
-            await self._emit_queue()
+        finally:
+            try:
+                async with self._run_state_lock:
+                    self._finish_own_task()
+            except asyncio.CancelledError:
+                self._finish_own_task()
+                raise
 
     async def _run(
         self,
@@ -1514,36 +1572,34 @@ class SessionService:
             return "completed"
 
     async def send_queued_now(self, queued_id: str) -> bool:
-        index = next(
-            (
-                index
-                for index, item in enumerate(self._queue)
-                if item.id == queued_id and item.kind == "prompt"
-            ),
-            None,
-        )
-        if index is None:
-            return False
+        async with self._run_state_lock:
+            index = next(
+                (
+                    index
+                    for index, item in enumerate(self._queue)
+                    if item.id == queued_id and item.kind == "prompt"
+                ),
+                None,
+            )
+            if index is None:
+                return False
 
-        item = self._queue.pop(index)
-        if (
-            self._task is not None
-            and not self._task.done()
-            and self._agent is not None
-        ):
-            self._queue.insert(0, item)
-            self._promote_pending = True
-            await self._emit_queue()
-            await self._agent.cancel()
-            return True
-
-        if self._agent is None:
-            return False
-        self._task = asyncio.create_task(
-            self._run_queue(self._agent, item),
-            name="ling-session-run",
-        )
+            item = self._queue.pop(index)
+            if self._task_active() and self._agent is not None:
+                self._queue.insert(0, item)
+                self._promote_pending = True
+                agent = self._agent
+            elif self._agent is None:
+                return False
+            else:
+                agent = None
+                self._task = asyncio.create_task(
+                    self._run_queue(self._agent, item),
+                    name="ling-session-run",
+                )
         await self._emit_queue()
+        if agent is not None:
+            await agent.cancel()
         return True
 
     def queue_view(self) -> list[dict[str, Any]]:

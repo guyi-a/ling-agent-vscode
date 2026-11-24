@@ -11,7 +11,7 @@ import uuid
 from dataclasses import asdict, dataclass, replace
 from enum import Enum
 from pathlib import Path
-from typing import Any, Literal, Sequence, TypeVar
+from typing import Any, Callable, Literal, Sequence, TypeVar
 
 from ling_ai.types import (
     AssistantMessage,
@@ -130,6 +130,9 @@ class BackgroundTaskRecord:
     exit_code: int | None = None
     output_path: str | None = None
     pid: int | None = None
+    # Sidecar process that created the task. Recovery only marks tasks
+    # interrupted when their owner is no longer alive.
+    owner_pid: int | None = None
 
 
 def default_storage_root() -> Path:
@@ -629,6 +632,7 @@ class SQLiteSessionStore:
                 exit_code INTEGER,
                 output_path TEXT,
                 pid INTEGER,
+                owner_pid INTEGER,
                 FOREIGN KEY (session_id)
                     REFERENCES sessions(session_id)
                     ON DELETE CASCADE
@@ -695,6 +699,19 @@ class SQLiteSessionStore:
                 self._connection.execute(
                     "UPDATE schema_version SET version = ?",
                     (version,),
+                )
+            # Additive column so a development build and an older release can
+            # share one database. Older builds ignore the extra column.
+            task_columns = {
+                str(column["name"])
+                for column in self._connection.execute(
+                    "PRAGMA table_info(background_tasks)"
+                )
+            }
+            if "owner_pid" not in task_columns:
+                self._connection.execute(
+                    "ALTER TABLE background_tasks "
+                    "ADD COLUMN owner_pid INTEGER"
                 )
             if version != SCHEMA_VERSION:
                 raise StorageError(
@@ -999,6 +1016,12 @@ class SQLiteSessionStore:
             ),
             output_path=row["output_path"],
             pid=int(row["pid"]) if row["pid"] is not None else None,
+            owner_pid=(
+                int(row["owner_pid"])
+                if "owner_pid" in row.keys()
+                and row["owner_pid"] is not None
+                else None
+            ),
         )
 
     async def create_background_task(
@@ -1017,8 +1040,8 @@ class SQLiteSessionStore:
                 id, session_id, run_id, tool_call_id, description,
                 prompt, status, summary, error, trace_json,
                 created_at, started_at, completed_at, continued_at,
-                kind, exit_code, output_path, pid
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                kind, exit_code, output_path, pid, owner_pid
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 task.id,
@@ -1043,6 +1066,7 @@ class SQLiteSessionStore:
                 task.exit_code,
                 task.output_path,
                 task.pid,
+                task.owner_pid,
             ),
         )
 
@@ -1249,15 +1273,18 @@ class SQLiteSessionStore:
         self,
         *,
         completed_at: int,
+        should_recover: Callable[[int | None], bool] | None = None,
     ) -> list[BackgroundTaskRecord]:
         return await self._run(
             self._recover_background_tasks_sync,
             completed_at,
+            should_recover,
         )
 
     def _recover_background_tasks_sync(
         self,
         completed_at: int,
+        should_recover: Callable[[int | None], bool] | None,
     ) -> list[BackgroundTaskRecord]:
         rows = self._connection.execute(
             """
@@ -1265,9 +1292,18 @@ class SQLiteSessionStore:
             WHERE status IN ('pending', 'running')
             """
         ).fetchall()
-        tasks = [self._background_task_from_row(row) for row in rows]
+        tasks = [
+            task
+            for task in (
+                self._background_task_from_row(row) for row in rows
+            )
+            if should_recover is None or should_recover(task.owner_pid)
+        ]
+        if not tasks:
+            return []
+        placeholders = ",".join("?" for _ in tasks)
         self._connection.execute(
-            """
+            f"""
             UPDATE background_tasks
             SET status = 'interrupted', completed_at = ?,
                 error = CASE
@@ -1278,9 +1314,10 @@ class SQLiteSessionStore:
                          || '(PID ' || pid || ').'
                     ELSE error
                 END
-            WHERE status IN ('pending', 'running')
+            WHERE id IN ({placeholders})
+              AND status IN ('pending', 'running')
             """,
-            (completed_at,),
+            (completed_at, *(task.id for task in tasks)),
         )
         recovered: list[BackgroundTaskRecord] = []
         for task in tasks:

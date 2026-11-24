@@ -5,7 +5,9 @@ from __future__ import annotations
 import asyncio
 import inspect
 import json
+import os
 import re
+import sys
 import time
 import uuid
 from contextlib import suppress
@@ -39,6 +41,63 @@ def _now_ms() -> int:
 
 def new_background_task_id() -> str:
     return f"task-{uuid.uuid4()}"
+
+
+def pid_is_alive(pid: int | None) -> bool:
+    """Return whether a process is still running.
+
+    Background tasks store the sidecar PID that created them. Recovery must
+    not touch a task whose sidecar is alive just because another window
+    opened the same database.
+    """
+    if pid is None or pid <= 0:
+        return False
+    if sys.platform == "win32":
+        import ctypes
+        from ctypes import wintypes
+
+        process_query_limited_information = 0x1000
+        still_active = 259
+        kernel32 = ctypes.windll.kernel32
+        kernel32.OpenProcess.argtypes = [
+            wintypes.DWORD,
+            wintypes.BOOL,
+            wintypes.DWORD,
+        ]
+        kernel32.OpenProcess.restype = wintypes.HANDLE
+        kernel32.GetExitCodeProcess.argtypes = [
+            wintypes.HANDLE,
+            ctypes.POINTER(wintypes.DWORD),
+        ]
+        kernel32.GetExitCodeProcess.restype = wintypes.BOOL
+        kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
+        kernel32.CloseHandle.restype = wintypes.BOOL
+        handle = kernel32.OpenProcess(
+            process_query_limited_information,
+            False,
+            pid,
+        )
+        if not handle:
+            return False
+        try:
+            code = wintypes.DWORD()
+            if not kernel32.GetExitCodeProcess(
+                handle,
+                ctypes.byref(code),
+            ):
+                return False
+            return code.value == still_active
+        finally:
+            kernel32.CloseHandle(handle)
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    except OSError:
+        return False
+    return True
 
 
 _DIRECTORY_LINE = re.compile(
@@ -140,6 +199,7 @@ class BackgroundTaskManager:
         self._running: dict[str, _RunningTask] = {}
         self._started = False
         self._closed = False
+        self._owner_pid = os.getpid()
         self._lock = asyncio.Lock()
 
     async def start(self) -> None:
@@ -148,7 +208,8 @@ class BackgroundTaskManager:
                 return
             self._started = True
             interrupted = await self._store.recover_background_tasks(
-                completed_at=_now_ms()
+                completed_at=_now_ms(),
+                should_recover=self._recover_stale_owner,
             )
             for task in interrupted:
                 await self._emit_updated(task)
@@ -190,6 +251,7 @@ class BackgroundTaskManager:
             error=None,
             trace=(),
             created_at=_now_ms(),
+            owner_pid=self._owner_pid,
         )
         await self._store.create_background_task(task)
         await self._emit_updated(task)
@@ -231,6 +293,7 @@ class BackgroundTaskManager:
             exit_code=None,
             output_path=handle.log_path,
             pid=handle.pid,
+            owner_pid=self._owner_pid,
         )
         running = _RunningTask(
             cancel_event=asyncio.Event(),
@@ -380,10 +443,23 @@ class BackgroundTaskManager:
             await asyncio.gather(*self._workers, return_exceptions=True)
         self._workers.clear()
         interrupted = await self._store.recover_background_tasks(
-            completed_at=_now_ms()
+            completed_at=_now_ms(),
+            should_recover=self._recover_own_or_stale_owner,
         )
         for task in interrupted:
             await self._emit_updated(task)
+
+    def _recover_stale_owner(self, owner_pid: int | None) -> bool:
+        return owner_pid is None or not pid_is_alive(owner_pid)
+
+    def _recover_own_or_stale_owner(
+        self,
+        owner_pid: int | None,
+    ) -> bool:
+        return (
+            owner_pid == self._owner_pid
+            or self._recover_stale_owner(owner_pid)
+        )
 
     async def _worker(self) -> None:
         while not self._closed:

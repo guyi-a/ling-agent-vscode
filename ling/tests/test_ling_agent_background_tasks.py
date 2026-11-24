@@ -463,3 +463,62 @@ def test_command_notification_includes_exit_code_and_log() -> None:
 
 if __name__ == "__main__":
     raise SystemExit(pytest.main([__file__]))
+
+
+async def _manager_start_scopes_recovery(root: Path) -> None:
+    workspace = root / "workspace"
+    workspace.mkdir()
+    store = SQLiteSessionStore(root / "sessions.db")
+    await store.upsert_session(
+        SessionRecord(
+            session_id="session-1",
+            workspace_root=workspace,
+            title="Recovery",
+            status="idle",
+            created_at=1,
+            updated_at=1,
+        )
+    )
+    for task_id, owner_pid in (
+        ("task-live", os.getpid()),
+        ("task-legacy", None),
+    ):
+        await store.create_background_task(
+            BackgroundTaskRecord(
+                id=task_id,
+                session_id="session-1",
+                run_id="run-1",
+                tool_call_id=f"call-{task_id}",
+                description=task_id,
+                prompt=task_id,
+                status="running",
+                summary=None,
+                error=None,
+                trace=(),
+                created_at=1,
+                kind="command",
+                pid=1234,
+                owner_pid=owner_pid,
+            )
+        )
+    manager = BackgroundTaskManager(
+        store,
+        lambda _workspace: FakeRunner(),
+        HarnessConfig(background_task_concurrency=1),
+    )
+    try:
+        await manager.start()
+        live = await store.get_background_task("task-live")
+        assert live is not None
+        assert live.status == "running"
+        legacy = await store.get_background_task("task-legacy")
+        assert legacy is not None
+        assert legacy.status == "interrupted"
+    finally:
+        await manager.close()
+        await store.close()
+
+
+def test_manager_start_only_recovers_stale_tasks() -> None:
+    with tempfile.TemporaryDirectory() as temp:
+        asyncio.run(_manager_start_scopes_recovery(Path(temp)))

@@ -2,7 +2,7 @@
   "name": "ling-agent",
   "displayName": "Ling",
   "description": "A local agent harness for VS Code on Windows and Apple Silicon Macs.",
-  "version": "2.3.1",
+  "version": "2.4.0",
   "publisher": "ling-agent",
   "repository": {
     "type": "git",
